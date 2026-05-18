@@ -1,0 +1,54 @@
+max_retries: 3 # Number of times to retry a failed download (Default: 3)
+retry_wait: 5 # Time to wait between retries in seconds (Default: 5)
+delete_usgs_tmp_file: False # Whether to delete the temporary file created by the USGS provider during download, which can cause issues with download validation (Default: false)
+
+fs:
+  path: "./"
+  organise_data: True # Whether to organise downloaded data into subdirectories based on collection and product ID (Default: true)
+  read_only: False # Whether to set the file system to read-only mode, which can be useful for testing or when using a file system that does not support writing (Default: false)
+  stac: True
+  register_stac_items: True
+  overwrite_stac_items: True
+  use_relative_stac_paths: True
+  stac_base_url: 
+  data_base_url: 
+  store_prod_dict_in_stac: False
+  store_filter_dict_in_stac: False
+
+api:
+  preferred_api: "eodag"
+  preferred_provider: "cop_dataspace"
+  eodag_logging_level: 1
+  fetch_collection_update: False
+
+eodag:
+  usgs:
+    priority: 4 # Lower value means lower priority (Default: 0)
+    api:
+        credentials:
+            username: 
+            password: 
+  cop_dataspace:
+    priority: 7 # Lower value means lower priority (Default: 0)
+    auth:
+        credentials:
+            username: 
+            password: 
+
+RadCalNet:
+  credentials:
+    username:
+    password:
+
+hypernets:
+  credentials:
+    apikey: 
+
+hypernets:
+  credentials:
+    apikey: 
+
+earthaccess:
+  credentials:
+    username: 
+    password: 

@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools_scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrappi"
+dynamic = ["version"]
+description = "EO Satellite product catalogue retrieval by API or file system"
+readme = "README.md"
+license-files = ["LICENSE"]
+authors = [{name = "MetEOR Toolkit Team", email = "team@comet-toolkit.org"}]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "processor-tools>=0.2.4",
+    "sentinelsat",
+    "eodag>=4.0.0",
+    "numpy",
+    "obsarray",
+    "cartopy",
+    "matplotlib",
+    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
+    "usgs @ git+https://github.com/kapadia/usgs.git",
+    "earthaccess",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "pytest",
+    "pytest-html",
+    "pytest-cov",
+    "ipython",
+]
+docs = [
+    "sphinx",
+    "sphinx_rtd_theme",
+    "sphinx_book_theme",
+    "sphinx_design",
+    "sphinx_automodapi",
+    "myst_parser",
+]
+
+[project.scripts]
+scrappi-init = "scrappi.config:init_cli"
+
+[project.urls]
+Homepage = "https://www.comet-toolkit.org/meteor/"
+Documentation = "https://scrappi.readthedocs.io/en/latest/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scrappi*"]
+
+[tool.setuptools.package-data]
+scrappi = [
+    "etc/default_api_config.yaml",
+    "etc/default_collection_preferences.yaml",
+    "etc/default_fs_config.yaml",
+    "etc/config_templates/file.yaml",
+    "etc/config_templates/user_config.yaml",
+]
+
+[tool.setuptools_scm]
+# version inferred from git tags (e.g. v0.1.0); no extra config needed
+
+[tool.mypy]
+allow_untyped_globals = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["scrappi.tests.*", "scrappi.*.tests.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = [
+    "scrappi/tests",
+    "scrappi/api/tests",
+    "scrappi/fs/tests",
+    "scrappi/utils/test",
+    "tests",
+]
+
+[tool.ruff]
+line-length = 120
+exclude = ["docs"]
+
+[tool.ruff.lint]
+extend-ignore = ["W291"]
+
+[tool.ruff.lint.per-file-ignores]
+"scrappi/__init__.py" = ["E402", "F401"]
