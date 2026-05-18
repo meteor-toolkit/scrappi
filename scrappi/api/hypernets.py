@@ -23,7 +23,6 @@ from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import *
 from scrappi.fs.base import BaseFileSystem
 from scrappi.fs.localfilesystem import LocalFileSystem
-from hypernets_api import OfflineHYPERNETSAPI, HYPERNETSAPI
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -85,7 +84,15 @@ class HYPERNETSCallHandler(InSituCallHandler):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
-        self.api = HYPERNETSAPI(api_key)
+        # lazy import of hypernets_api
+        try:
+            from hypernets_api import HYPERNETSAPI
+
+            self.api = HYPERNETSAPI(api_key)
+        except Exception as e:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                "hypernets_api package is required to use HYPERNETSCallHandler: %s" % e
+            )
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -137,11 +144,11 @@ class HYPERNETSCallHandler(InSituCallHandler):
     #             )
     #         )
 
-    def list_collections(self) -> list:
+    def list_sites(self) -> list:
         """
-        Return list of collections available in API
+        Return list of sites available in API
 
-        :return: list of collection names
+        :return: list of site names
         """
         return self.sites
 
@@ -226,7 +233,16 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         self, context: Optional[Union[str, List, Context]] = None, archive_path=None
     ):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
-        self.api = OfflineHYPERNETSAPI(archive_path)
+        # lazy import of hypernets_api offline API
+        try:
+            from hypernets_api import OfflineHYPERNETSAPI
+
+            self.api = OfflineHYPERNETSAPI(archive_path)
+        except Exception as e:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                "hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s"
+                % e
+            )
         self.context["fs"]["organise_data"] = False
 
     def get_constellation(self, prod_dict: dict) -> str:

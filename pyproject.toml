@@ -26,7 +26,6 @@ dependencies = [
     "obsarray",
     "cartopy",
     "matplotlib",
-    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
     "usgs @ git+https://github.com/kapadia/usgs.git",
     "earthaccess",
 ]
@@ -48,6 +47,9 @@ docs = [
     "sphinx_design",
     "sphinx_automodapi",
     "myst_parser",
+]
+hypernets = [
+    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
 ]
 
 [project.scripts]

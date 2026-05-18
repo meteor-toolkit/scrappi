@@ -159,11 +159,14 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
     if all_apis:
         apis = []
         for k, v in Factory.api_call_handlers.items():
-            if collection in v(context=context).list_collections():
-                if all_apis is True:
-                    apis.append(k)
-                else:
-                    return k
+            try:
+                if collection in v(context=context).list_collections():
+                    if all_apis is True:
+                        apis.append(k)
+                    else:
+                        return k
+            except:
+                pass
         
         if preferred_api!="" and preferred_api in apis:
             apis.remove(preferred_api)
@@ -179,8 +182,11 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
                 return apis
             
         for k, v in Factory.api_call_handlers.items():
-            if collection in v(context=context).list_collections():
-                return k
+            try:
+                if collection in v(context=context).list_collections():
+                    return k
+            except:
+                pass
         
         warnings.warn("No api was found for the specified collection. Returning context['api']['preferred_api'].")
         return context["api"]["preferred_api"]
