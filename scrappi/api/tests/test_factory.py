@@ -16,6 +16,7 @@ __author__ = [
     "Mattea Goalen <mattea.goalen@npl.co.uk>",
 ]
 
+
 class TestAPICallHandlerFactory(unittest.TestCase):
     def setUp(self) -> None:
         self.api_call_handler_factory = APICallHandlerFactory()
@@ -29,9 +30,7 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         # assert isinstance(hypernets_api, HYPERNETSOfflineCallHandler)
         radcalnet_api = self.api_call_handler_factory.get_api_call_handler("radcalnet")
         assert isinstance(radcalnet_api, RadcalnetCallHandler)
-        self.assertRaises(
-            IOError, self.api_call_handler_factory.get_api_call_handler, "bad_path"
-        )
+        self.assertRaises(IOError, self.api_call_handler_factory.get_api_call_handler, "bad_path")
 
 
 if __name__ == "__main__":

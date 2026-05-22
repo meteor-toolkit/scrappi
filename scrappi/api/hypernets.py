@@ -78,9 +78,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
     collections: list[str] = COLLECTIONS
     _default_geometries: dict[str:Polygon] = {}
 
-    def __init__(
-        self, context: Optional[Union[str, List, Context]] = None, api_key=None
-    ):
+    def __init__(self, context: Optional[Union[str, List, Context]] = None, api_key=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
@@ -90,9 +88,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
 
             self.api = HYPERNETSAPI(api_key)
         except Exception as e:  # pragma: no cover - environment dependent
-            raise RuntimeError(
-                "hypernets_api package is required to use HYPERNETSCallHandler: %s" % e
-            )
+            raise RuntimeError("hypernets_api package is required to use HYPERNETSCallHandler: %s" % e)
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -229,9 +225,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     collections: list[str] = COLLECTIONS
     _default_geometries: dict[str:Polygon] = {}
 
-    def __init__(
-        self, context: Optional[Union[str, List, Context]] = None, archive_path=None
-    ):
+    def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
         # lazy import of hypernets_api offline API
         try:
@@ -239,10 +233,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
             self.api = OfflineHYPERNETSAPI(archive_path)
         except Exception as e:  # pragma: no cover - environment dependent
-            raise RuntimeError(
-                "hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s"
-                % e
-            )
+            raise RuntimeError("hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s" % e)
         self.context["fs"]["organise_data"] = False
 
     def get_constellation(self, prod_dict: dict) -> str:

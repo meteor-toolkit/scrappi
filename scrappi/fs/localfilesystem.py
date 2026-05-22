@@ -73,10 +73,12 @@ class LocalFileSystem(BaseFileSystem):
         else:
             path = self.directory
 
-        # If `path` already appears to point to a file return it directly to avoid appending the product id again 
+        # If `path` already appears to point to a file return it directly to avoid appending the product id again
         lower = path.lower()
-        if os.path.isfile(path) or lower.endswith(".tar.gz") or any(
-            lower.endswith(ext) for ext in (".zip", ".SAFE", ".nc", ".json", ".SEN3", ".tar")
+        if (
+            os.path.isfile(path)
+            or lower.endswith(".tar.gz")
+            or any(lower.endswith(ext) for ext in (".zip", ".SAFE", ".nc", ".json", ".SEN3", ".tar"))
         ):
             path_out = path
             path_exists = os.path.exists(path_out)
@@ -84,7 +86,7 @@ class LocalFileSystem(BaseFileSystem):
                 return path_out, path_exists
             return path_out
 
-        # If the path already ends with the product id, avoid appending it again  
+        # If the path already ends with the product id, avoid appending it again
         if os.path.basename(path) == product_item.id:
             path_out = path
             path_exists = os.path.exists(path_out)

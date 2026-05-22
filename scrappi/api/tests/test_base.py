@@ -146,9 +146,7 @@ class TestBaseAPICallHandler(unittest.TestCase):
 
     def test_get_geom_wktstr(self):
         input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        output_geom = shapely.wkt.loads(
-            "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        )
+        output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
         self.assertEqual(self.DummyAPICallHandler._get_geom(input_geom), output_geom)
 
     def test_get_geom_wktstr_error_1(self):
@@ -161,9 +159,7 @@ class TestBaseAPICallHandler(unittest.TestCase):
 
     def test_get_product_type(self):
         dummy_api_call_handler = self.DummyAPICallHandler(context)
-        self.assertEqual(
-            dummy_api_call_handler._get_product_type("LANDSAT_C2L1"), "LANDSAT_C2L1"
-        )
+        self.assertEqual(dummy_api_call_handler._get_product_type("LANDSAT_C2L1"), "LANDSAT_C2L1")
 
 
 if __name__ == "__main__":

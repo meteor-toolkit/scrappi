@@ -68,17 +68,13 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.dag = EODataAccessGateway()
         if self.context["eodag"] is not None:
-            self.dag.update_providers_config(
-                dict_conf=self.filter_eodag_config_priority(self.context["eodag"])
-            )
+            self.dag.update_providers_config(dict_conf=self.filter_eodag_config_priority(self.context["eodag"]))
 
         if self.context["api"]["preferred_provider"] is not None:
             self.dag.set_preferred_provider(self.context["api"]["preferred_provider"])
 
         self.check_eodag_version()
-        self.check_usgs_tmp_file(
-            delete_tmp_file=self.context.get("delete_usgs_tmp_file", False)
-        )
+        self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
         # this bit is meant to be used for one time passwords (authenticator apps), but does not seem to work right
         # if "totp" in config_dict.keys():
@@ -88,9 +84,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         #     print(self.dag.providers_config[provider].auth.credentials)
         #     self.dag._plugins_manager.get_auth_plugin(provider).authenticate()
 
-        setup_logging(
-            self.context["api"]["eodag_logging_level"]
-        )  # 3 for even more information
+        setup_logging(self.context["api"]["eodag_logging_level"])  # 3 for even more information
 
     def filter_eodag_config_priority(self, eodag_config: dict) -> dict:
         """Return a copy of an EODAG provider configuration filtered by priority.
@@ -171,7 +165,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         return self.dag.available_providers(collection)
 
     def list_collections(
-        self, 
+        self,
     ) -> List:
         """Lists supported collections.
 
@@ -179,8 +173,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
         return [
             collection.id
-            for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"]
-            )
+            for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"])
         ]
 
     def _perform_query(self, query: dict) -> list:
@@ -214,9 +207,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             return products
 
         elif isinstance(eodag_query["geom"], shapely.geometry.base.BaseGeometry):
-            products = [
-                i for i in products if eodag_query["geom"].intersects(i.geometry)
-            ]
+            products = [i for i in products if eodag_query["geom"].intersects(i.geometry)]
             return products
 
         for p in products:
@@ -265,9 +256,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set
-            if ("platform" in query) and self.get_platform(prod_dict) != query[
-                "platform"
-            ]:
+            if ("platform" in query) and self.get_platform(prod_dict) != query["platform"]:
                 continue
 
             # check shape of geometry
@@ -380,9 +369,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             return self._set_datetime(prod_dict["properties"]["endPosition"])
 
         elif prod_dict["collection"] == "LANDSAT_C2L1":
-            return self._set_datetime(
-                prod_dict["properties"]["end_datetime"][0:10] + "T23:59:59"
-            )
+            return self._set_datetime(prod_dict["properties"]["end_datetime"][0:10] + "T23:59:59")
 
         elif "end_datetime" in prod_dict["properties"]:
             return self._set_datetime(prod_dict["properties"]["end_datetime"])
@@ -408,9 +395,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return filter_dict
 
-    def _download_product_EOProduct(
-        self, product: EOProduct, path: str
-    ) -> Union[list, str]:
+    def _download_product_EOProduct(self, product: EOProduct, path: str) -> Union[list, str]:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -430,15 +415,11 @@ class EODAGCallHandler(BaseAPICallHandler):
                 if not os.path.exists(path):
                     os.makedirs(path)
 
-                if hasattr(product.downloader, "config") and hasattr(
-                    product.downloader.config, "timeout"
-                ):
+                if hasattr(product.downloader, "config") and hasattr(product.downloader.config, "timeout"):
                     timeout = product.downloader.config.timeout
                 else:
                     timeout = 10
-                if hasattr(product.downloader, "config") and hasattr(
-                    product.downloader.config, "wait"
-                ):
+                if hasattr(product.downloader, "config") and hasattr(product.downloader.config, "wait"):
                     wait = product.downloader.config.wait
                 else:
                     wait = 0.2
@@ -463,21 +444,15 @@ class EODAGCallHandler(BaseAPICallHandler):
                                         Path(path_out).unlink()
                             except Exception:
                                 pass
-                            raise ValueError(
-                                f"Downloaded file {path_out} is not a valid download."
-                            )
+                            raise ValueError(f"Downloaded file {path_out} is not a valid download.")
 
                     except Exception as e:
-                        print(f"Download attempt {attempt+1} failed with error: {e}")
+                        print(f"Download attempt {attempt + 1} failed with error: {e}")
                         if attempt < self.context.get("max_retrys", 3) - 1:
-                            print(
-                                f"Retrying download after {self.context.get('retry_wait', 5)} seconds..."
-                            )
+                            print(f"Retrying download after {self.context.get('retry_wait', 5)} seconds...")
                             time.sleep(self.context.get("retry_wait", 5))
                         else:
-                            print(
-                                f"Max download attempts reached. Download failed for product {product_title}."
-                            )
+                            print(f"Max download attempts reached. Download failed for product {product_title}.")
                             raise e
 
                 if not (
@@ -488,9 +463,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                     allow_modify = False
                     try:
                         allow_modify = bool(
-                            self.context["eodag"][product.provider].get(
-                                "allow_modify_download_filename", False
-                            )
+                            self.context["eodag"][product.provider].get("allow_modify_download_filename", False)
                         )
                     except Exception:
                         allow_modify = False
@@ -507,9 +480,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         )
                         if path_out.split(".")[-1] == "zip":
                             if not product_title.split(".")[-1] == "zip":
-                                warnings.warn(
-                                    f"Adding .zip to the product title (returned downloaded file has .zip)"
-                                )
+                                warnings.warn(f"Adding .zip to the product title (returned downloaded file has .zip)")
                                 product_title += ".zip"
 
                 path_out = Path(path_out)
@@ -528,9 +499,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                     files = [
                         f
                         for f in os.listdir(os.path.join(path, product_title))
-                        if os.path.isfile(
-                            os.path.join(os.path.join(path, product_title), f)
-                        )
+                        if os.path.isfile(os.path.join(os.path.join(path, product_title), f))
                     ]
                     print(files)
                     if len(files) == 1:
@@ -546,9 +515,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             return os.path.join(path, product_title)
 
         else:
-            raise ValueError(
-                "products are not in the right format for download by scrappi eodag (EOproduct)"
-            )
+            raise ValueError("products are not in the right format for download by scrappi eodag (EOproduct)")
 
     def _set_provider_output_dir(self, eoprod, path):
         """
@@ -562,26 +529,18 @@ class EODAGCallHandler(BaseAPICallHandler):
         if hasattr(self.dag.providers.configs[eoprod.provider], "api") and hasattr(
             self.dag.providers.configs[eoprod.provider].api, "output_dir"
         ):
-            print(
-                f"Setting output directory for provider {eoprod.provider} to {output_dir}"
-            )
+            print(f"Setting output directory for provider {eoprod.provider} to {output_dir}")
             self.dag.providers.configs[eoprod.provider].api.output_dir = output_dir
         # Try to set download.output_dir
-        elif hasattr(
-            self.dag.providers.configs[eoprod.provider], "download"
-        ) and hasattr(
+        elif hasattr(self.dag.providers.configs[eoprod.provider], "download") and hasattr(
             self.dag.providers.configs[eoprod.provider].download, "output_dir"
         ):
-            print(
-                f"Setting output directory for provider {eoprod.provider} to {output_dir}"
-            )
+            print(f"Setting output directory for provider {eoprod.provider} to {output_dir}")
             self.dag.providers.configs[eoprod.provider].download.output_dir = output_dir
 
         else:
             # provider does not have a known output_dir attribute
-            print(
-                f"No known option to change download directory for provider {eoprod.provider}. "
-            )
+            print(f"No known option to change download directory for provider {eoprod.provider}. ")
             print("data saved in local TEMP dir")
 
     def download_product(
@@ -624,19 +583,14 @@ class EODAGCallHandler(BaseAPICallHandler):
                 else:
                     return path
 
-            elif product.api_product is not None and isinstance(
-                product.api_product, EOProduct
-            ):
+            elif product.api_product is not None and isinstance(product.api_product, EOProduct):
                 eoprod = product.api_product
                 # self._set_provider_output_dir(eoprod, path)
 
                 return self._download_product_EOProduct(eoprod, os.path.dirname(path))
 
             else:
-                if (
-                    product.prod_dict is not None
-                    and "properties" in product.prod_dict.keys()
-                ):
+                if product.prod_dict is not None and "properties" in product.prod_dict.keys():
                     try:
                         eoprod = EOProduct.from_geojson(product.prod_dict)
                         # self.dag.providers_config[
@@ -644,13 +598,9 @@ class EODAGCallHandler(BaseAPICallHandler):
                         # ].api.products = self.dag.providers_config[eoprod.provider].products
                         self.dag._setup_downloader(eoprod)
                         self._set_provider_output_dir(eoprod, path)
-                        return self._download_product_EOProduct(
-                            eoprod, os.path.dirname(path)
-                        )
+                        return self._download_product_EOProduct(eoprod, os.path.dirname(path))
                     except:
-                        print(
-                            "Could not create EOProduct from prod_dict, trying search method."
-                        )
+                        print("Could not create EOProduct from prod_dict, trying search method.")
                         pass
 
                 new_query = {
@@ -677,9 +627,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         % searchresult
                     )
 
-                return self._download_product_EOProduct(
-                    searchresult[correct_ids[0]], os.path.dirname(path)
-                )
+                return self._download_product_EOProduct(searchresult[correct_ids[0]], os.path.dirname(path))
 
         else:
             raise ValueError(
@@ -732,10 +680,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                     product = product_prov[0]
 
             if not found:
-                warnings.warn(
-                    "No product was found for %s for these providers (%s)"
-                    % (product, provider)
-                )
+                warnings.warn("No product was found for %s for these providers (%s)" % (product, provider))
                 return None
 
             path = fs.directory
@@ -743,9 +688,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             return self._download_product_EOProduct(product, path)
 
         else:
-            raise ValueError(
-                "products are not in the right format for filename download by scrappi eodag (str)"
-            )
+            raise ValueError("products are not in the right format for filename download by scrappi eodag (str)")
 
     def check_eodag_version(self):
         """
@@ -761,9 +704,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             latest_version = data["info"]["version"]
         except Exception:
             latest_version = None
-            print(
-                "Could not check for latest version of EODAG on PyPI. Continuing without version check."
-            )
+            print("Could not check for latest version of EODAG on PyPI. Continuing without version check.")
 
         if eodag_version != latest_version and latest_version is not None:
             warnings.warn(
@@ -785,9 +726,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 try:
                     os.remove(TMPFILE)
                 except Exception as e:
-                    print(
-                        f"Error removing temporary USGS credential file {TMPFILE}: {e}"
-                    )
+                    print(f"Error removing temporary USGS credential file {TMPFILE}: {e}")
 
 
 if __name__ == "__main__":

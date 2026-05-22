@@ -148,13 +148,13 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
     :param all_apis: whether to return all suitable APIs
     :return: name/s of API to use
     """
-    
-    if not context:
-        context=ScrappiContext() 
 
-    preferred_api=""
+    if not context:
+        context = ScrappiContext()
+
+    preferred_api = ""
     if context["api"]["preferred_api"]:
-        preferred_api=context["api"]["preferred_api"]
+        preferred_api = context["api"]["preferred_api"]
 
     if all_apis:
         apis = []
@@ -167,30 +167,30 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
                         return k
             except:
                 pass
-        
-        if preferred_api!="" and preferred_api in apis:
+
+        if preferred_api != "" and preferred_api in apis:
             apis.remove(preferred_api)
             apis.insert(0, preferred_api)
-    
+
         return apis
-    
-    else: 
+
+    else:
         # select api based on collection if not already specified in context
         if context and context["api"]["preferred_api"]:
             if Factory.api_call_handlers[context["api"]["preferred_api"]](context=context).list_collections():
                 apis = [context["api"]["preferred_api"]]
                 return apis
-            
+
         for k, v in Factory.api_call_handlers.items():
             try:
                 if collection in v(context=context).list_collections():
                     return k
             except:
                 pass
-        
+
         warnings.warn("No api was found for the specified collection. Returning context['api']['preferred_api'].")
         return context["api"]["preferred_api"]
-                    
+
 
 def list_collections(guess: Optional[str] = None, context: ScrappiContext = None):
     """
@@ -209,13 +209,7 @@ def list_collections(guess: Optional[str] = None, context: ScrappiContext = None
             warnings.warn(f"No collections identified for {k} api")
 
     if guess:
-        return sorted(
-            [
-                i
-                for i in list(set(products))
-                if any([guess in i, guess.lower() in i, guess.upper() in i])
-            ]
-        )
+        return sorted([i for i in list(set(products)) if any([guess in i, guess.lower() in i, guess.upper() in i])])
 
     return sorted(list(set(products)))
 
@@ -311,6 +305,7 @@ def is_insitu_collection(collection: str) -> bool:
 
         return False
 
+
 def set_credentials(api: str, credentials: dict, context: ScrappiContext = None):
     """
     Set credentials for a given API
@@ -326,6 +321,7 @@ def set_credentials(api: str, credentials: dict, context: ScrappiContext = None)
         context = self.update_context_file(context_update)
     return context
 
+
 def update_context_file(context_update: dict):
     """
     Update context file with provided dictionary
@@ -334,14 +330,14 @@ def update_context_file(context_update: dict):
     :param context: Context object (user provided configuration values or scrappi default)
     """
     from scrappi.config import config_init
+
     path = os.path.join(config_init.get_config_directory(), config_init.list_config()[0])
     context = Context(config=context_update, config_init=config_init)
     context.write_config(path)
     return context
 
-def download_product(
-    product: Union[ProductItem, ProductItemSet], context: ScrappiContext = None
-):
+
+def download_product(product: Union[ProductItem, ProductItemSet], context: ScrappiContext = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
@@ -352,7 +348,7 @@ def download_product(
     if product is None:
         warnings.warn("no product was provided to download")
         return None
-    
+
     if not isinstance(context, ScrappiContext):
         context = product.context
 
@@ -384,9 +380,7 @@ def download_product(
                 if register_flag and isinstance(product, ProductItem):
                     # prefer product.filesystem; make_fs will handle strings
                     try:
-                        product.register_in_filesystem_catalog(
-                            overwrite=context["fs"]["overwrite_stac_items"]
-                        )
+                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
                     except Exception:
                         # fallback: try using make_fs with product.filesystem attribute
                         try:
@@ -396,9 +390,7 @@ def download_product(
                                 overwrite=context["fs"]["overwrite_stac_items"],
                             )
                         except Exception as e:
-                            warnings.warn(
-                                f"Failed to register product in STAC catalog: {e}"
-                            )
+                            warnings.warn(f"Failed to register product in STAC catalog: {e}")
                 # for ProductItemSet we assume individual downloads will have registered themselves
             except Exception:
                 # Do not let registration errors prevent returning the download path
@@ -425,9 +417,7 @@ def download_product_filename(
     if callable(func):
         return api.download_product_filename(product, context=context)
     else:
-        raise NotImplementedError(
-            "download_product_filename is not implemented for this api (%s)" % api
-        )
+        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api)
 
 
 def download_product_scene(
@@ -447,9 +437,7 @@ def download_product_scene(
     if callable(func):
         return api.download_product_scene(product, context=context)
     else:
-        raise NotImplementedError(
-            "download_product_filename is not implemented for this api (%s)" % api
-        )
+        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api)
 
 
 # def download_metadata(
@@ -510,26 +498,18 @@ def make_query_with_tolerance(
     # create datetime query value
 
     if temporal_tolerance_min is not None and temporal_tolerance_hours is not None:
-        raise ValueError(
-            "Either temporal_tolerance_min or temporal_tolerance_hours is required, but not both."
-        )
+        raise ValueError("Either temporal_tolerance_min or temporal_tolerance_hours is required, but not both.")
 
     else:
         if temporal_tolerance_min is not None:
-            datetime_start: dt.datetime = datetime - dt.timedelta(
-                minutes=temporal_tolerance_min
-            )
-            datetime_stop: dt.datetime = datetime + dt.timedelta(
-                minutes=temporal_tolerance_min
-            )
+            datetime_start: dt.datetime = datetime - dt.timedelta(minutes=temporal_tolerance_min)
+            datetime_stop: dt.datetime = datetime + dt.timedelta(minutes=temporal_tolerance_min)
 
         elif temporal_tolerance_hours is not None:
             datetime_start = datetime - dt.timedelta(hours=temporal_tolerance_hours)
             datetime_stop = datetime + dt.timedelta(hours=temporal_tolerance_hours)
         else:
-            raise ValueError(
-                "A temporal tolerance is required to query between two datetimes."
-            )
+            raise ValueError("A temporal tolerance is required to query between two datetimes.")
         query.update(
             {
                 "start_time": "%s" % datetime_start.isoformat(),
@@ -539,9 +519,7 @@ def make_query_with_tolerance(
 
     # create geometry query value
     if spatial_tolerance_deg is not None and spatial_tolerance_m is not None:
-        raise ValueError(
-            "Either a spatial_tolerance_deg or spatial_tolerance_m is required, but not both"
-        )
+        raise ValueError("Either a spatial_tolerance_deg or spatial_tolerance_m is required, but not both")
     else:
         if spatial_tolerance_deg is None and spatial_tolerance_m is None:
             query.update({"geom": shapely.geometry.Point(latitude, longitude)})
@@ -598,9 +576,7 @@ def make_query_start_stop(
     if latitude_start == latitude_stop and longitude_start == longitude_stop:
         query.update({"geom": shapely.geometry.Point(latitude_start, longitude_start)})
     else:
-        query.update(
-            {"geom": [latitude_start, longitude_start, latitude_stop, longitude_stop]}
-        )
+        query.update({"geom": [latitude_start, longitude_start, latitude_stop, longitude_stop]})
 
     return query
 
@@ -615,9 +591,7 @@ def generate_bounding_box(latitude, longitude, distance, crs="EPSG:32630") -> li
     :param distance: distance of point from each side of the box
     :return: list of coordinates of box
     """
-    miny_wgs84, minx_wgs84, maxy_wgs84, maxx_wgs84 = generate_bounding_lat_lon(
-        latitude, longitude, distance, crs=crs
-    )
+    miny_wgs84, minx_wgs84, maxy_wgs84, maxx_wgs84 = generate_bounding_lat_lon(latitude, longitude, distance, crs=crs)
 
     bounding_box = [
         [minx_wgs84, maxy_wgs84],

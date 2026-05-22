@@ -30,9 +30,7 @@ from eodag import EODataAccessGateway
 
 THIS_DIRECTORY = os.path.dirname(__file__)
 user_home_directory = os.path.expanduser("~")
-eodag_config_file_path = os.path.join(
-    user_home_directory, ".config", "eodag", "eodag.yml"
-)
+eodag_config_file_path = os.path.join(user_home_directory, ".config", "eodag", "eodag.yml")
 try:
     eodag_config = {"eodag": read_config(eodag_config_file_path)}
 except:
@@ -57,16 +55,11 @@ class ScrappiContext(Context):
         ]
         super(ScrappiContext, self).__init__(context, config_init=config_init)
 
-    def set_preferred_provider_all(
-        self, provider: str, remove_other_providers: Optional[bool] = False
-    ):
+    def set_preferred_provider_all(self, provider: str, remove_other_providers: Optional[bool] = False):
         self["api"]["prefered_provider"] = provider
-        
-    def set_preferred_api(
-        self, api: str, remove_other_apis: Optional[bool] = False
-    ):
-        self["api"]["preferred_api"] = api
 
+    def set_preferred_api(self, api: str, remove_other_apis: Optional[bool] = False):
+        self["api"]["preferred_api"] = api
 
 
 from scrappi.interface import (
@@ -92,9 +85,7 @@ from scrappi.product import (
 )
 
 
-def register_productitem_in_fs(
-    product_item, filesystem=None, root_stac_dir_name="stac", overwrite=False
-):
+def register_productitem_in_fs(product_item, filesystem=None, root_stac_dir_name="stac", overwrite=False):
     """Convenience wrapper to register a single ProductItem into a filesystem STAC catalog.
 
     :param product_item: instance of `ProductItem`
@@ -110,9 +101,7 @@ def register_productitem_in_fs(
     )
 
 
-def register_productitemset_in_fs(
-    product_item_set, filesystem=None, root_stac_dir_name="stac", overwrite=False
-):
+def register_productitemset_in_fs(product_item_set, filesystem=None, root_stac_dir_name="stac", overwrite=False):
     """Convenience wrapper to register a ProductItemSet into filesystem STAC catalogs.
 
     :param product_item_set: instance of `ProductItemSet`

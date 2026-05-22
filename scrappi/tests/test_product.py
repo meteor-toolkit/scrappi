@@ -222,8 +222,6 @@ class TestProductItem(unittest.TestCase):
             filesystem=self.tmp_dir_path,
         )
 
-        
-
     def tearDown(self):
         shutil.rmtree(self.tmp_dir_path)
 
@@ -351,9 +349,7 @@ class TestProductItem(unittest.TestCase):
         p_set = ProductItemSet([p1, p2])
         p_set.cloud_filter(30)
 
-        self.assertEqual(
-            len(p_set), 1, "Product item set was not filtered, no product removed"
-        )
+        self.assertEqual(len(p_set), 1, "Product item set was not filtered, no product removed")
 
     def test_l8_cloud_filter(self):
         p1 = ProductItem(**L8_PRODUCT_EXAMPLE_1)
@@ -363,9 +359,7 @@ class TestProductItem(unittest.TestCase):
         p_set = ProductItemSet([p1, p2])
         p_set.cloud_filter(15)
 
-        self.assertEqual(
-            len(p_set), 1, "Product item set was not filtered, no product removed"
-        )
+        self.assertEqual(len(p_set), 1, "Product item set was not filtered, no product removed")
 
     def test_get_path(self):
         p = ProductItem(**S3_PRODUCT_EXAMPLE)
@@ -397,21 +391,17 @@ class TestProductItem(unittest.TestCase):
             )
 
     def test_download_product(self):
-        with mock.patch.object(
-            EODAGCallHandler, "_download_product_EOProduct"
-        ) as mock_download_EOProduct, mock.patch.object(
-            EODAGCallHandler, "_perform_query"
-        ) as mock_perform_query:
+        with (
+            mock.patch.object(EODAGCallHandler, "_download_product_EOProduct") as mock_download_EOProduct,
+            mock.patch.object(EODAGCallHandler, "_perform_query") as mock_perform_query,
+        ):
             # Make perform_query return a fake EOProduct with matching id
             fake_eoprod = mock.MagicMock(spec=EOProduct)
             fake_eoprod.as_dict.return_value = {"id": self.p.id}
             mock_perform_query.return_value = [fake_eoprod]
 
             product = self.p.download_product()
-            assert (
-                mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"]
-                == self.p.id
-            )
+            assert mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"] == self.p.id
 
     def test_set_fs(self):
         self.p.set_fs("t-drive")
@@ -832,9 +822,7 @@ class TestProductItemSet(unittest.TestCase):
         self.assertCountEqual(exp_idx, idx)
 
     def test_argsort_invalid(self):
-        self.assertRaises(
-            ValueError, ProductItemSet(self.products).argsort, sort_by="invalid"
-        )
+        self.assertRaises(ValueError, ProductItemSet(self.products).argsort, sort_by="invalid")
 
     @patch("scrappi.product.ProductItemSet.argsort", return_value=[3, 2, 1, 0])
     def test_sort(self, mock_argsort):
@@ -945,9 +933,7 @@ class TestProductItemSet(unittest.TestCase):
             "examples",
         )
         ps.set_fs(self.tmp_dir_path)
-        with mock.patch.object(
-            EODAGCallHandler, "download_product"
-        ) as mock_download_EOProduct:
+        with mock.patch.object(EODAGCallHandler, "download_product") as mock_download_EOProduct:
             product = ps.download_product()
             assert mock_download_EOProduct.call_args_list[0][0][0].id == ps[0].id
 
@@ -1017,7 +1003,6 @@ class BaseStacTest(unittest.TestCase):
 
 
 class TestStacCatalog(BaseStacTest):
-
     def test_item_written_with_logical_hrefs(self):
         p = self.make_product(
             "item-1",
@@ -1035,9 +1020,7 @@ class TestStacCatalog(BaseStacTest):
         self.assertEqual(data["id"], "item-1")
 
         # Logical self link
-        self.assertTrue(
-            any(l["href"].startswith("stac://") for l in data.get("links", []))
-        )
+        self.assertTrue(any(l["href"].startswith("stac://") for l in data.get("links", [])))
 
         # Logical asset href
         asset_href = data["assets"]["data"]["href"]
@@ -1052,9 +1035,7 @@ class TestStacCatalog(BaseStacTest):
 
         p.register_in_filesystem_catalog()
 
-        collection_json = (
-            Path(self.fs.stac_root) / "TEST_COLLECTION" / "collection.json"
-        )
+        collection_json = Path(self.fs.stac_root) / "TEST_COLLECTION" / "collection.json"
 
         self.assertTrue(collection_json.exists())
 
@@ -1081,9 +1062,7 @@ class TestStacCatalog(BaseStacTest):
         p1.register_in_filesystem_catalog()
         p2.register_in_filesystem_catalog()
 
-        collection_json = (
-            Path(self.fs.stac_root) / "TEST_COLLECTION" / "collection.json"
-        )
+        collection_json = Path(self.fs.stac_root) / "TEST_COLLECTION" / "collection.json"
 
         data = json.loads(collection_json.read_text())
 

@@ -79,12 +79,7 @@ def convert_geom(geom: Any) -> Any:
         geom = list(geom)
 
     if isinstance(geom, list):
-        if (
-            -180 <= geom[1] <= 180
-            and -180 <= geom[3] <= 180
-            and -90 <= geom[0] <= 90
-            and -90 <= geom[2] <= 90
-        ):
+        if -180 <= geom[1] <= 180 and -180 <= geom[3] <= 180 and -90 <= geom[0] <= 90 and -90 <= geom[2] <= 90:
             return {
                 "latitude_minimum": geom[0],
                 "longitude_minimum": geom[1],
@@ -249,9 +244,7 @@ def key_present(test: Union[dict, list], keys: Union[str, list]) -> bool:
     return value
 
 
-def get_dict_path(
-    input_dict: dict, value: str, new_list: Optional[list] = None
-) -> list:
+def get_dict_path(input_dict: dict, value: str, new_list: Optional[list] = None) -> list:
     """
     Return list of keys to get to value in input dictionary. Empty list returned if value isn't present in dictionary
 
@@ -280,9 +273,7 @@ def get_value(test_dict, key, multiple=False):
     """
     value_list = list(get_value_gen(test_dict, key))
     try:
-        if len(value_list) == 1 or all(
-            [True if i[1] == value_list[0][1] else False for i in value_list]
-        ):
+        if len(value_list) == 1 or all([True if i[1] == value_list[0][1] else False for i in value_list]):
             if multiple:
                 return value_list
             else:
@@ -300,11 +291,7 @@ def get_value(test_dict, key, multiple=False):
             )
         )
         return value_list
-    print(
-        "No value found associated with '{}'. Check spelling and letter case.".format(
-            key
-        )
-    )
+    print("No value found associated with '{}'. Check spelling and letter case.".format(key))
     return
 
 
@@ -325,9 +312,7 @@ def get_value_gen(test_dict: dict, key: str):
                 for i, vel in enumerate(v):
                     yield from get_value_gen(test_dict[k][i], key)
             else:
-                yield from (
-                    [] if not isinstance(v, dict) else get_value_gen(test_dict[k], key)
-                )
+                yield from ([] if not isinstance(v, dict) else get_value_gen(test_dict[k], key))
     elif isinstance(test_dict, list) and all([isinstance(i, dict) for i in test_dict]):
         for i, vel in enumerate(test_dict):
             yield from get_value_gen(test_dict[i], key)
@@ -368,9 +353,7 @@ def validate_product_download(path: Path) -> bool:
                 return True
         except tarfile.TarError:
             return False
-        
+
     else:
-        print(
-            f"File {path} does not have a recognized archive suffix. Cannot validate download."
-        )
+        print(f"File {path} does not have a recognized archive suffix. Cannot validate download.")
         return True

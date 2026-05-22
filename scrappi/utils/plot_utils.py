@@ -39,9 +39,7 @@ def pad_plot_bounds(
                 abs_lon_pad = np.abs(padding_val * lon_diff)
 
             else:
-                raise TypeError(
-                    "'padding_val' must be either type float or int if 'padding_type' is 'rel'"
-                )
+                raise TypeError("'padding_val' must be either type float or int if 'padding_type' is 'rel'")
 
         elif padding_type == "abs":
             if isinstance(padding_val, float) or isinstance(padding_val, int):
@@ -49,19 +47,14 @@ def pad_plot_bounds(
                 abs_lon_pad = padding_val
 
             else:
-                raise TypeError(
-                    "'padding_val' must be either type float or int if 'padding_type' is 'abs'"
-                )
+                raise TypeError("'padding_val' must be either type float or int if 'padding_type' is 'abs'")
 
         elif padding_type is None:
             abs_lat_pad = 0
             abs_lon_pad = 0
 
         else:
-            raise ValueError(
-                "'padding_type' must be either [None, 'region', 'rel',  'abs'] - not "
-                + str(padding_type)
-            )
+            raise ValueError("'padding_type' must be either [None, 'region', 'rel',  'abs'] - not " + str(padding_type))
 
         plot_longitude_minimum = geom_lon_min - abs_lon_pad
         plot_latitude_minimum = geom_lat_min - abs_lat_pad
@@ -84,10 +77,7 @@ def pad_plot_bounds(
             plot_latitude_maximum = 90
 
         else:
-            raise ValueError(
-                "'padding_val' for 'region' type must be either ['global'] - not"
-                + str(padding_val)
-            )
+            raise ValueError("'padding_val' for 'region' type must be either ['global'] - not" + str(padding_val))
 
     return (
         plot_longitude_minimum,

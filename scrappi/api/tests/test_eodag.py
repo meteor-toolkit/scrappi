@@ -66,14 +66,8 @@ class TestEODAGCallHandler(unittest.TestCase):
                 Authentication,
             ),
         )
-        assert (
-            dag.dag.providers.configs["cop_dataspace"].auth.credentials["username"]
-            == "username"
-        )
-        assert (
-            dag.dag.providers.configs["cop_dataspace"].auth.credentials["password"]
-            == "password"
-        )
+        assert dag.dag.providers.configs["cop_dataspace"].auth.credentials["username"] == "username"
+        assert dag.dag.providers.configs["cop_dataspace"].auth.credentials["password"] == "password"
         with self.assertRaises(Exception):
             plugin.authenticate()
 
@@ -153,23 +147,15 @@ class TestEODAGCallHandler(unittest.TestCase):
             geom_mock.return_value = input_geom
             self.assertEqual(self.eodag_call_handler._set_geom(input_geom), output_geom)
 
-    @mock.patch(
-        "scrappi.api.base.BaseAPICallHandler._get_product_type", return_value="output"
-    )
+    @mock.patch("scrappi.api.base.BaseAPICallHandler._get_product_type", return_value="output")
     def test_set_product_type(self, mock_product):
-        self.assertEqual(
-            self.eodag_call_handler._set_product_type("LANDSAT_C2L1"), "output"
-        )
+        self.assertEqual(self.eodag_call_handler._set_product_type("LANDSAT_C2L1"), "output")
         mock_product.assert_called_with("LANDSAT_C2L1")
 
     def test_get_providers(self):
-        with mock.patch.object(
-            self.eodag_call_handler.dag, "available_providers"
-        ) as mock_providers:
+        with mock.patch.object(self.eodag_call_handler.dag, "available_providers") as mock_providers:
             mock_providers.return_value = "list of providers"
-            self.assertEqual(
-                self.eodag_call_handler.get_providers("S2_MSI_L1C"), "list of providers"
-            )
+            self.assertEqual(self.eodag_call_handler.get_providers("S2_MSI_L1C"), "list of providers")
             mock_providers.assert_called_with("S2_MSI_L1C")
 
     @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
@@ -191,9 +177,7 @@ class TestEODAGCallHandler(unittest.TestCase):
     )
     def test_perform_query(self, mock_product, mock_geom, mock_datetime, mock_poly):
         # make datetime formatter deterministic for any number of calls
-        mock_datetime.side_effect = lambda d: (
-            d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
-        )
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
         input_query = {
             "collection": "LANDSAT_C2L1",
             "start_time": dt.datetime(2022, 6, 7, 23, 30),
@@ -302,9 +286,7 @@ class TestEODAGCallHandler(unittest.TestCase):
             "downloader": None,
         }
 
-        with mock.patch.object(
-            self.eodag_call_handler.dag, "search_all"
-        ) as mock_search:
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
             # Build a lightweight fake product object with as_dict() to avoid EOProduct formatting differences
             obj = type("FakeProd", (), {})()
             obj.as_dict = lambda: {
@@ -334,8 +316,7 @@ class TestEODAGCallHandler(unittest.TestCase):
                 output_product["properties"].get("downloadLink"),
             )
             self.assertTrue(
-                isinstance(product.quicklook, str)
-                and (product.quicklook == "" or product.quicklook.startswith("http"))
+                isinstance(product.quicklook, str) and (product.quicklook == "" or product.quicklook.startswith("http"))
             )
             self.assertEqual(product.id, output_product["properties"]["id"])
 
@@ -378,13 +359,9 @@ class TestEODAGCallHandler(unittest.TestCase):
         "scrappi.api.eodag.EODAGCallHandler._set_product_type",
         return_value="LANDSAT_C2L1",
     )
-    def test_perform_query_poly(
-        self, mock_product, mock_geom, mock_datetime, mock_poly
-    ):
+    def test_perform_query_poly(self, mock_product, mock_geom, mock_datetime, mock_poly):
         # make datetime formatter deterministic for any number of calls
-        mock_datetime.side_effect = lambda d: (
-            d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
-        )
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
         input_query = {
             "collection": "LANDSAT_C2L1",
             "start_time": dt.datetime(2022, 6, 7, 23, 30),
@@ -495,9 +472,7 @@ class TestEODAGCallHandler(unittest.TestCase):
             "downloader": None,
         }
 
-        with mock.patch.object(
-            self.eodag_call_handler.dag, "search_all"
-        ) as mock_search:
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
             # Use a fake product object to ensure as_dict returns the expected structure
             obj = type("FakeProd", (), {})()
             obj.as_dict = lambda: {
@@ -527,8 +502,7 @@ class TestEODAGCallHandler(unittest.TestCase):
                 output_product["properties"].get("downloadLink"),
             )
             self.assertTrue(
-                isinstance(product.quicklook, str)
-                and (product.quicklook == "" or product.quicklook.startswith("http"))
+                isinstance(product.quicklook, str) and (product.quicklook == "" or product.quicklook.startswith("http"))
             )
             self.assertEqual(product.id, output_product["properties"]["id"])
 
@@ -585,28 +559,22 @@ class TestEODAGCallHandler(unittest.TestCase):
             stop_time="2022-10-01T08:48:01",
             prod_dict={},
             filesystem=os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "examples",
             ),
         )
 
-        with mock.patch.object(
-            EODAGCallHandler, "_download_product_EOProduct"
-        ) as mock_download_EOProduct, mock.patch.object(
-            EODAGCallHandler, "_perform_query"
-        ) as mock_perform_query:
+        with (
+            mock.patch.object(EODAGCallHandler, "_download_product_EOProduct") as mock_download_EOProduct,
+            mock.patch.object(EODAGCallHandler, "_perform_query") as mock_perform_query,
+        ):
             # Make perform_query return a fake EOProduct with matching id
             fake_eoprod = mock.MagicMock(spec=EOProduct)
             fake_eoprod.as_dict.return_value = {"id": input_product.id}
             mock_perform_query.return_value = [fake_eoprod]
 
             self.eodag_call_handler.download_product(input_product)
-            assert (
-                mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"]
-                == input_product.id
-            )
+            assert mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"] == input_product.id
 
     def test_download_product_ProductItemSet(self):
         input_product = ProductItem(
@@ -628,9 +596,7 @@ class TestEODAGCallHandler(unittest.TestCase):
             stop_time="2022-09-26T23:59:59",
             prod_dict={},
             filesystem=os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "examples",
             ),
         )
@@ -660,9 +626,7 @@ class TestEODAGCallHandler(unittest.TestCase):
             stop_time="2022-10-01T08:48:01",
             prod_dict={},
             filesystem=os.path.join(
-                os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                ),
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
                 "examples",
             ),
         )
@@ -674,22 +638,15 @@ class TestEODAGCallHandler(unittest.TestCase):
         fake_product_2 = mock.MagicMock()
         fake_product_2.as_dict.return_value = {"id": input_product2.id}
 
-        with mock.patch.object(
-            self.eodag_call_handler, "_perform_query"
-        ) as mock_perform_query, mock.patch.object(
-            EODAGCallHandler, "_download_product_EOProduct"
-        ) as mock_download_EOProduct:
+        with (
+            mock.patch.object(self.eodag_call_handler, "_perform_query") as mock_perform_query,
+            mock.patch.object(EODAGCallHandler, "_download_product_EOProduct") as mock_download_EOProduct,
+        ):
             mock_perform_query.side_effect = [[fake_product_1], [fake_product_2]]
             self.eodag_call_handler.download_product(input_set)
 
-            assert (
-                mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"]
-                == input_product.id
-            )
-            assert (
-                mock_download_EOProduct.call_args_list[1][0][0].as_dict()["id"]
-                == input_product2.id
-            )
+            assert mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"] == input_product.id
+            assert mock_download_EOProduct.call_args_list[1][0][0].as_dict()["id"] == input_product2.id
 
     def test_download_product_EOProduct(self):
         input_product = EOProduct(
@@ -714,13 +671,9 @@ class TestEODAGCallHandler(unittest.TestCase):
 
         with mock.patch.object(EOProduct, "download") as mock_download:
             # ensure the download is considered valid by the validator (no real file is created)
-            with mock.patch(
-                "scrappi.api.eodag.validate_product_download", return_value=True
-            ):
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
                 path = example_path
-                mock_download.return_value = os.path.join(
-                    path, input_product.properties["id"]
-                )
+                mock_download.return_value = os.path.join(path, input_product.properties["id"])
                 self.eodag_call_handler._download_product_EOProduct(input_product, path)
                 mock_download.assert_called()
                 called_kwargs = mock_download.call_args.kwargs
@@ -787,26 +740,21 @@ class TestEODAGCallHandler(unittest.TestCase):
         #     productType="LANDSAT_C2L1",
         # )
         path = example_path
-        with mock.patch.object(
-            EOProduct, "downloader", create=True
-        ) as mock_downloader, mock.patch(
-            "scrappi.api.eodag.EODataAccessGateway.search"
-        ) as mock_search:
+        with (
+            mock.patch.object(EOProduct, "downloader", create=True) as mock_downloader,
+            mock.patch("scrappi.api.eodag.EODataAccessGateway.search") as mock_search,
+        ):
             mock_downloader.config = mock.Mock(timeout=10, wait=0.2)
             fs = make_fs(path)
             fake_eoprod = mock.MagicMock(spec=EOProduct)
-            product_id = (
-                "S2A_MSIL1C_20220928T083731_N0400_R064_T33KWP_20220928T122019.SAFE"
-            )
+            product_id = "S2A_MSIL1C_20220928T083731_N0400_R064_T33KWP_20220928T122019.SAFE"
             fake_eoprod.properties = {"id": product_id, "productType": "S2_MSI_L1C"}
             fake_eoprod.provider = "cop_dataspace"
             fake_eoprod.download.return_value = os.path.join(path, product_id)
             mock_search.return_value = [fake_eoprod]
 
             # make validator accept mocked download (no real file created)
-            with mock.patch(
-                "scrappi.api.eodag.validate_product_download", return_value=True
-            ):
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
                 self.eodag_call_handler.download_product_filename(
                     "S2A_MSIL1C_20220928T083731_N0400_R064_T33KWP_20220928T122019.SAFE",
                     fs,
@@ -856,12 +804,11 @@ class TestEODAGCallHandler(unittest.TestCase):
         # are resolved to the `t-drive` filesystem handler rather than
         # raising when the T: drive does not exist on the test host.
         from scrappi.fs.tdrive import TdriveFileSystem
+
         orig_make_fs = make_fs
         with mock.patch(
             "scrappi.interface.make_fs",
-            side_effect=lambda fs, context=None: TdriveFileSystem(context=context)
-            if fs
-            else orig_make_fs(fs, context),
+            side_effect=lambda fs, context=None: TdriveFileSystem(context=context) if fs else orig_make_fs(fs, context),
         ):
             # Also patch the FS factory method to directly return a TdriveFileSystem
             # when provider metadata contains an absolute T: path. This avoids
@@ -884,11 +831,7 @@ class TestEODAGCallHandler(unittest.TestCase):
 
         # Check that the quicklook is a non-empty URL
         quicklook = products[0].quicklook
-        assert (
-            isinstance(quicklook, str)
-            and quicklook.startswith("http")
-            and len(quicklook) > 10
-        )
+        assert isinstance(quicklook, str) and quicklook.startswith("http") and len(quicklook) > 10
 
         # For L8, mock perform_query to avoid real network calls and provider-specific variations
         expected_quicklook = "https://landsatlook.usgs.gov/gen-browse?size=rrb&type=refl&product_id=LC08_L1TP_089085_20220607_20220616_02_T1"
@@ -957,15 +900,11 @@ class TestEODAGCallHandler(unittest.TestCase):
                 return TdriveFileSystem(context=context)
             return orig_get(self, name, context)
 
-        with mock.patch.object(
-            fs_factory.FSCallHandlerFactory, "get_fs_call_handler", new=_get_fs
-        ):
+        with mock.patch.object(fs_factory.FSCallHandlerFactory, "get_fs_call_handler", new=_get_fs):
             products = eodag_call_handler.perform_query(input_S2)
         quicklook = products[0].quicklook
 
-        assert quicklook == (
-            "https://datahub.creodias.eu/odata/v1/Assets(4d634f99-05c1-4120-8297-abad05301f9c)/$value"
-        )
+        assert quicklook == ("https://datahub.creodias.eu/odata/v1/Assets(4d634f99-05c1-4120-8297-abad05301f9c)/$value")
 
         # assert products[0].quicklook == ""
 

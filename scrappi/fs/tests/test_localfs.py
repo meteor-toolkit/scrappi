@@ -124,9 +124,7 @@ class TestSTACFileSystem(unittest.TestCase):
                 "LC08_L1TP_172030_20220120_20220127_02_T2B.json",
             ),
         )
-        stac_fs = STACFileSystem(
-            os.path.join(example_path, "data"), os.path.join(example_path, "stac")
-        )
+        stac_fs = STACFileSystem(os.path.join(example_path, "data"), os.path.join(example_path, "stac"))
         path = stac_fs.return_path(test_prod, False)
         self.assertEqual(
             path,

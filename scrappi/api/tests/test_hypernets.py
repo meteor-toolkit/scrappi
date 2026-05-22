@@ -66,11 +66,10 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
             )
         except Exception as e:
             self.hypernets_call_handler = None
-        
 
     def test_get_roi(self):
         if self.hypernets_call_handler is None:
-            self.skipTest("HYPERNETSOfflineCallHandler not available")  
+            self.skipTest("HYPERNETSOfflineCallHandler not available")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")

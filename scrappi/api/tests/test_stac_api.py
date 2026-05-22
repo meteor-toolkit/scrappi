@@ -10,7 +10,6 @@ from scrappi import ScrappiContext
 
 
 class TestSTACAPICallHandler(unittest.TestCase):
-
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.base = Path(self.tmp.name)
@@ -38,12 +37,8 @@ class TestSTACAPICallHandler(unittest.TestCase):
             "description": "Collection LHYP_L2B_REF",
             "license": "other",
             "extent": {
-                "spatial": {
-                    "bbox": [[15.1250808, -23.6025008, 15.1266992, -23.6005592]]
-                },
-                "temporal": {
-                    "interval": [["2025-11-01T10:33:35Z", "2025-11-01T14:39:51Z"]]
-                },
+                "spatial": {"bbox": [[15.1250808, -23.6025008, 15.1266992, -23.6005592]]},
+                "temporal": {"interval": [["2025-11-01T10:33:35Z", "2025-11-01T14:39:51Z"]]},
             },
             "links": [
                 {
@@ -79,9 +74,7 @@ class TestSTACAPICallHandler(unittest.TestCase):
             "stac_version": "1.1.0",
             "id": "item1",
             "collection": "LHYP_L2B_REF",
-            "geometry": box(
-                15.1250808, -23.6025008, 15.1266992, -23.6005592
-            ).__geo_interface__,
+            "geometry": box(15.1250808, -23.6025008, 15.1266992, -23.6005592).__geo_interface__,
             "bbox": [15.1250808, -23.6025008, 15.1266992, -23.6005592],
             "properties": {
                 "datetime": "2025-11-01T10:33:35Z",

@@ -26,7 +26,7 @@ example_path = os.path.join(
 
 class TestEarthaccessCallHandler(unittest.TestCase):
     """Test suite for EarthaccessCallHandler class"""
-    
+
     def setUp(self):
         """Set up test fixtures"""
         self.earthaccess_call_handler = None
@@ -53,9 +53,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         """Test _set_product_type method"""
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
-            with mock.patch.object(
-                handler, "_get_product_type", return_value="MOD09GA"
-            ) as mock_get_product:
+            with mock.patch.object(handler, "_get_product_type", return_value="MOD09GA") as mock_get_product:
                 result = handler._set_product_type("MOD09")
                 self.assertEqual(result, "MOD09GA")
                 mock_get_product.assert_called_with("MOD09")
@@ -64,9 +62,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         """Test _set_datetime with string input"""
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
-            with mock.patch.object(
-                handler, "_get_datetime", return_value=dt.datetime(2022, 6, 7, 23, 30)
-            ):
+            with mock.patch.object(handler, "_get_datetime", return_value=dt.datetime(2022, 6, 7, 23, 30)):
                 result = handler._set_datetime("2022-06-07T23:30:00")
                 self.assertEqual(result, "2022-06-07T23:30:00")
 
@@ -75,9 +71,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
             input_dt = dt.datetime(2022, 6, 7, 23, 30)
-            with mock.patch.object(
-                handler, "_get_datetime", return_value=input_dt
-            ):
+            with mock.patch.object(handler, "_get_datetime", return_value=input_dt):
                 result = handler._set_datetime(input_dt)
                 self.assertEqual(result, "2022-06-07T23:30:00")
 
@@ -93,9 +87,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
             }
             expected_output = (120, 40, 160, 60)
 
-            with mock.patch.object(
-                handler, "_get_geom", return_value=input_geom
-            ):
+            with mock.patch.object(handler, "_get_geom", return_value=input_geom):
                 result = handler._set_geom(input_geom)
                 self.assertEqual(result, expected_output)
 
@@ -136,16 +128,14 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                 },
             }
 
-            with mock.patch.object(
-                handler, "_set_product_type", return_value="MOD09GA"
-            ), mock.patch.object(
-                handler,
-                "_set_datetime",
-                side_effect=lambda d: d.strftime("%Y-%m-%dT%H:%M:%S")
-                if hasattr(d, "strftime")
-                else d,
-            ), mock.patch.object(
-                handler, "_set_geom", return_value=(145, -38, 150, -36)
+            with (
+                mock.patch.object(handler, "_set_product_type", return_value="MOD09GA"),
+                mock.patch.object(
+                    handler,
+                    "_set_datetime",
+                    side_effect=lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d,
+                ),
+                mock.patch.object(handler, "_set_geom", return_value=(145, -38, 150, -36)),
             ):
                 result = handler._format_query(input_query)
 
@@ -212,11 +202,13 @@ class TestEarthaccessCallHandler(unittest.TestCase):
             mock_search_data.return_value = mock_products
 
             with mock.patch.object(
-                handler, "_format_query", return_value={
+                handler,
+                "_format_query",
+                return_value={
                     "short_name": "MOD09GA",
                     "temporal": ("2022-06-07T23:30:00", "2022-06-07T23:50:00"),
                     "bounding_box": (145, -38, 150, -36),
-                }
+                },
             ):
                 result = handler._perform_query(input_query)
                 self.assertEqual(result, mock_products)
@@ -232,9 +224,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                 }
             }
 
-            with mock.patch.object(
-                handler, "parse_platform_from_name", return_value="Terra"
-            ):
+            with mock.patch.object(handler, "parse_platform_from_name", return_value="Terra"):
                 result = handler.get_platform(prod_dict)
                 self.assertEqual(result, "Terra")
 
@@ -249,9 +239,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                 }
             }
 
-            with mock.patch.object(
-                handler, "parse_constellation_from_name", return_value="MODIS"
-            ):
+            with mock.patch.object(handler, "parse_constellation_from_name", return_value="MODIS"):
                 result = handler.get_constellation(prod_dict)
                 self.assertEqual(result, "MODIS")
 
@@ -260,11 +248,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
 
-            prod_dict = {
-                "CollectionReference": {
-                    "Version": "6.1"
-                }
-            }
+            prod_dict = {"CollectionReference": {"Version": "6.1"}}
 
             result = handler.find_version(prod_dict)
             self.assertEqual(result, "6.1")
@@ -284,17 +268,9 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
 
-            prod_dict = {
-                "TemporalExtent": {
-                    "RangeDateTime": {
-                        "BeginningDateTime": "2022-06-07T23:30:00"
-                    }
-                }
-            }
+            prod_dict = {"TemporalExtent": {"RangeDateTime": {"BeginningDateTime": "2022-06-07T23:30:00"}}}
 
-            with mock.patch.object(
-                handler, "_set_datetime", return_value="2022-06-07T23:30:00"
-            ):
+            with mock.patch.object(handler, "_set_datetime", return_value="2022-06-07T23:30:00"):
                 result = handler.find_start_time(prod_dict)
                 self.assertEqual(result, "2022-06-07T23:30:00")
 
@@ -313,17 +289,9 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
 
-            prod_dict = {
-                "TemporalExtent": {
-                    "RangeDateTime": {
-                        "EndingDateTime": "2022-06-07T23:50:00"
-                    }
-                }
-            }
+            prod_dict = {"TemporalExtent": {"RangeDateTime": {"EndingDateTime": "2022-06-07T23:50:00"}}}
 
-            with mock.patch.object(
-                handler, "_set_datetime", return_value="2022-06-07T23:50:00"
-            ):
+            with mock.patch.object(handler, "_set_datetime", return_value="2022-06-07T23:50:00"):
                 result = handler.find_stop_time(prod_dict)
                 self.assertEqual(result, "2022-06-07T23:50:00")
 
@@ -342,11 +310,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
 
-            prod_dict = {
-                "DataGranule": {
-                    "DayNightFlag": "Day"
-                }
-            }
+            prod_dict = {"DataGranule": {"DayNightFlag": "Day"}}
 
             result = handler.extract_filter_attributes(prod_dict)
             self.assertEqual(result["day_night_flag"], "Day")
@@ -387,9 +351,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
 
             mock_download.return_value = [downloaded_path]
 
-            with mock.patch("os.path.exists", side_effect=[False, False, True]), mock.patch(
-                "os.makedirs"
-            ):
+            with mock.patch("os.path.exists", side_effect=[False, False, True]), mock.patch("os.makedirs"):
                 result = handler._download_product_DataGranule(product, path, product_id)
                 self.assertEqual(result, downloaded_path)
                 mock_download.assert_called()
@@ -416,9 +378,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
             product2 = mock.Mock(spec=ProductItem)
             product_set = ProductItemSet([product1, product2])
 
-            with mock.patch.object(
-                handler, "download_product", return_value=["/path/to/prod1", "/path/to/prod2"]
-            ):
+            with mock.patch.object(handler, "download_product", return_value=["/path/to/prod1", "/path/to/prod2"]):
                 result = handler.download_product(product_set)
                 self.assertIsInstance(result, list)
 
@@ -443,21 +403,21 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                 collection="MOD09GA",
                 id="MOD09GA.example",
                 url="",
-                geometry=Polygon([
-                    (145, -38),
-                    (150, -38),
-                    (150, -36),
-                    (145, -36),
-                ]),
+                geometry=Polygon(
+                    [
+                        (145, -38),
+                        (150, -38),
+                        (150, -36),
+                        (145, -36),
+                    ]
+                ),
                 start_time=dt.datetime(2022, 6, 7),
                 stop_time=dt.datetime(2022, 6, 8),
                 prod_dict={},
                 filesystem=example_path,
             )
 
-            with mock.patch.object(
-                product.filesystem, "return_path", return_value=("/path/to/prod", True)
-            ):
+            with mock.patch.object(product.filesystem, "return_path", return_value=("/path/to/prod", True)):
                 result = handler.download_product(product)
                 self.assertEqual(result, "/path/to/prod")
 
@@ -476,16 +436,15 @@ class TestEarthaccessCallHandler(unittest.TestCase):
             handler = EarthaccessCallHandler()
 
             product_filename = "MOD09GA.example"
-            
+
             mock_product = mock.Mock(spec=DataGranule)
-            mock_product.__getitem__ = mock.Mock(return_value={
-                'Identifiers': [{'Identifier': product_filename}]
-            })
+            mock_product.__getitem__ = mock.Mock(return_value={"Identifiers": [{"Identifier": product_filename}]})
             mock_search_data.return_value = [mock_product]
 
-            with mock.patch.object(
-                handler, "_download_product_DataGranule", return_value="/path/to/prod"
-            ), mock.patch("scrappi.make_fs") as mock_make_fs:
+            with (
+                mock.patch.object(handler, "_download_product_DataGranule", return_value="/path/to/prod"),
+                mock.patch("scrappi.make_fs") as mock_make_fs,
+            ):
                 mock_fs = mock.Mock()
                 mock_fs.directory = example_path
                 mock_make_fs.return_value = mock_fs
@@ -500,8 +459,10 @@ class TestEarthaccessCallHandler(unittest.TestCase):
 
             product_filename = "NONEXISTENT.product"
 
-            with mock.patch("scrappi.api.earthaccess_api.earthaccess.search_data", return_value=[]), \
-                 mock.patch("scrappi.make_fs") as mock_make_fs:
+            with (
+                mock.patch("scrappi.api.earthaccess_api.earthaccess.search_data", return_value=[]),
+                mock.patch("scrappi.make_fs") as mock_make_fs,
+            ):
                 mock_fs = mock.Mock()
                 mock_fs.directory = example_path
                 mock_make_fs.return_value = mock_fs
@@ -518,8 +479,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
             filenames = ["MOD09GA.example1", "MOD09GA.example2"]
 
             with mock.patch.object(
-                handler, "download_product_filename", 
-                return_value=["/path/to/prod1", "/path/to/prod2"]
+                handler, "download_product_filename", return_value=["/path/to/prod1", "/path/to/prod2"]
             ):
                 result = handler.download_product_filename(filenames)
                 self.assertIsInstance(result, list)

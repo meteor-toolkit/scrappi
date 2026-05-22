@@ -48,11 +48,7 @@ class STACAPICallHandler(BaseAPICallHandler):
         if not self.collections_dir.exists():
             return []
 
-        return [
-            p.name
-            for p in self.collections_dir.iterdir()
-            if (p / "collection.json").exists()
-        ]
+        return [p.name for p in self.collections_dir.iterdir() if (p / "collection.json").exists()]
 
     # ------------------------------------------------------------------
     # Query
@@ -83,12 +79,8 @@ class STACAPICallHandler(BaseAPICallHandler):
         if geom_filter is not None:
             geom_filter = self._get_geom(geom_filter)
 
-        start_time = (
-            self._get_datetime(query["start_time"]) if "start_time" in query else None
-        )
-        stop_time = (
-            self._get_datetime(query["stop_time"]) if "stop_time" in query else None
-        )
+        start_time = self._get_datetime(query["start_time"]) if "start_time" in query else None
+        stop_time = self._get_datetime(query["stop_time"]) if "stop_time" in query else None
 
         asset_state = query.get("asset_state")
 
@@ -136,11 +128,7 @@ class STACAPICallHandler(BaseAPICallHandler):
                 if stop_time and item_start and item_start > stop_time:
                     continue
 
-                if (
-                    asset_state
-                    and asset_state
-                    != item.assets["data"].extra_fields["scrappi:asset_state"]
-                ):
+                if asset_state and asset_state != item.assets["data"].extra_fields["scrappi:asset_state"]:
                     continue
 
                 # ---- convert to ProductItem ----

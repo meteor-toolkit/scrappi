@@ -40,9 +40,7 @@ class TestPlotUtils(unittest.TestCase):
     def test_pad_plot_bounds_region_global(self):
         obj_bounds = (4, 3, 6, 9)
 
-        plot_bounds = pad_plot_bounds(
-            obj_bounds, padding_type="region", padding_val="global"
-        )
+        plot_bounds = pad_plot_bounds(obj_bounds, padding_type="region", padding_val="global")
 
         self.assertEqual(plot_bounds[0], -180)
         self.assertEqual(plot_bounds[1], -90)

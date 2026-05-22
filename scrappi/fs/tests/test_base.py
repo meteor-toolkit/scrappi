@@ -23,9 +23,7 @@ class TestBaseFileSystem(unittest.TestCase):
             def return_path(self, product_info: dict, check_exists: bool = False):
                 pass
 
-            def return_path_platform_collection_year_month_day(
-                self, collection: str, year: str, month: str, day: str
-            ):
+            def return_path_platform_collection_year_month_day(self, collection: str, year: str, month: str, day: str):
                 pass
 
         self.DummyFSCallHandler = DummyFSCallHandler

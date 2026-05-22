@@ -242,9 +242,7 @@ class ProductItem:
         if self.quicklook and "quicklook" not in item.assets:
             item.add_asset(
                 "quicklook",
-                pystac.Asset(
-                    href=self.quicklook, media_type="image/jpeg", title="quicklook"
-                ),
+                pystac.Asset(href=self.quicklook, media_type="image/jpeg", title="quicklook"),
             )
 
         return item
@@ -315,9 +313,7 @@ class ProductItem:
                 description=f"Collection {self.collection}",
                 extent=pystac.Extent(
                     spatial=pystac.SpatialExtent([list(self.geometry.bounds)]),
-                    temporal=pystac.TemporalExtent(
-                        [[self.start_time, self.stop_time or self.start_time]]
-                    ),
+                    temporal=pystac.TemporalExtent([[self.start_time, self.stop_time or self.start_time]]),
                 ),
                 license="other",
             )
@@ -325,9 +321,7 @@ class ProductItem:
             collection.extra_fields["constellation"] = self.constellation
             collection.extra_fields["platform"] = self.platform
 
-        collection.set_self_href(
-            fs.stac_href("collections", self.collection, "collection.json")
-        )
+        collection.set_self_href(fs.stac_href("collections", self.collection, "collection.json"))
 
         # ---------------- Item ----------------
         item = self.to_stac_item(filesystem=filesystem, overwrite=True)
@@ -341,10 +335,7 @@ class ProductItem:
         item.save_object(dest_href=item_path)
 
         # ---------------- Link item from collection ----------------
-        if not any(
-            l.rel == "item" and l.target == item.get_self_href()
-            for l in collection.links
-        ):
+        if not any(l.rel == "item" and l.target == item.get_self_href() for l in collection.links):
             collection.add_link(
                 pystac.Link(
                     rel="item",
@@ -363,10 +354,7 @@ class ProductItem:
         StacHrefResolver.write_stac_object(collection, collection_json)
 
         # ---------------- Link collection from root ----------------
-        if not any(
-            l.rel == "child" and l.target == collection.get_self_href()
-            for l in root.links
-        ):
+        if not any(l.rel == "child" and l.target == collection.get_self_href() for l in root.links):
             root.add_link(
                 pystac.Link(
                     rel="child",
@@ -429,17 +417,13 @@ class ProductItem:
 
         if copy:
             if new_fs.read_only:
-                raise IOError(
-                    "The new filesystem you are trying to copy data to is read only."
-                )
+                raise IOError("The new filesystem you are trying to copy data to is read only.")
             else:
                 self.mk_fs_dirs(new_path)
                 shutil.copy(old_path, new_path)
         else:
             if new_fs.read_only:
-                raise IOError(
-                    "The new filesystem you are trying to move data to is read only."
-                )
+                raise IOError("The new filesystem you are trying to move data to is read only.")
             elif self.filesystem.read_only:
                 raise IOError(
                     "The old filesystem you are trying to move data from is read only (maybe try setting copy=True instead)."
@@ -577,9 +561,7 @@ class ProductItem:
             #     projection = ax._projection_init[1]["projection"]
 
         # Draw geometry
-        ax.add_geometries(
-            self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color
-        )
+        ax.add_geometries(self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color)
 
         plt.tight_layout()
 
@@ -802,7 +784,6 @@ class ProductItemSet:
             collections_map.setdefault(p.collection, []).append(p)
 
         for collection_id, products in collections_map.items():
-
             # Compute extent
             bboxes = [p.geometry.bounds for p in products]
             spatial_extent = [
@@ -830,7 +811,6 @@ class ProductItemSet:
             catalog.add_child(collection)
 
             for p in products:
-
                 item = None
 
                 if fs is not None:
@@ -869,9 +849,7 @@ class ProductItemSet:
         root_catalog_path = None
         for p in self:
             fs = filesystem if filesystem is not None else p.filesystem
-            item_path = p.register_in_filesystem_catalog(
-                filesystem=fs, overwrite=overwrite
-            )
+            item_path = p.register_in_filesystem_catalog(filesystem=fs, overwrite=overwrite)
 
     @property
     def collections(self) -> List[str]:
@@ -963,8 +941,7 @@ class ProductItemSet:
 
         else:
             raise ValueError(
-                "'sort_by' must be either ['collection', 'id', 'start_date', 'area'] - not "
-                + str(sort_by)
+                "'sort_by' must be either ['collection', 'id', 'start_date', 'area'] - not " + str(sort_by)
             )
 
         # Assign product info dictionaries in alphabetical order
@@ -993,9 +970,7 @@ class ProductItemSet:
         :return: None
         """
         self._products = [
-            self._products[i]
-            for i in range(len(self._products))
-            if id_contains_str in self._products[i].id
+            self._products[i] for i in range(len(self._products)) if id_contains_str in self._products[i].id
         ]
         self._product_bounds = None
         self._collections = None
@@ -1051,9 +1026,7 @@ class ProductItemSet:
         elif label_by == "id":
             legend_handles = [None] * len(self)
         else:
-            raise ValueError(
-                "'label_by' must be either ['collection', 'id'] - not " + str(label_by)
-            )
+            raise ValueError("'label_by' must be either ['collection', 'id'] - not " + str(label_by))
 
         # Plot products in reverse size order to better display handle overlapping geometries
         for idx in self.argsort(sort_by="area")[::-1]:
@@ -1070,15 +1043,9 @@ class ProductItemSet:
             elif label_by == "id":
                 color_idx = idx % len(colors)
                 geometry_color = colors[color_idx]
-                id_label = (
-                    self[idx].id
-                    if len(self[idx].id) < 10
-                    else self[idx].id[:6] + " ... " + self[idx].id[-6:]
-                )
+                id_label = self[idx].id if len(self[idx].id) < 10 else self[idx].id[:6] + " ... " + self[idx].id[-6:]
 
-                legend_handles[idx] = mpatches.Patch(
-                    color=geometry_color, label=id_label
-                )
+                legend_handles[idx] = mpatches.Patch(color=geometry_color, label=id_label)
 
             self[idx].plot_geometry(ax=ax, geometry_color=geometry_color)
 
@@ -1111,9 +1078,7 @@ class ProductItemSet:
         plt.tight_layout()
 
 
-def open_product_item(
-    path: str, filesystem: str = None, api: str = "eodag"
-) -> ProductItem:
+def open_product_item(path: str, filesystem: str = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from JSON file
 
@@ -1129,9 +1094,7 @@ def open_product_item(
     return product_item_from_dict(product_item_dict, api=api, filesystem=filesystem)
 
 
-def product_item_from_dict(
-    product_item_dict: dict, filesystem: str = None, api: str = "eodag"
-) -> ProductItem:
+def product_item_from_dict(product_item_dict: dict, filesystem: str = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from defining dictionary
 
@@ -1184,11 +1147,7 @@ def product_item_from_stac(
         geom = item.geometry
 
     # temporal
-    start_time = (
-        item.datetime
-        if hasattr(item, "datetime")
-        else item.properties.get("start_datetime")
-    )
+    start_time = item.datetime if hasattr(item, "datetime") else item.properties.get("start_datetime")
     stop_time = None
     if item.properties:
         stop_time = (
@@ -1229,9 +1188,7 @@ def product_item_from_stac(
     # cloud fraction
     cloud_fraction = None
     if item.properties:
-        cloud_fraction = item.properties.get("cloud_fraction") or item.properties.get(
-            "eo:cloud_cover"
-        )
+        cloud_fraction = item.properties.get("cloud_fraction") or item.properties.get("eo:cloud_cover")
 
     prod_dict = item.to_dict() if hasattr(item, "to_dict") else item.properties
 
@@ -1253,9 +1210,7 @@ def product_item_from_stac(
     )
 
 
-def from_stac(
-    cls, item_or_path: Union[str, "pystac.Item"], context: Optional[ScrappiContext] = None
-) -> "ProductItem":
+def from_stac(cls, item_or_path: Union[str, "pystac.Item"], context: Optional[ScrappiContext] = None) -> "ProductItem":
     """Construct a ProductItem from a STAC Item or file.
 
     This is exposed as a regular module-level function for documentation
@@ -1269,9 +1224,7 @@ def from_stac(
 setattr(ProductItem, "from_stac", classmethod(from_stac))
 
 
-def open_product_item_set(
-    path: str, filesystem: str = None, api: str = "eodag"
-) -> ProductItemSet:
+def open_product_item_set(path: str, filesystem: str = None, api: str = "eodag") -> ProductItemSet:
     """
     Returns ProductItemSet object from JSON file
 
@@ -1284,9 +1237,7 @@ def open_product_item_set(
     with open(path, "r") as f:
         product_item_set_dict = json.load(f)
 
-    return product_item_set_from_dict(
-        product_item_set_dict, api=api, filesystem=filesystem
-    )
+    return product_item_set_from_dict(product_item_set_dict, api=api, filesystem=filesystem)
 
 
 def product_item_set_from_dict(

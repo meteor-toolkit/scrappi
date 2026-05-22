@@ -27,7 +27,6 @@ __author__ = [
 
 
 class TestInterface(unittest.TestCase):
-
     def setUp(self) -> None:
         letters = string.ascii_lowercase
         self.tmp_dir_name = "tmp_" + "".join(random.choice(letters) for i in range(5))
@@ -102,18 +101,18 @@ class TestInterface(unittest.TestCase):
         shutil.rmtree(self.tmp_dir_path)
 
     def test_get_api_name_single(self):
-        context=ScrappiContext()
-        context["api"]["preferred_api"]=None
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
         with mock.patch.dict(
             "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
         ) as mock_handlers:
-            self.assertEqual(get_api_name("LANDSAT_C2L1",context=context), "handle1")
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
 
     def test_get_api_name_all(self):
-        context=ScrappiContext()
-        context["api"]["preferred_api"]=None
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
         with mock.patch.dict(
@@ -121,13 +120,11 @@ class TestInterface(unittest.TestCase):
             {"handle1": m, "handle2": m},
             clear=True,
         ) as mock_handlers:
-            self.assertEqual(
-                get_api_name("LANDSAT_C2L1", all_apis=True), ["handle1", "handle2"]
-            )
+            self.assertEqual(get_api_name("LANDSAT_C2L1", all_apis=True), ["handle1", "handle2"])
 
     def test_get_api_name_None(self):
-        context=ScrappiContext()
-        context["api"]["preferred_api"]=None
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
         with mock.patch.dict(
@@ -135,7 +132,7 @@ class TestInterface(unittest.TestCase):
             {"handle1": m, "handle2": m},
             clear=True,
         ) as mock_handlers:
-            self.assertEqual(get_api_name("S2_MSI_L1C",context=context), None)
+            self.assertEqual(get_api_name("S2_MSI_L1C", context=context), None)
 
     @mock.patch(
         "scrappi.api.eodag.EODataAccessGateway.list_collections",
@@ -162,9 +159,7 @@ class TestInterface(unittest.TestCase):
     def test_make_api(self):
         context = ScrappiContext()
         m = mock.MagicMock()
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
             make_api("api", context)
             m.assert_called_with(context=context)
 
@@ -172,15 +167,13 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         context["fs"]["path"] = "fs"
         m = mock.MagicMock()
-        with mock.patch.dict(
-            "scrappi.interface.FSFactory.fs_call_handlers", {"fs": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.FSFactory.fs_call_handlers", {"fs": m}, clear=True) as mock_handlers:
             make_fs("fs", context)
             m.assert_called_with(context=context)
 
     def test_set_credentials_context(self):
         context = ScrappiContext()
-        context=set_credentials("testapi", {"username": "user", "password": "pass"}, context)
+        context = set_credentials("testapi", {"username": "user", "password": "pass"}, context)
         self.assertEqual(context["testapi"]["credentials"], {"username": "user", "password": "pass"})
 
     def test_update_context_file(self):
@@ -191,9 +184,7 @@ class TestInterface(unittest.TestCase):
     def test_perform_query(self):
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
             context = ScrappiContext()
             context["api"]["preferred_api"] = "api"
             query = {"collection": "LANDSAT_C2L1"}
@@ -205,9 +196,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         m = mock.MagicMock()
         m().list_collections.return_value = ["S3_EFR"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
             download_product(self.p, context)
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
@@ -216,9 +205,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "api"
         m = mock.MagicMock()
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
             download_product_filename(
                 "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
                 context=context,
@@ -257,9 +244,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "api"
         m = mock.MagicMock()
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True
-        ) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
             download_product_scene("LC09_L1GT_158111_20220126_20220126_02_T2", context)
             m.assert_called_with(context=context)
             m().download_product_scene.assert_called_with(
@@ -278,14 +263,10 @@ class TestInterface(unittest.TestCase):
         assert is_insitu_collection("RCN_TOA")
         assert not is_insitu_collection("S2_MSI_L1C")
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_deg_min(self, mock_datetime):
         self.assertEqual(
-            make_query_with_tolerance(
-                "LANDSAT_C2L1", 1, 2, "2022-01-10", 1, None, 1, None
-            ),
+            make_query_with_tolerance("LANDSAT_C2L1", 1, 2, "2022-01-10", 1, None, 1, None),
             {
                 "collections": ["LANDSAT_C2L1"],
                 "geom": [0, 1, 2, 3],
@@ -294,14 +275,10 @@ class TestInterface(unittest.TestCase):
             },
         )
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_point(self, mock_datetime):
         self.assertEqual(
-            make_query_with_tolerance(
-                "LANDSAT_C2L1", 1, 2, "2022-01-10", None, None, 1, None
-            ),
+            make_query_with_tolerance("LANDSAT_C2L1", 1, 2, "2022-01-10", None, None, 1, None),
             {
                 "collections": ["LANDSAT_C2L1"],
                 "geom": Point(1, 2),
@@ -310,9 +287,7 @@ class TestInterface(unittest.TestCase):
             },
         )
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_spatial_error(self, mock_datetime):
         self.assertRaises(
             ValueError,
@@ -327,9 +302,7 @@ class TestInterface(unittest.TestCase):
             None,
         )
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_m_hours(self, mock_datetime):
         mock_transformer = mock.MagicMock()
         mock_transformer.transform.side_effect = [(1, 0), (3, 2)]
@@ -340,9 +313,7 @@ class TestInterface(unittest.TestCase):
             side_effect=[mock_transformer, mock_reverse_transformer],
         ) as mock_from_crs:
             self.assertEqual(
-                make_query_with_tolerance(
-                    "LANDSAT_C2L1", 1, 2, "2022-01-10", None, 1, None, 1
-                ),
+                make_query_with_tolerance("LANDSAT_C2L1", 1, 2, "2022-01-10", None, 1, None, 1),
                 {
                     "collections": ["LANDSAT_C2L1"],
                     "geom": [10, 10, 10, 10],
@@ -351,9 +322,7 @@ class TestInterface(unittest.TestCase):
                 },
             )
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_temporal_error_both(self, mock_datetime):
         self.assertRaises(
             ValueError,
@@ -368,9 +337,7 @@ class TestInterface(unittest.TestCase):
             1,
         )
 
-    @mock.patch(
-        "scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10)
-    )
+    @mock.patch("scrappi.interface.convert_datetime", return_value=dt.datetime(2022, 1, 10))
     def test_make_query_with_tolerance_temporal_error_None(self, mock_datetime):
         self.assertRaises(
             ValueError,

@@ -13,6 +13,7 @@ __author__ = [
     "Mattea Goalen <mattea.goalen@npl.co.uk>",
 ]
 
+
 class StacHrefResolver:
     """
     Resolves logical STAC and asset URIs to concrete locations.

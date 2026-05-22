@@ -30,9 +30,7 @@ class InSituCallHandler(BaseAPICallHandler):
 
     name: str
 
-    def __init__(
-        self, context: Optional[Union[str, List, Context]] = None, roi_dict: dict = None
-    ):
+    def __init__(self, context: Optional[Union[str, List, Context]] = None, roi_dict: dict = None):
         super().__init__(context)
         self.roi_dict = roi_dict
         self.sites = list(roi_dict.keys())
@@ -61,7 +59,7 @@ class InSituCallHandler(BaseAPICallHandler):
         """
         Function to extract collection identifiers
 
-        :param fetch_update: set to True to fetch online collection names instead of offline version. 
+        :param fetch_update: set to True to fetch online collection names instead of offline version.
         :return: list of collection identifiers
         """
         pass
@@ -85,9 +83,7 @@ class InSituCallHandler(BaseAPICallHandler):
         """
         pass
 
-    def download_product(
-        self, product: Union[ProductItemSet, ProductItem]
-    ) -> Union[list, str]:
+    def download_product(self, product: Union[ProductItemSet, ProductItem]) -> Union[list, str]:
         """
         Download catalogue product(s) at defined URL to local path
 

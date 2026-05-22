@@ -70,7 +70,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         self,
         context: Optional[Union[str, List, Context]] = None,
     ):
-        
+
         self._set_Polygons()  # convert ROI to Polygons
         # self.api = OfflineRcnAPI(archives_path)
         super(RadcalnetCallHandler, self).__init__(
@@ -84,9 +84,7 @@ class RadcalnetCallHandler(InSituCallHandler):
                 os.environ["RADCALNET_USERNAME"] = credentials["username"]
                 os.environ["RADCALNET_REMOVED_PASSWORD"] = credentials["password"]
             except:
-                warnings.warn(
-                    "Provided RADCALNET credentials could not be set in environment variables."
-                )
+                warnings.warn("Provided RADCALNET credentials could not be set in environment variables.")
             self.session = requests.session()
             self.session.auth = (credentials["username"], credentials["password"])
 
@@ -144,9 +142,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         for filename in filelist:
             site_instrument, year, doy, version = self.parse_name(filename)
             site = site_instrument[0:4]
-            geom = self._default_geometries[
-                site
-            ]  # get default geometry for site as Polygon
+            geom = self._default_geometries[site]  # get default geometry for site as Polygon
             product_list.append(
                 ProductItem(
                     constellation="RadCalNet",
@@ -154,10 +150,8 @@ class RadcalnetCallHandler(InSituCallHandler):
                     collection=query["collection"],
                     id=filename,
                     geometry=geom,
-                    start_time=dt.datetime(year, 1, 1)
-                    + dt.timedelta(days=doy - 1, hours=8),
-                    stop_time=dt.datetime(year, 1, 1)
-                    + dt.timedelta(days=doy - 1, hours=14),
+                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=8),
+                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=14),
                     url="",
                     quicklook="",
                     api="radcalnet",
@@ -167,9 +161,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         return ProductItemSet(product_list)
 
-    def check_date_in_range(
-        self, year: int, doy: int, date1: dt.date, date2: dt.date
-    ) -> bool:
+    def check_date_in_range(self, year: int, doy: int, date1: dt.date, date2: dt.date) -> bool:
         """
         Function to check whether date of file is between the query dates.
 
@@ -241,9 +233,7 @@ class RadcalnetCallHandler(InSituCallHandler):
                     f.write(chunk)
         return os.path.join(dest, os.path.basename(url))
 
-    def get_files_list(
-        self, site: str, collection: str, start_date: dt.date, end_date: dt.date
-    ) -> list:
+    def get_files_list(self, site: str, collection: str, start_date: dt.date, end_date: dt.date) -> list:
         """
         generates a list of files between two dates
          :param site: name of rcn site: [BTCN, BSCN, GHNA, GONA, RVUS, LCFR]
@@ -253,11 +243,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
 
         if site not in self.sites:
-            raise ValueError(
-                "site {} unknown. Valid sites are {}".format(
-                    site, ", ".join(self.sites)
-                )
-            )
+            raise ValueError("site {} unknown. Valid sites are {}".format(site, ", ".join(self.sites)))
         if start_date > end_date:
             return []
         url = self.url_base + site + "/data/"
@@ -326,20 +312,12 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         if archive_path is None:
             if platform.system() == "Linux":
                 if socket.gethostname() == "eoserver.npl.co.uk":
-                    archive_path = os.path.abspath(
-                        os.path.join(r"/home", "data", "insitu", "radcalnet", "archive")
-                    )
+                    archive_path = os.path.abspath(os.path.join(r"/home", "data", "insitu", "radcalnet", "archive"))
                 else:
-                    archive_path = os.path.abspath(
-                        os.path.join(
-                            r"/mnt", "t", "data", "insitu", "radcalnet", "archive"
-                        )
-                    )
+                    archive_path = os.path.abspath(os.path.join(r"/mnt", "t", "data", "insitu", "radcalnet", "archive"))
             else:
                 archive_path = os.path.abspath(
-                    os.path.join(
-                        r"T:\ECO", "EOServer", "data", "insitu", "radcalnet", "archive"
-                    )
+                    os.path.join(r"T:\ECO", "EOServer", "data", "insitu", "radcalnet", "archive")
                 )  # r"\\eoserver", "home", "data", "insitu", "radcalnet", "archive"
 
         self.archive_path = archive_path

@@ -13,14 +13,13 @@ import requests.exceptions
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.utils.utils import convert_geom_shapely
 
-__author__ = ["Ashley Ramsay <ashley.ramsay@npl.co.uk",
+__author__ = [
+    "Ashley Ramsay <ashley.ramsay@npl.co.uk",
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
 ]
 __all__ = ["MockSession", "MockSessionError", "MockGetError", "MockGet"]
 
-scrappi_folder = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-)
+scrappi_folder = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 example_download_path = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
@@ -97,9 +96,7 @@ class TestRCNCallHandler(unittest.TestCase):
         version_pattern = re.compile("v*.*.output")
 
         self.rcnHandler = RadcalnetCallHandler()
-        site, year, doy, version = self.rcnHandler.parse_name(
-            "GONA01_2017_200_v04.09.output"
-        )
+        site, year, doy, version = self.rcnHandler.parse_name("GONA01_2017_200_v04.09.output")
         self.assertEqual(site, "GONA01")
         self.assertEqual(year, 2017)
         self.assertEqual(doy, 200)
@@ -138,9 +135,7 @@ class TestRCNCallHandler(unittest.TestCase):
         try:
             test_collections_output = self.rcnHandler.list_collections()
 
-            for test_collection, stated_collection in zip(
-                test_collections_output, ["RCN_TOA", "RCN_BOA"]
-            ):
+            for test_collection, stated_collection in zip(test_collections_output, ["RCN_TOA", "RCN_BOA"]):
                 self.assertEqual(test_collection, stated_collection)
 
         except SSLError as err:

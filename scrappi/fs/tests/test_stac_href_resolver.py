@@ -7,7 +7,6 @@ import os
 
 
 class TestStacHrefResolver(unittest.TestCase):
-
     def setUp(self):
         self.tmp = TemporaryDirectory()
         self.root = Path(self.tmp.name)

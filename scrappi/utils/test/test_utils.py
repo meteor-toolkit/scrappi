@@ -255,9 +255,7 @@ class TestPlotUtils(unittest.TestCase):
 
     def test_convert_geom_wktstr(self):
         input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        output_geom = shapely.wkt.loads(
-            "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        )
+        output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
         self.assertEqual(convert_geom(input_geom), output_geom)
 
     def test_convert_geom_wktstr_error_1(self):
@@ -271,18 +269,12 @@ class TestPlotUtils(unittest.TestCase):
             "latitude_maximum": 60,
             "longitude_maximum": 160,
         }
-        output_geom = shapely.wkt.loads(
-            "POLYGON ((120 40, 160 40, 160 60, 120 60, 120 40))"
-        )
+        output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 120 60, 120 40))")
         self.assertEqual(convert_geom_shapely(input_geom), output_geom)
 
     def test_convert_geom_shapely_shapely(self):
-        input_geom = shapely.wkt.loads(
-            "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        )
-        output_geom = shapely.wkt.loads(
-            "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        )
+        input_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
+        output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
         self.assertEqual(convert_geom_shapely(input_geom), output_geom)
 
 

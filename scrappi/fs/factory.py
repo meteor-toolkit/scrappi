@@ -39,9 +39,7 @@ class FSCallHandlerFactory:
     def __init__(self):
         self.fs_call_handlers = FS_CALL_HANDLERS
 
-    def get_fs_call_handler(
-        self, name: Union[str, BaseFileSystem], context: ScrappiContext = None
-    ) -> BaseFileSystem:
+    def get_fs_call_handler(self, name: Union[str, BaseFileSystem], context: ScrappiContext = None) -> BaseFileSystem:
         """
         Return specified FS call handler,
 

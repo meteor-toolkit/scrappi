@@ -77,9 +77,7 @@ class STACFileSystem(LocalFileSystem):
         month = start_time.strftime("%m")
         year = start_time.strftime("%Y")
 
-        rel_path = os.path.join(
-            "data", constellation, platform, collection, year, month, day
-        )
+        rel_path = os.path.join("data", constellation, platform, collection, year, month, day)
 
         # Resolve to full directory under this filesystem, then check for
         # product file/folder with known extensions (zip, SAFE, nc, etc.).
@@ -87,10 +85,8 @@ class STACFileSystem(LocalFileSystem):
         path_out, path_exists = self.check_any_path_exists(full_dir, product_item.id)
 
         return path_out
-    
-    def return_stac_item_path(
-        self, product_item: ProductItem, check_exists: bool = False
-    ):
+
+    def return_stac_item_path(self, product_item: ProductItem, check_exists: bool = False):
         """
         Returns path from info in ProductItem
         The function automatically checks if a file exists with ".zip", ".SAFE", ".nc" and if so, the returned path will include this extension.

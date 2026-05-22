@@ -65,10 +65,7 @@ class APICallHandlerFactory:
             return self.api_call_handlers[name.lower()](context=context)
 
         else:
-            raise IOError(
-                "api name (%s) not one of the recognised apis (%s)."
-                % (name, self.api_call_handlers.keys())
-            )
+            raise IOError("api name (%s) not one of the recognised apis (%s)." % (name, self.api_call_handlers.keys()))
 
 
 if __name__ == "__main__":
