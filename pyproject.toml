@@ -26,7 +26,6 @@ dependencies = [
     "obsarray",
     "cartopy",
     "matplotlib",
-    "usgs @ git+https://github.com/kapadia/usgs.git",
     "earthaccess",
 ]
 
@@ -49,7 +48,29 @@ docs = [
     "myst_parser",
     "IPython"
 ]
+usgs = [    
+    "usgs @ git+https://github.com/kapadia/usgs.git",
+]
+
 hypernets = [
+    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
+]
+
+all = [
+    "ruff",
+    "mypy",
+    "pre-commit",
+    "pytest",
+    "pytest-html",
+    "pytest-cov",
+    "IPython",
+    "sphinx",
+    "sphinx_rtd_theme",
+    "sphinx_book_theme",
+    "sphinx_design",
+    "sphinx_automodapi",
+    "myst_parser",
+    "usgs @ git+https://github.com/kapadia/usgs.git",
     "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
 ]
 
@@ -58,7 +79,7 @@ scrappi-init = "scrappi.config:init_cli"
 
 [project.urls]
 Homepage = "https://www.comet-toolkit.org/meteor/"
-Documentation = "https://scrappi.readthedocs.io/en/latest/"
+Documentation = "https://meteor-toolkit.github.io/scrappi/"
 
 [tool.setuptools.packages.find]
 where = ["."]
