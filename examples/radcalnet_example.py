@@ -31,8 +31,8 @@ context = ScrappiContext()
 context["api"]["preferred_api"] = "radcalnet"
 if __name__ == "__main__":
     api_name = "radcalnet"
-    start = "2023-02-01T00:00:00"
-    end = "2023-03-01T00:00:00"
+    start = "2023-02-07T23:00:00"
+    end = "2023-02-10T00:00:00"
 
     query = {
         "collection": "RCN_BOA",

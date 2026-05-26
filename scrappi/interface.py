@@ -177,9 +177,11 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
     else:
         # select api based on collection if not already specified in context
         if context and context["api"]["preferred_api"]:
-            if Factory.api_call_handlers[context["api"]["preferred_api"]](context=context).list_collections():
-                apis = [context["api"]["preferred_api"]]
-                return apis
+            if (
+                collection
+                in Factory.api_call_handlers[context["api"]["preferred_api"]](context=context).list_collections()
+            ):
+                return context["api"]["preferred_api"]
 
         for k, v in Factory.api_call_handlers.items():
             try:

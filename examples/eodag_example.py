@@ -5,6 +5,7 @@ from scrappi.interface import (
     download_product,
     make_fs,
     list_collections,
+    set_credentials
 )
 
 from scrappi.utils import utils
