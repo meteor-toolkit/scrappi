@@ -35,7 +35,7 @@ jobs:
           echo -e "machine gitlab.npl.co.uk\nlogin gitlab-ci-token\npassword ${{ secrets.NPL_GITLAB_REMOVED_TOKEN }}" >> ~/.netrc
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[all]"
 
       - name: Run tests
         run: |
@@ -71,7 +71,7 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[all]"
       - name: ruff format
         run: ruff format --check scrappi
       - name: ruff lint
