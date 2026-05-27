@@ -24,6 +24,8 @@ from scrappi.utils.utils import *
 from scrappi.fs.base import BaseFileSystem
 from scrappi.fs.localfilesystem import LocalFileSystem
 
+import hypernets_api
+
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
 ]
@@ -82,13 +84,6 @@ class HYPERNETSCallHandler(InSituCallHandler):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
-        # lazy import of hypernets_api
-        try:
-            from hypernets_api import HYPERNETSAPI
-
-            self.api = HYPERNETSAPI(api_key)
-        except Exception as e:  # pragma: no cover - environment dependent
-            raise RuntimeError("hypernets_api package is required to use HYPERNETSCallHandler: %s" % e)
 
     def get_constellation(self, prod_dict: dict) -> str:
         """

@@ -14,10 +14,10 @@ __author__ = [
 ]
 __all__ = ["APICallHandlerFactory"]
 
+from processor_tools import context
+
 from scrappi import ScrappiContext
-from scrappi.api.earthaccess_api import EarthaccessCallHandler
 from scrappi.api.eodag import EODAGCallHandler
-from scrappi.api.hypernets import HYPERNETSOfflineCallHandler, HYPERNETSCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
@@ -25,8 +25,8 @@ from scrappi.api.stac_api import STACAPICallHandler
 # API call handlers by name
 API_CALL_HANDLERS = {
     "eodag": EODAGCallHandler,
-    "earthaccess": EarthaccessCallHandler,
-    "hypernets": HYPERNETSCallHandler,
+    # "earthaccess": EarthaccessCallHandler,  #handled separately below to allow lazy import
+    # "hypernets": HYPERNETSCallHandler, #handled separately below to allow lazy import
     "radcalnet": RadcalnetCallHandler,
     "stac": STACAPICallHandler,
 }
@@ -60,6 +60,14 @@ class APICallHandlerFactory:
                     "only eodag allows to optionally include preffered provider using a `:'. This is not relevant for other api's.  "
                     "For eodag the preferred provider can also be set in config_dict."
                 )
+
+        elif name.lower()=="hypernets":
+            from scrappi.api.hypernets import HYPERNETSCallHandler
+            return HYPERNETSCallHandler(context=context)
+        
+        elif name.lower()=="earthaccess":
+            from scrappi.api.earthaccess_api import EarthaccessCallHandler
+            return EarthaccessCallHandler(context=context)
 
         elif name in self.api_call_handlers.keys():
             return self.api_call_handlers[name.lower()](context=context)

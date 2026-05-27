@@ -308,15 +308,23 @@ def is_insitu_collection(collection: str) -> bool:
         return False
 
 
-def set_credentials(api: str, credentials: dict, context: ScrappiContext = None):
+def set_credentials(api: str, credentials: dict, context: ScrappiContext = None, provider: Optional[str] = None):
     """
     Set credentials for a given API
 
     :param api: name of API to set credentials for (e.g. ``"eodag"``)
     :param credentials: dictionary of credentials to set for API
     :param context: Context object (user provided configuration values or scrappi default)
+    :param provider: Optional provider name to set credentials for (only relevant for eodag, which allows provider-specific credentials to be set in context)
     """
-    context_update = {api: {"credentials": credentials}}
+    if api=="eodag":
+        if provider is None:
+            context_update = {api: credentials}
+        else:
+            context_update = {api: {provider: {"credentials": credentials}}}
+    else:   
+        context_update = {api: {"credentials": credentials}}
+
     if context:
         context.update(context_update)
     else:

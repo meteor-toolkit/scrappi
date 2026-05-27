@@ -54,7 +54,7 @@ earthaccess = [
 ]
 
 hypernets_api = [
-    "hypernets_api",
+    "hypernets_api>=0.2.1",
 ]
 
 all = [
@@ -72,7 +72,7 @@ all = [
     "sphinx_automodapi",
     "myst_parser",
     "earthaccess>=0.18.0",
-    "hypernets_api",
+    "hypernets_api>=0.2.1",
 ]
 
 [project.scripts]
