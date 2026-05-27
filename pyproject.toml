@@ -69,7 +69,7 @@ all = [
     "sphinx_automodapi",
     "myst_parser",
     "usgs",
-    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
+    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api@main",
 ]
 
 [project.scripts]
