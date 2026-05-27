@@ -320,7 +320,7 @@ def set_credentials(api: str, credentials: dict, context: ScrappiContext = None)
     if context:
         context.update(context_update)
     else:
-        context = self.update_context_file(context_update)
+        context = update_context_file(context_update)
     return context
 
 
