@@ -50,7 +50,7 @@ docs = [
 ]
 
 earthaccess = [
-    "earthaccess>=0.18.0",
+    "earthaccess>=0.17.0",
 ]
 
 hypernets_api = [
@@ -71,7 +71,7 @@ all = [
     "sphinx_design",
     "sphinx_automodapi",
     "myst_parser",
-    "earthaccess>=0.18.0",
+    "earthaccess>=0.17.0",
     "hypernets_api>=0.2.1",
 ]
 

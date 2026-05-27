@@ -61,12 +61,14 @@ class APICallHandlerFactory:
                     "For eodag the preferred provider can also be set in config_dict."
                 )
 
-        elif name.lower()=="hypernets":
+        elif name.lower() == "hypernets":
             from scrappi.api.hypernets import HYPERNETSCallHandler
+
             return HYPERNETSCallHandler(context=context)
-        
-        elif name.lower()=="earthaccess":
+
+        elif name.lower() == "earthaccess":
             from scrappi.api.earthaccess_api import EarthaccessCallHandler
+
             return EarthaccessCallHandler(context=context)
 
         elif name in self.api_call_handlers.keys():

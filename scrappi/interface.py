@@ -317,12 +317,12 @@ def set_credentials(api: str, credentials: dict, context: ScrappiContext = None,
     :param context: Context object (user provided configuration values or scrappi default)
     :param provider: Optional provider name to set credentials for (only relevant for eodag, which allows provider-specific credentials to be set in context)
     """
-    if api=="eodag":
+    if api == "eodag":
         if provider is None:
             context_update = {api: credentials}
         else:
             context_update = {api: {provider: {"credentials": credentials}}}
-    else:   
+    else:
         context_update = {api: {"credentials": credentials}}
 
     if context:
