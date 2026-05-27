@@ -51,7 +51,7 @@ docs = [
 ]
 
 hypernets = [
-    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
+    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api@main",
 ]
 
 all = [
