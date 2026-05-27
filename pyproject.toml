@@ -28,6 +28,7 @@ dependencies = [
     "matplotlib",
     "earthaccess",
     "usgs",
+    "hypernets_api",
 ]
 
 [project.optional-dependencies]
@@ -48,28 +49,6 @@ docs = [
     "sphinx_automodapi",
     "myst_parser",
     "IPython"
-]
-
-hypernets = [
-    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api@main",
-]
-
-all = [
-    "ruff",
-    "mypy",
-    "pre-commit",
-    "pytest",
-    "pytest-html",
-    "pytest-cov",
-    "IPython",
-    "sphinx",
-    "sphinx_rtd_theme",
-    "sphinx_book_theme",
-    "sphinx_design",
-    "sphinx_automodapi",
-    "myst_parser",
-    "usgs",
-    "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api@main",
 ]
 
 [project.scripts]
