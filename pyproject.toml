@@ -27,6 +27,7 @@ dependencies = [
     "cartopy",
     "matplotlib",
     "earthaccess",
+    "usgs",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +49,6 @@ docs = [
     "myst_parser",
     "IPython"
 ]
-usgs = [    
-    "usgs @ git+https://github.com/kapadia/usgs.git",
-]
 
 hypernets = [
     "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
@@ -70,7 +68,7 @@ all = [
     "sphinx_design",
     "sphinx_automodapi",
     "myst_parser",
-    "usgs @ git+https://github.com/kapadia/usgs.git",
+    "usgs",
     "hypernets_api @ git+https://gitlab.npl.co.uk/eco/tools/hypernets_api",
 ]
 
