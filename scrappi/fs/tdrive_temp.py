@@ -30,4 +30,4 @@ class TdriveTempFileSystem(LocalFileSystem):
             path = os.path.join("T:", "ECO", "EOServer", "data", "product_archive_temp")
         context["fs"]["organise_data"] = True
         context["fs"]["read_only"] = False
-        super().__init__(path=path, path_stac=path, context=context)
+        super().__init__(path=path, context=context)

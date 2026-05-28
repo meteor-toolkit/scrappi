@@ -6,6 +6,7 @@ several common product filename/dir conventions (zip, SAFE, nc, json).
 """
 
 import os
+from typing import Optional
 from scrappi.fs.base import BaseFileSystem
 from scrappi.product import ProductItem
 from scrappi import ScrappiContext
@@ -30,8 +31,8 @@ class LocalFileSystem(BaseFileSystem):
 
     def __init__(
         self,
-        path: str = None,
-        context: ScrappiContext = None,
+        path: Optional[str] = None,
+        context: Optional[ScrappiContext] = None,
     ):
         if not context:
             context = ScrappiContext()

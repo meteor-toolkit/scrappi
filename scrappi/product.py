@@ -18,9 +18,10 @@ import datetime as dt
 import shapely as sh
 from shapely.geometry import Polygon, MultiPolygon, Point, mapping
 import pystac
-from matplotlib.axes import Axes
+from cartopy.mpl.geoaxes import GeoAxes
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
+from matplotlib.patches import Patch
 from matplotlib import pyplot as plt
 import os.path
 import cartopy.crs as ccrs
@@ -77,8 +78,8 @@ class ProductItem:
         version: Optional[str] = None,
         url: Optional[str] = "",
         quicklook: Optional[str] = "",
-        filesystem: Optional[str] = None,
-        api: Optional[str] = None,
+        filesystem: Optional[Any] = None,
+        api: Optional[Any] = None,
         cloud_fraction: Optional[float] = None,
         context: Optional[ScrappiContext] = None,
         api_product: Optional[Any] = None,
@@ -135,10 +136,10 @@ class ProductItem:
         product_item_dict["geometry"] = self.geometry.wkt
         product_item_dict["start_time"] = self.start_time.isoformat()
         product_item_dict["stop_time"] = self.stop_time.isoformat()
-        product_item_dict["url"] = self.url
-        product_item_dict["quicklook"] = self.quicklook
-        product_item_dict["prod_dict"] = self.prod_dict
-        product_item_dict["filter_dict"] = self.filter_dict
+        product_item_dict["url"] = self.url or ""
+        product_item_dict["quicklook"] = self.quicklook or ""
+        product_item_dict["prod_dict"] = self.prod_dict  # type: ignore[assignment]
+        product_item_dict["filter_dict"] = self.filter_dict  # type: ignore[assignment]
 
         if path is not None:
             with open(path, "w") as f:
@@ -338,11 +339,12 @@ class ProductItem:
         item.save_object(dest_href=item_path)
 
         # ---------------- Link item from collection ----------------
-        if not any(link.rel == "item" and link.target == item.get_self_href() for link in collection.links):
+        item_self_href: Optional[str] = item.get_self_href()
+        if not any(link.rel == "item" and link.target == item_self_href for link in collection.links):
             collection.add_link(
                 pystac.Link(
                     rel="item",
-                    target=item.get_self_href(),
+                    target=item_self_href or "",
                     media_type="application/geo+json",
                 )
             )
@@ -357,11 +359,12 @@ class ProductItem:
         StacHrefResolver.write_stac_object(collection, collection_json)
 
         # ---------------- Link collection from root ----------------
-        if not any(link.rel == "child" and link.target == collection.get_self_href() for link in root.links):
+        collection_self_href: Optional[str] = collection.get_self_href()
+        if not any(link.rel == "child" and link.target == collection_self_href for link in root.links):
             root.add_link(
                 pystac.Link(
                     rel="child",
-                    target=collection.get_self_href(),
+                    target=collection_self_href or "",
                     media_type="application/json",
                 )
             )
@@ -373,7 +376,7 @@ class ProductItem:
     def set_fs(
         self,
         filesystem: Optional[str] = None,
-        context: ScrappiContext = None,
+        context: Optional[ScrappiContext] = None,
     ):
         """
         set filesystem
@@ -384,7 +387,7 @@ class ProductItem:
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
 
-    def set_api(self, api: Optional[str] = None, context: ScrappiContext = None):
+    def set_api(self, api: Optional[str] = None, context: Optional[ScrappiContext] = None):
         """
         set API
 
@@ -396,7 +399,7 @@ class ProductItem:
 
         self.api = make_api(api, context)
 
-    def move_product(self, new_fs: str, copy: bool = True) -> str:
+    def move_product(self, new_fs: Union[str, Any], copy: bool = True) -> str:
         """
         Move or copy the file to a different filesystem
 
@@ -405,8 +408,9 @@ class ProductItem:
         :return: path to product in new filesystem
         """
         from scrappi.interface import make_fs
+        from scrappi.fs.base import BaseFileSystem
 
-        new_fs = make_fs(new_fs)
+        resolved_fs: BaseFileSystem = make_fs(new_fs)
 
         old_path, exists = self.filesystem.return_path(self, True)
         if not exists:
@@ -416,18 +420,20 @@ class ProductItem:
             )
             return ""
 
-        new_path = new_fs.return_path(self, False)
+        new_path = resolved_fs.return_path(self, False)
 
+        new_fs_read_only = getattr(resolved_fs, "read_only", False)
+        old_fs_read_only = getattr(self.filesystem, "read_only", False)
         if copy:
-            if new_fs.read_only:
+            if new_fs_read_only:
                 raise IOError("The new filesystem you are trying to copy data to is read only.")
             else:
                 self.mk_fs_dirs(new_path)
                 shutil.copy(old_path, new_path)
         else:
-            if new_fs.read_only:
+            if new_fs_read_only:
                 raise IOError("The new filesystem you are trying to move data to is read only.")
-            elif self.filesystem.read_only:
+            elif old_fs_read_only:
                 raise IOError(
                     "The old filesystem you are trying to move data from is read only (maybe try setting copy=True instead)."
                 )
@@ -435,10 +441,10 @@ class ProductItem:
                 self.mk_fs_dirs(new_path)
                 shutil.move(old_path, new_path)
 
-        self.set_fs(new_fs)
+        self.set_fs(new_path)
         return new_path
 
-    def mk_fs_dirs(self, p) -> bool:
+    def mk_fs_dirs(self, p) -> None:
         dirname = os.path.dirname(p)
         if not os.path.exists(dirname):
             from os import makedirs
@@ -451,11 +457,9 @@ class ProductItem:
 
         :return: path to filesystem main folder
         """
-        from scrappi.interface import make_fs
+        return self.filesystem.return_path(self, False)
 
-        return make_fs(self.filesystem).return_path(self, False)
-
-    def download_product(self, context: ScrappiContext = None):
+    def download_product(self, context: Optional[ScrappiContext] = None):
         """
         Function to download product using api and fs set in attributes
         :return: path to downloaded product
@@ -490,7 +494,7 @@ class ProductItem:
 
     def plot_geometry(
         self,
-        ax: Optional[Axes] = None,
+        ax: Optional[GeoAxes] = None,
         padding_type: Optional[str] = "rel",
         padding_val: Optional[Union[float, str]] = 0.5,
         tick_step: Optional[float] = None,
@@ -517,9 +521,10 @@ class ProductItem:
         """
 
         # If Axes object not provided, build plot
+        geo_ax: GeoAxes
         if ax is None:
             plt.figure()
-            ax = plt.axes(projection=ccrs.PlateCarree())
+            geo_ax = plt.axes(projection=ccrs.PlateCarree())  # type: ignore[assignment]
             projection = ccrs.PlateCarree()
 
             # Set plot bounds
@@ -529,7 +534,7 @@ class ProductItem:
                 plot_lon_max_pre,
                 plot_lat_min_pre,
                 plot_lat_max_pre,
-            ) = ax.get_extent()
+            ) = geo_ax.get_extent()
 
             (
                 plot_latitude_minimum,
@@ -538,7 +543,7 @@ class ProductItem:
                 plot_longitude_maximum,
             ) = pad_plot_bounds(self.geometry.bounds, padding_type, padding_val)
 
-            ax.set_extent(
+            geo_ax.set_extent(
                 [
                     min(plot_longitude_minimum, plot_lon_min_pre),
                     max(plot_longitude_maximum, plot_lon_max_pre),
@@ -548,9 +553,10 @@ class ProductItem:
             )
 
             # Add map styling
-            prepare_map_plot(ax, tick_step=tick_step)
+            prepare_map_plot(geo_ax, tick_step=tick_step)
 
         else:
+            geo_ax = ax
             projection = ccrs.PlateCarree()
 
             # if ax._projection_init[1] == {}:
@@ -564,7 +570,7 @@ class ProductItem:
             #     projection = ax._projection_init[1]["projection"]
 
         # Draw geometry
-        ax.add_geometries(self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color)
+        geo_ax.add_geometries(self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color)
 
         plt.tight_layout()
 
@@ -639,7 +645,7 @@ class ProductItemSet:
         :return: JSON representation of ProductItemSet as a dictionary
         """
 
-        product_item_set_dict = dict()
+        product_item_set_dict: Dict[str, Any] = dict()
 
         product_item_set_dict["collections"] = self.collections
         product_item_set_dict["n_products"] = len(self)
@@ -699,7 +705,7 @@ class ProductItemSet:
         for p in self:
             p.set_api(api)
 
-    def set_fs(self, filesystem: str, context: ScrappiContext = None):
+    def set_fs(self, filesystem: str, context: Optional[ScrappiContext] = None):
         """
         set filesystem for each product item in the product item set
 
@@ -733,7 +739,7 @@ class ProductItemSet:
 
         return self
 
-    def get_path(self) -> str:
+    def get_path(self) -> List[str]:
         """
         return path to filesystem main folder
 
@@ -743,8 +749,8 @@ class ProductItemSet:
 
     def download_product(
         self,
-        credentials: dict = None,
-        config_dict: dict = None,
+        credentials: Optional[dict] = None,
+        config_dict: Optional[dict] = None,
     ):
         """
         Function to download product using api and fs set in attributes
@@ -833,7 +839,8 @@ class ProductItemSet:
 
         return catalog
 
-    def save_stac_catalogue(catalog, path):
+    @staticmethod
+    def save_stac_catalogue(catalog, path) -> None:
         catalog.set_self_href(path)
         catalog.save(catalog_type=pystac.CatalogType.SELF_CONTAINED)
 
@@ -841,7 +848,7 @@ class ProductItemSet:
         self,
         filesystem: Optional[Any] = None,
         overwrite: bool = False,
-    ) -> str:
+    ) -> None:
         """
         Register all ProductItems in this set into filesystem-based STAC collections.
 
@@ -979,7 +986,7 @@ class ProductItemSet:
 
     def plot_geometries(
         self,
-        ax: Optional[Axes] = None,
+        ax: Optional[GeoAxes] = None,
         padding_type: Optional[str] = "rel",
         padding_val: Optional[Union[float, str]] = 0.5,
         tick_step: Optional[float] = None,
@@ -1018,11 +1025,15 @@ class ProductItemSet:
             colors = list(mcolors.TABLEAU_COLORS.keys())
 
         # If Axes object not provided, build plot
+        geo_ax2: GeoAxes
         if ax is None:
             plt.figure()
-            ax = plt.axes(projection=ccrs.PlateCarree())
+            geo_ax2 = plt.axes(projection=ccrs.PlateCarree())  # type: ignore[assignment]
+        else:
+            geo_ax2 = ax
 
         # Initialise list of legend labels
+        legend_handles: List[Optional[Patch]]
         if label_by == "collection":
             legend_handles = [None] * len(self.collections)
         elif label_by == "id":
@@ -1049,11 +1060,11 @@ class ProductItemSet:
 
                 legend_handles[idx] = mpatches.Patch(color=geometry_color, label=id_label)
 
-            self[idx].plot_geometry(ax=ax, geometry_color=geometry_color)
+            self[idx].plot_geometry(ax=geo_ax2, geometry_color=geometry_color)
 
         # Add determined legend
         if legend:
-            ax.legend(handles=legend_handles)
+            geo_ax2.legend(handles=legend_handles)
 
         # Set plot bounds
         bounds = self.product_bounds
@@ -1064,7 +1075,7 @@ class ProductItemSet:
             plot_latitude_maximum,
         ) = pad_plot_bounds(bounds, padding_type, padding_val)
 
-        ax.set_extent(
+        geo_ax2.set_extent(
             [
                 plot_longitude_minimum,
                 plot_longitude_maximum,
@@ -1075,12 +1086,12 @@ class ProductItemSet:
         )
 
         # Add map styling
-        prepare_map_plot(ax, tick_step=tick_step)
+        prepare_map_plot(geo_ax2, tick_step=tick_step)
 
         plt.tight_layout()
 
 
-def open_product_item(path: str, filesystem: str = None, api: str = "eodag") -> ProductItem:
+def open_product_item(path: str, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from JSON file
 
@@ -1096,7 +1107,7 @@ def open_product_item(path: str, filesystem: str = None, api: str = "eodag") -> 
     return product_item_from_dict(product_item_dict, api=api, filesystem=filesystem)
 
 
-def product_item_from_dict(product_item_dict: dict, filesystem: str = None, api: str = "eodag") -> ProductItem:
+def product_item_from_dict(product_item_dict: dict, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from defining dictionary
 
@@ -1129,11 +1140,17 @@ def product_item_from_stac(
     pid = item.id
 
     # collection
-    collection = None
+    collection_id: Optional[str] = None
     try:
-        collection = item.collection
+        _coll: Any = item.collection
+        if _coll is None:
+            collection_id = None
+        elif hasattr(_coll, "id"):
+            collection_id = _coll.id
+        else:
+            collection_id = str(_coll)
     except Exception:
-        collection = item.properties.get("collection") if item.properties else None
+        collection_id = item.properties.get("collection") if item.properties else None
 
     # platform from properties if present
     platform = item.properties.get("platform") if item.properties else None
@@ -1149,7 +1166,8 @@ def product_item_from_stac(
         geom = item.geometry
 
     # temporal
-    start_time = item.datetime if hasattr(item, "datetime") else item.properties.get("start_datetime")
+    raw_start = item.datetime if hasattr(item, "datetime") else (item.properties.get("start_datetime") if item.properties else None)
+    start_time: Union[dt.datetime, str] = raw_start if isinstance(raw_start, (dt.datetime, str)) else (str(raw_start) if raw_start is not None else "")
     stop_time = None
     if item.properties:
         stop_time = (
@@ -1194,14 +1212,15 @@ def product_item_from_stac(
 
     prod_dict = item.to_dict() if hasattr(item, "to_dict") else item.properties
 
+    stop_time_str: Union[dt.datetime, str] = stop_time if isinstance(stop_time, (dt.datetime, str)) else (str(stop_time) if stop_time is not None else "")
     return ProductItem(
         constellation=constellation or "",
         platform=platform or "",
-        collection=collection or "",
+        collection=collection_id or "",
         id=pid,
         geometry=geom,
         start_time=start_time,
-        stop_time=stop_time,
+        stop_time=stop_time_str,
         prod_dict=prod_dict,
         filter_dict={},
         url=url,
@@ -1226,7 +1245,7 @@ def from_stac(cls, item_or_path: Union[str, "pystac.Item"], context: Optional[Sc
 setattr(ProductItem, "from_stac", classmethod(from_stac))
 
 
-def open_product_item_set(path: str, filesystem: str = None, api: str = "eodag") -> ProductItemSet:
+def open_product_item_set(path: str, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItemSet:
     """
     Returns ProductItemSet object from JSON file
 
@@ -1243,7 +1262,7 @@ def open_product_item_set(path: str, filesystem: str = None, api: str = "eodag")
 
 
 def product_item_set_from_dict(
-    product_item_set_dict: dict, filesystem: str = None, api: str = "eodag"
+    product_item_set_dict: dict, filesystem: Optional[str] = None, api: str = "eodag"
 ) -> ProductItemSet:
     """
     Returns ProductItemSet object from defining dictionary

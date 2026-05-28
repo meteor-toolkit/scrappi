@@ -33,10 +33,10 @@ class InSituCallHandler(BaseAPICallHandler):
 
     name: str
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None, roi_dict: dict = None):
+    def __init__(self, context: Optional[Union[str, List, Context]] = None, roi_dict: Optional[dict] = None):
         super().__init__(context)
-        self.roi_dict = roi_dict
-        self.sites = list(roi_dict.keys())
+        self.roi_dict: dict = roi_dict if roi_dict is not None else {}
+        self.sites = list(self.roi_dict.keys())
 
     def get_roi_shapely(self, site: str):
         return convert_geom_shapely(self.roi_dict[site])
@@ -68,7 +68,7 @@ class InSituCallHandler(BaseAPICallHandler):
         pass
 
     @abstractmethod
-    def perform_query(self, query: dict) -> list:
+    def perform_query(self, query: dict) -> ProductItemSet:
         """
         Return catalogue product objects that satisfy query
 
@@ -78,15 +78,19 @@ class InSituCallHandler(BaseAPICallHandler):
         pass
 
     @abstractmethod
-    def download_file(self, prod: ProductItem, dest: str) -> None:
+    def download_file(
+        self,
+        prod: Union[str, ProductItem],
+        dest: Optional[Union[str, BaseFileSystem]] = None,
+    ) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth
-        :param prod: rcn ProductItem
-        :param dest: destination folder for downloaded file
+        :param prod: ProductItem
+        :param dest: destination folder for downloaded file or filesystem
         """
         pass
 
-    def download_product(self, product: Union[ProductItemSet, ProductItem]) -> Union[list, str]:
+    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -113,6 +117,8 @@ class InSituCallHandler(BaseAPICallHandler):
                 print(f"{product.id} needs downloading")
                 return self.download_file(product, path)
 
+        return None
+
 
 class InSituOfflineCallHandler(InSituCallHandler):
     """
@@ -126,7 +132,7 @@ class InSituOfflineCallHandler(InSituCallHandler):
     """
 
     @abstractmethod
-    def perform_query(self, query: dict) -> list:
+    def perform_query(self, query: dict) -> ProductItemSet:
         """
         Return catalogue product objects that satisfy query
 
@@ -138,7 +144,7 @@ class InSituOfflineCallHandler(InSituCallHandler):
     def download_file(
         self,
         product: Union[str, ProductItem],
-        fs: Optional[Union[None, str, BaseFileSystem]] = None,
+        fs: Optional[Union[str, BaseFileSystem]] = None,
     ) -> Union[list, str]:
         """
         return path to product for the provided filesystem (one could also just use the ProductItem.get_path() function
@@ -147,6 +153,8 @@ class InSituOfflineCallHandler(InSituCallHandler):
         :param fs: filesystem (can be path or file system object (BaseFileSystem)). Defaults to None, in which case product.filesystem is used.
         :returns: path (or list of paths) to the relevant file(s)
         """
+        if not isinstance(product, ProductItem):
+            raise TypeError("product must be a ProductItem for InSituOfflineCallHandler.download_file")
         if fs is not None:
             product.move_product(fs, copy=True)
 

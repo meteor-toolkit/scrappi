@@ -17,7 +17,7 @@ import numpy as np
 import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon, Point
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Any, Optional, Union, List
 
 from processor_tools import Context
 
@@ -168,7 +168,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"])
         ]
 
-    def _perform_query(self, query: dict) -> list:
+    def _perform_query(self, query: dict) -> Any:
         """
         Return catalogue product SearchResults that satisfy query
 
@@ -193,7 +193,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         except Exception as e:
             print(f"Error updating providers config: {e}")
 
-        products = self.dag.search_all(**eodag_query)
+        products: Any = self.dag.search_all(**eodag_query)
 
         if "geom" not in eodag_query.keys():
             return products
@@ -334,7 +334,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise NotImplementedError("The platform for this query is not found.")
 
-    def find_start_time(self, prod_dict: dict) -> dt.datetime:
+    def find_start_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
         """
         Function to find the best start time for a scene (depends on information provided by provider).
 
@@ -350,7 +350,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise ValueError("start time not found in product dictionary")
 
-    def find_stop_time(self, prod_dict: dict) -> dt.datetime:
+    def find_stop_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
         """
         Function to find the best end time for a scene (depends on information provided by provider).
 
@@ -537,8 +537,8 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[ProductItem, ProductItemSet],
-    ) -> Union[list, str]:
+        product: Union[str, ProductItem, ProductItemSet],
+    ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
 
@@ -621,6 +621,8 @@ class EODAGCallHandler(BaseAPICallHandler):
 
                 return self._download_product_EOProduct(searchresult[correct_ids[0]], os.path.dirname(path))
 
+            return None
+
         else:
             raise ValueError(
                 "products are not in the right format for download by scrappi eodag (ProductItem, ProductItemSet)"
@@ -631,7 +633,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         product: Union[str, List],
         provider: Optional[str] = None,
         fs: Optional[BaseFileSystem] = None,
-    ) -> Union[list, str]:
+    ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
 
@@ -648,9 +650,9 @@ class EODAGCallHandler(BaseAPICallHandler):
         from scrappi import make_fs
 
         if fs:
-            fs = make_fs(fs)
+            resolved_fs = make_fs(fs.directory, self.context)
         else:
-            fs = make_fs(context=self.context)
+            resolved_fs = make_fs(context=self.context)
 
         # next perform download based on type of product provided
         if product is None:
@@ -658,27 +660,30 @@ class EODAGCallHandler(BaseAPICallHandler):
             return None
 
         elif isinstance(product, str):
-            provider = self.context["api"]["preferred_provider"]
-            if provider is None:
-                provider = ["peps", "usgs"]
-
-            if not isinstance(provider, list):
-                provider = [provider]
+            preferred: Any = self.context["api"]["preferred_provider"]
+            providers: List[str]
+            if preferred is None:
+                providers = ["peps", "usgs"]
+            elif isinstance(preferred, list):
+                providers = preferred
+            else:
+                providers = [preferred]
 
             found = False
-            for prov in provider:
+            eoprod: Any = None
+            for prov in providers:
                 product_prov = self.dag.search(id=product, provider=prov)
                 if len(product_prov) > 0:
                     found = True
-                    product = product_prov[0]
+                    eoprod = product_prov[0]
 
             if not found:
-                warnings.warn("No product was found for %s for these providers (%s)" % (product, provider))
+                warnings.warn("No product was found for %s for these providers (%s)" % (product, providers))
                 return None
 
-            path = fs.directory
+            path = resolved_fs.directory
 
-            return self._download_product_EOProduct(product, path)
+            return self._download_product_EOProduct(eoprod, path)
 
         else:
             raise ValueError("products are not in the right format for filename download by scrappi eodag (str)")

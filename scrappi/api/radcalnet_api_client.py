@@ -16,7 +16,7 @@ import platform
 import datetime as dt
 import requests
 from shapely.geometry import Polygon
-from typing import Optional, Any, Union, List
+from typing import Dict, Optional, Any, Union, List
 import warnings
 import numpy as np
 import socket
@@ -43,7 +43,7 @@ class RadcalnetCallHandler(InSituCallHandler):
     """
 
     url_base: str = "https://www.radcalnet.org/api/json/"
-    DEFAULT_SITE_DEFINITIONS: dict[str : dict[str:float]] = {
+    DEFAULT_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = {
         "GONA": {
             "latitude": -23.600200982764363,
             "longitude": 15.119555974379182,
@@ -58,7 +58,7 @@ class RadcalnetCallHandler(InSituCallHandler):
             "default_roi": 500,
         },  # default_roi values are 1/2 side len
     }
-    _default_geometries: dict[str:Polygon] = {}
+    _default_geometries: Dict[str, Polygon] = {}
 
     COLLECTIONS = ["RCN_TOA", "RCN_BOA"]
 
@@ -98,10 +98,11 @@ class RadcalnetCallHandler(InSituCallHandler):
                 self.session = requests.session()
                 self.session.auth = (username, password)
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
         Function to extract collection identifiers
 
+        :param fetch_update: unused; included for API compatibility
         :return: list of collection identifiers
         """
         return self.COLLECTIONS
@@ -111,7 +112,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         :return: iterable of site identifiers (e.g. 'GONA', 'BTCN')
         """
-        return self.DEFAULT_SITE_DEFINITIONS.keys()
+        return list(self.DEFAULT_SITE_DEFINITIONS.keys())
 
     def perform_query(
         self,
@@ -131,7 +132,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         if date1 > date2:
             warnings.warn("the query stop_time was after the start_time")
-            return []
+            return ProductItemSet()
 
         filelist = self.get_files_list(query["site"], query["collection"], date1, date2)
 
@@ -174,12 +175,13 @@ class RadcalnetCallHandler(InSituCallHandler):
         tz2 = getattr(date2, "tzinfo", None)
         baseline1 = dt.datetime(date1.year, 1, 1, 0, 0, tzinfo=tz1)
         baseline2 = dt.datetime(date2.year, 1, 1, 0, 0, tzinfo=tz2)
-        doy1 = (date1 - baseline1).days
-        doy2 = (date2 - baseline2).days
+        doy1: int = (date1 - baseline1).days
+        doy2: int = (date2 - baseline2).days
 
         if date1.year == date2.year:
             if year == date1.year and doy1 <= doy <= doy2:
                 return True
+            return False
 
         elif date1.year == year and doy1 <= doy:
             return True
@@ -202,7 +204,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         raise NotImplementedError("not currently available for rcn files")
 
-    def download_metadata(self, product, path: str) -> Optional[list[Any]]:
+    def download_metadata(self, product, path: Optional[Union[str, Any]] = None) -> None:
         """
         Download catalogue product(s) metadata at defined URL to local path
 
@@ -213,23 +215,28 @@ class RadcalnetCallHandler(InSituCallHandler):
         # metadata is included in the rcn file instead
         raise NotImplementedError("not currently available for rcn files")
 
-    def download_file(self, prod: ProductItem, dest: str) -> None:
+    def download_file(self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: rcn ProductItem
         :param dest: destination folder for downloaded file
         """
+        if not isinstance(prod, ProductItem):
+            raise TypeError("prod must be a ProductItem for RadcalnetCallHandler.download_file")
+        if dest is None:
+            raise ValueError("dest must be provided")
+        dest_str = str(dest)
         filename = prod.id
         site = prod.platform
         url = self.url_base + site + "/data/" + filename
-        if not os.path.exists(os.path.dirname(dest)):
-            os.makedirs(os.path.dirname(dest))
+        if not os.path.exists(os.path.dirname(dest_str)):
+            os.makedirs(os.path.dirname(dest_str))
         with self.session.get(url, stream=True) as r:
             r.raise_for_status()
-            with open(dest, "wb") as f:
+            with open(dest_str, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
-        return os.path.join(dest, os.path.basename(url))
+        return os.path.join(dest_str, os.path.basename(url))
 
     def get_files_list(self, site: str, collection: str, start_date: dt.date, end_date: dt.date) -> list:
         """
@@ -273,7 +280,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         site_instrument, year, doy, version = filename.split("_")
         return (site_instrument, int(year), int(doy), version)
 
-    def set_default_site_definitions(self, ROI: dict[str : Union[int, float]]) -> None:
+    def set_default_site_definitions(self, ROI: Dict[str, Union[int, float]]) -> None:
         """
         :param ROI: dictionary ROIs per site
         """
@@ -287,7 +294,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         convert site lat/lon and ROI into Polygons
         """
-        _default_geometries: dict[str:Polygon] = {}
+        _default_geometries: Dict[str, Polygon] = {}
         for site, definition in self.DEFAULT_SITE_DEFINITIONS.items():
             self._default_geometries[site] = convert_geom_shapely(
                 generate_bounding_lat_lon(
@@ -327,4 +334,4 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         :param query: catalogue query
         :returns: ProductItemSet satisfying query
         """
-        pass
+        raise NotImplementedError("RadcalnetOfflineCallHandler.perform_query is not yet implemented")

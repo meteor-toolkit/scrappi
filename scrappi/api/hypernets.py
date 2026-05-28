@@ -8,7 +8,7 @@ and resolve product downloads.
 import os
 
 from shapely.geometry import Polygon
-from typing import Optional, Union, List
+from typing import Any, Dict, Optional, Union, List
 from processor_tools import Context
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
@@ -65,10 +65,10 @@ class HYPERNETSCallHandler(InSituCallHandler):
     """
 
     name = "hypernets"
-    sites: list[str] = HYPERNETS_DEFAULT_ROI.keys()
+    sites: List[str] = list(HYPERNETS_DEFAULT_ROI.keys())
     DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
-    collections: list[str] = COLLECTIONS
-    _default_geometries: dict[str:Polygon] = {}
+    collections: List[str] = COLLECTIONS
+    _default_geometries: Dict[str, Polygon] = {}
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, api_key=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
@@ -100,11 +100,11 @@ class HYPERNETSCallHandler(InSituCallHandler):
         """
         return prod_dict["site_id"]
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
         Function to extract collection identifier
 
-        :param prod_dict: product dictionary
+        :param fetch_update: unused; included for API compatibility
         :return: collection identifier
         """
         return self.collections
@@ -186,21 +186,25 @@ class HYPERNETSCallHandler(InSituCallHandler):
 
         return ProductItemSet(product_list)
 
-    def download_file(self, prod: ProductItem, dest: str) -> None:
+    def download_file(self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth
-        :param prod: rcn ProductItem
+        :param prod: HYPERNETS ProductItem
         :param dest: destination folder for downloaded file
         """
+        if not isinstance(prod, ProductItem):
+            raise TypeError("prod must be a ProductItem")
+        if dest is None:
+            raise ValueError("dest must be provided")
+        dest_str = str(dest)
+        href: str = prod.url or ""
 
-        href = prod.url
+        if not os.path.exists(os.path.dirname(dest_str)):
+            os.makedirs(os.path.dirname(dest_str))
 
-        if not os.path.exists(os.path.dirname(dest)):
-            os.makedirs(os.path.dirname(dest))
+        self.api.client.download_asset(href, os.path.dirname(dest_str))
 
-        self.api.client.download_asset(href, os.path.dirname(dest))
-
-        return os.path.join(dest, os.path.basename(href))
+        return os.path.join(dest_str, os.path.basename(href))
 
 
 class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
@@ -212,10 +216,10 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     """
 
     name = "hypernets_offline"
-    sites: list[str] = HYPERNETS_DEFAULT_ROI.keys()
+    sites: List[str] = list(HYPERNETS_DEFAULT_ROI.keys())
     DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
-    collections: list[str] = COLLECTIONS
-    _default_geometries: dict[str:Polygon] = {}
+    collections: List[str] = COLLECTIONS
+    _default_geometries: Dict[str, Polygon] = {}
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
@@ -246,11 +250,11 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         """
         return prod_dict["site_id"]
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
         Function to extract collection identifier
 
-        :param prod_dict: product dictionary
+        :param fetch_update: unused; included for API compatibility
         :return: collection identifier
         """
         return self.collections
@@ -324,7 +328,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         :param prod_dict: eodag product dictionary
         :return: dictionary with filter attributes
         """
-        filter_dict = {}
+        filter_dict: Dict[str, Any] = {}
 
         return filter_dict
 

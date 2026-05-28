@@ -12,7 +12,7 @@ import shapely.wkt
 import pystac
 
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet
+from scrappi.product import ProductItem, ProductItemSet, product_item_from_stac
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.stac_href_resolver import StacHrefResolver
 
@@ -132,7 +132,7 @@ class STACAPICallHandler(BaseAPICallHandler):
 
                 # ---- convert to ProductItem ----
                 try:
-                    pi = ProductItem.from_stac(item, self.context)
+                    pi = product_item_from_stac(item, self.context)
                     matches.append(pi)
                 except Exception:
                     continue

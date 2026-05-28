@@ -46,7 +46,7 @@ if not config_init.is_initialised():
 
 
 class ScrappiContext(Context):
-    default_config: Optional[Union[str, List[str]]] = None
+    default_config: Optional[Union[str, List[Any]]] = None
 
     def __init__(self, context: Optional[Union[dict, str]] = None):
         self.default_config = [

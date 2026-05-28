@@ -55,7 +55,7 @@ Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
 
 
-def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> List[dict]:
+def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
     """
     Function to parse individual queries that scrappi should run from the output of orbitx
 
@@ -135,7 +135,7 @@ def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> List[dict]:
     return queries1, queries2, indices
 
 
-def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContext = None) -> Optional[Union[str, list]]:
+def get_api_name(collection: str, all_apis: bool = False, context: Optional[ScrappiContext] = None) -> Optional[Union[str, list]]:
     """
     Return name of API call handler capable of reading in desired satellite collection.
     If preferred_api is set in context, this is returned.
@@ -191,7 +191,7 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
         return context["api"]["preferred_api"]
 
 
-def list_collections(guess: Optional[str] = None, context: ScrappiContext = None):
+def list_collections(guess: Optional[str] = None, context: Optional[ScrappiContext] = None):
     """
     Return a list of accepted collection strings
     which can be used to query products
@@ -213,7 +213,7 @@ def list_collections(guess: Optional[str] = None, context: ScrappiContext = None
     return sorted(list(set(products)))
 
 
-def make_api(api: str = None, context: ScrappiContext = None):
+def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None):
     """
     Return specified API call handler
 
@@ -230,7 +230,7 @@ def make_api(api: str = None, context: ScrappiContext = None):
     return Factory.get_api_call_handler(api, context)
 
 
-def make_fs(fs: str = None, context: ScrappiContext = None):
+def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     """
     Return specified file system call handler.
 
@@ -247,7 +247,7 @@ def make_fs(fs: str = None, context: ScrappiContext = None):
     return FSFactory.get_fs_call_handler(fs, context)
 
 
-def perform_query(query: dict, context: ScrappiContext = None) -> ProductItemSet:
+def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> ProductItemSet:
     """
     Return catalogue product url(s) that satisfy query
 
@@ -276,11 +276,14 @@ def perform_query(query: dict, context: ScrappiContext = None) -> ProductItemSet
     apis = get_api_name(query["collection"], context=context, all_apis=True)
 
     # run query for different apis until results found
-    for api in apis:
-        api = make_api(api, context)
-        products = api.perform_query(query)
+    api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+    for api in api_list:
+        api_handler = make_api(api, context)
+        products = api_handler.perform_query(query)
         if len(products) > 0:
             return products
+
+    return ProductItemSet()
 
 
 def is_insitu_collection(collection: str) -> bool:
@@ -305,7 +308,7 @@ def is_insitu_collection(collection: str) -> bool:
         return False
 
 
-def set_credentials(api: str, credentials: dict, context: ScrappiContext = None, provider: Optional[str] = None):
+def set_credentials(api: str, credentials: dict, context: Optional[ScrappiContext] = None, provider: Optional[str] = None):
     """
     Set credentials for a given API
 
@@ -344,7 +347,7 @@ def update_context_file(context_update: dict):
     return context
 
 
-def download_product(product: Union[ProductItem, ProductItemSet], context: ScrappiContext = None):
+def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
@@ -357,7 +360,10 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Scrap
         return None
 
     if not isinstance(context, ScrappiContext):
-        context = product.context
+        if isinstance(product, ProductItem):
+            context = product.context
+        else:
+            context = ScrappiContext()
 
     if isinstance(product, ProductItemSet):
         return [p.download_product(context=context) for p in product]
@@ -370,10 +376,11 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Scrap
             return path
 
     apis = get_api_name(product.collection, context=context, all_apis=True)
+    download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
 
-    for api in apis:
-        api = make_api(api, context=context)
-        download_path = api.download_product(product)
+    for api in download_apis:
+        api_handler = make_api(api, context=context)
+        download_path = api_handler.download_product(product)
         if download_path is not None:
             # After successful download, attempt to register the product in filesystem STAC catalogs
             try:
@@ -408,7 +415,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Scrap
 
 def download_product_filename(
     product: Union[str, List],
-    context: ScrappiContext = None,
+    context: Optional[ScrappiContext] = None,
 ):
     """
     Download catalogue product(s), provided as filename string, to file system path
@@ -418,18 +425,20 @@ def download_product_filename(
 
     :return product paths of downloaded products
     """
+    if context is None:
+        context = ScrappiContext()
     api = context["api"]["preferred_api"]
-    api = make_api(api, context=context)
-    func = getattr(api, "download_product_filename", None)
+    api_handler = make_api(api, context=context)
+    func = getattr(api_handler, "download_product_filename", None)
     if callable(func):
-        return api.download_product_filename(product, context=context)
+        return api_handler.download_product_filename(product, context=context)
     else:
-        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api)
+        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api_handler)
 
 
 def download_product_scene(
     product: Union[str, List],
-    context: ScrappiContext = None,
+    context: Optional[ScrappiContext] = None,
 ):
     """
     Download catalogue product(s), provided as scene_id (url field in ProductItem) string, to file system path
@@ -438,13 +447,15 @@ def download_product_scene(
     :param context: Context object (user provided configuration values or scrappi default)
     :return product paths of downloaded products
     """
+    if context is None:
+        context = ScrappiContext()
     api = context["api"]["preferred_api"]
-    api = make_api(api, context=context)
-    func = getattr(api, "download_product_scene", None)
+    api_handler = make_api(api, context=context)
+    func = getattr(api_handler, "download_product_scene", None)
     if callable(func):
-        return api.download_product_scene(product, context=context)
+        return api_handler.download_product_scene(product, context=context)
     else:
-        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api)
+        raise NotImplementedError("download_product_filename is not implemented for this api (%s)" % api_handler)
 
 
 # def download_metadata(
@@ -491,12 +502,13 @@ def make_query_with_tolerance(
     :return:
     """
     # initialise query dictionary
+    query: Dict[str, Any]
     if isinstance(collection, str):
-        query: Dict[str, Any] = {
+        query = {
             "collections": [collection],
         }
     else:
-        query: Dict[str, Any] = {
+        query = {
             "collections": collection,
         }
     # convert datetime format
@@ -546,7 +558,7 @@ def make_query_with_tolerance(
 
 
 def make_query_start_stop(
-    collection: str,
+    collection: Union[str, List[str]],
     latitude_start: Union[float, int],
     longitude_start: Union[float, int],
     latitude_stop: Union[float, int],

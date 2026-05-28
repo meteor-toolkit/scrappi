@@ -7,6 +7,7 @@ the STAC integration in scrappi.
 """
 
 import os
+from typing import Optional
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.product import ProductItem
 from scrappi import ScrappiContext
@@ -31,8 +32,8 @@ class STACFileSystem(LocalFileSystem):
     def __init__(
         self,
         path: str = "./",
-        path_stac: str = None,
-        context: ScrappiContext = None,
+        path_stac: Optional[str] = None,
+        context: Optional[ScrappiContext] = None,
     ):
         if not context:
             context = ScrappiContext()

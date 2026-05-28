@@ -187,7 +187,7 @@ class BaseAPICallHandler(ABC):
     def download_product(
         self,
         product: Union[str, ProductItem, ProductItemSet],
-    ) -> Union[list, str]:
+    ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) at defined URL to local path
 

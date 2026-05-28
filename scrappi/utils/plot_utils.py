@@ -2,7 +2,7 @@
 
 from typing import Tuple, Union, Optional
 import matplotlib.ticker as mticker
-from matplotlib.axes import Axes
+from cartopy.mpl.geoaxes import GeoAxes
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
@@ -87,7 +87,7 @@ def pad_plot_bounds(
     )
 
 
-def prepare_map_plot(ax: Axes, tick_step: Optional[float] = None, redo=False) -> None:
+def prepare_map_plot(ax: GeoAxes, tick_step: Optional[float] = None, redo=False) -> None:
     """
     Configures style of plot on map
 
@@ -150,8 +150,8 @@ def prepare_map_plot(ax: Axes, tick_step: Optional[float] = None, redo=False) ->
         gl.xformatter = LONGITUDE_FORMATTER
         gl.yformatter = LATITUDE_FORMATTER
 
-        gl.xlocator = mticker.FixedLocator(x_tick_locs)
-        gl.ylocator = mticker.FixedLocator(y_tick_locs)
+        gl.xlocator = mticker.FixedLocator(x_tick_locs.tolist())
+        gl.ylocator = mticker.FixedLocator(y_tick_locs.tolist())
 
         # Add labels
         ax.text(

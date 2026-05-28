@@ -9,7 +9,7 @@ import time
 import numpy as np
 import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon
-from typing import Optional, Union, List
+from typing import Any, Optional, Union, List
 
 from processor_tools import Context
 
@@ -282,7 +282,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         else:
             raise ValueError("version not found in product dictionary")
 
-    def find_start_time(self, prod_dict: dict) -> dt.datetime:
+    def find_start_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
         """
         Function to find the best start time for a scene (depends on information provided by provider).
 
@@ -294,7 +294,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         else:
             raise ValueError("start time not found in product dictionary")
 
-    def find_stop_time(self, prod_dict: dict) -> dt.datetime:
+    def find_stop_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
         """
         Function to find the best end time for a scene (depends on information provided by provider).
 
@@ -371,8 +371,8 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[ProductItem, ProductItemSet],
-    ) -> Union[list, str]:
+        product: Union[str, ProductItem, ProductItemSet],
+    ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
 
@@ -410,6 +410,8 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
                     return self._download_product_DataGranule(url, os.path.dirname(path), product.id)
 
+            return None
+
         else:
             raise ValueError(
                 "products are not in the right format for download by scrappi earthaccess (ProductItem, ProductItemSet)"
@@ -419,7 +421,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         self,
         product: Union[str, List],
         fs: Optional[BaseFileSystem] = None,
-    ) -> Union[list, str]:
+    ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
 
@@ -434,9 +436,9 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         from scrappi import make_fs
 
         if fs:
-            fs = make_fs(fs)
+            resolved_fs = make_fs(fs.directory, self.context)
         else:
-            fs = make_fs(context=self.context)
+            resolved_fs = make_fs(context=self.context)
 
         # next perform download based on type of product provided
         if product is None:
@@ -445,10 +447,11 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, str):
             found = False
+            ea_product: Any = None
             product_prov = earthaccess.search_data(granule_name=product)
             if len(product_prov) > 0:
                 found = True
-                product = product_prov[0]
+                ea_product = product_prov[0]
 
             if not found:
                 warnings.warn(
@@ -457,10 +460,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 )
                 return None
 
-            path = fs.directory
+            path = resolved_fs.directory
 
             return self._download_product_DataGranule(
-                product, path, product["DataGranule"]["Identifiers"][0]["Identifier"]
+                ea_product, path, ea_product["DataGranule"]["Identifiers"][0]["Identifier"]
             )
 
         else:

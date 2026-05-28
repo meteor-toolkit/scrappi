@@ -15,6 +15,7 @@ __author__ = [
 __all__ = ["APICallHandlerFactory"]
 
 
+from typing import Optional
 from scrappi import ScrappiContext
 from scrappi.api.eodag import EODAGCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
@@ -35,7 +36,7 @@ class APICallHandlerFactory:
     def __init__(self):
         self.api_call_handlers = API_CALL_HANDLERS
 
-    def get_api_call_handler(self, name: str, context: ScrappiContext = None):
+    def get_api_call_handler(self, name: str, context: Optional[ScrappiContext] = None):
         """
         Return specified API call handler
 
