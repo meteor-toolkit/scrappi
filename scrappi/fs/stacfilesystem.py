@@ -7,9 +7,6 @@ the STAC integration in scrappi.
 """
 
 import os
-from pathlib import Path
-from urllib.parse import urljoin
-from typing import Optional, Union, Any, List, Tuple
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.product import ProductItem
 from scrappi import ScrappiContext

@@ -14,7 +14,6 @@ __author__ = [
 ]
 __all__ = ["APICallHandlerFactory"]
 
-from processor_tools import context
 
 from scrappi import ScrappiContext
 from scrappi.api.eodag import EODAGCallHandler

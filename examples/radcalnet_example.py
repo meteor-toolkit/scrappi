@@ -41,8 +41,8 @@ if __name__ == "__main__":
         "stop_time": end,
     }
 
-    api=get_api_name("RCN_BOA")
-    api=make_api(api)
+    api = get_api_name("RCN_BOA")
+    api = make_api(api)
     api.get_roi("GONA")
 
     products = perform_query(query, context)

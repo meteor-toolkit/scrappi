@@ -6,22 +6,14 @@ and resolve product downloads.
 """
 
 import os
-import re
-import csv
-import warnings
 
-import shapely
-import shapely.wkt
 from shapely.geometry import Polygon
-import datetime as dt
-import requests
-from typing import Optional, Union, Any, List, Tuple
+from typing import Optional, Union, List
 from processor_tools import Context
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import *
-from scrappi.fs.base import BaseFileSystem
+from scrappi.utils.utils import generate_bounding_lat_lon
 from scrappi.fs.localfilesystem import LocalFileSystem
 
 __author__ = [

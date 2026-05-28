@@ -9,7 +9,10 @@ with helpers for filtering, sorting and STAC materialisation.
 
 import warnings
 import json
-from typing import Dict, Any, Optional, Sequence, Union, List, Tuple, NamedTuple
+from typing import TYPE_CHECKING, Dict, Any, Optional, Sequence, Union, List, Tuple
+
+if TYPE_CHECKING:
+    from scrappi.fs.stacfilesystem import STACFileSystem
 from typing_extensions import Self
 import datetime as dt
 import shapely as sh
@@ -283,7 +286,7 @@ class ProductItem:
 
         # Filesystem locations (only used for writing)
         stac_root = Path(fs.stac_root)
-        data_root = Path(fs.data_root)
+        _data_root = Path(fs.data_root)
 
         item_path = fs.return_stac_item_path(self)
         collection_json = stac_root / self.collection / "collection.json"
@@ -335,7 +338,7 @@ class ProductItem:
         item.save_object(dest_href=item_path)
 
         # ---------------- Link item from collection ----------------
-        if not any(l.rel == "item" and l.target == item.get_self_href() for l in collection.links):
+        if not any(link.rel == "item" and link.target == item.get_self_href() for link in collection.links):
             collection.add_link(
                 pystac.Link(
                     rel="item",
@@ -354,7 +357,7 @@ class ProductItem:
         StacHrefResolver.write_stac_object(collection, collection_json)
 
         # ---------------- Link collection from root ----------------
-        if not any(l.rel == "child" and l.target == collection.get_self_href() for l in root.links):
+        if not any(link.rel == "child" and link.target == collection.get_self_href() for link in root.links):
             root.add_link(
                 pystac.Link(
                     rel="child",
@@ -480,7 +483,7 @@ class ProductItem:
         else:
             try:
                 self._geometry = Polygon(self._geometry)
-            except:
+            except Exception:
                 raise ValueError("Unable to form <shapely.Polygon> from geometry")
 
         return self._geometry
@@ -846,10 +849,9 @@ class ProductItemSet:
         :param root_stac_dir_name: name of folder under filesystem.directory to store STAC data
         :param overwrite: pass to item registration to overwrite existing item JSONs
         """
-        root_catalog_path = None
         for p in self:
             fs = filesystem if filesystem is not None else p.filesystem
-            item_path = p.register_in_filesystem_catalog(filesystem=fs, overwrite=overwrite)
+            p.register_in_filesystem_catalog(filesystem=fs, overwrite=overwrite)
 
     @property
     def collections(self) -> List[str]:

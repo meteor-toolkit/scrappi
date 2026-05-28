@@ -117,7 +117,7 @@ testpaths = [
 
 [tool.ruff]
 line-length = 120
-exclude = ["docs"]
+exclude = ["docs", "examples"]
 
 [tool.ruff.lint]
 extend-ignore = ["W291"]

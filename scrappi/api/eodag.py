@@ -5,12 +5,9 @@ This module provides `EODAGCallHandler`, an implementation of
 satellite products from supported providers.
 """
 
-import datetime
 import os
 import shutil
-import re
 import warnings
-import yaml
 import requests
 import shapely
 import shapely.wkt
@@ -18,10 +15,9 @@ import shapely.geometry
 import time
 import numpy as np
 import datetime as dt
-from packaging.version import Version
 from shapely.geometry import Polygon, MultiPolygon, Point
 from pathlib import Path
-from typing import Optional, Union, List, cast
+from typing import Optional, Union, List
 
 from processor_tools import Context
 
@@ -30,11 +26,7 @@ from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
 from eodag import setup_logging, EODataAccessGateway, SearchResult, EOProduct
 from eodag import __version__ as eodag_version
-from eodag.plugins.apis.base import Api
-from eodag import config as eodagconfig
-from scrappi.utils.utils import *
-import matplotlib.pyplot as plt
-from scrappi import ScrappiContext
+from scrappi.utils.utils import validate_product_download, normalize_product_path, add_seconds_to_datetime
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -480,7 +472,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         )
                         if path_out.split(".")[-1] == "zip":
                             if not product_title.split(".")[-1] == "zip":
-                                warnings.warn(f"Adding .zip to the product title (returned downloaded file has .zip)")
+                                warnings.warn("Adding .zip to the product title (returned downloaded file has .zip)")
                                 product_title += ".zip"
 
                 path_out = Path(path_out)
@@ -504,7 +496,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                     print(files)
                     if len(files) == 1:
                         warnings.warn(
-                            f"Downloaded product is a directory containing only one file. Moving this file to the expected location and removing the directory."
+                            "Downloaded product is a directory containing only one file. Moving this file to the expected location and removing the directory."
                         )
                         shutil.move(
                             os.path.join(path, product_title, files[0]),
@@ -522,7 +514,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         Set the output directory for the provider of the EOProduct.
         This is necessary to ensure that the downloaded files are stored in the correct location.
         """
-        provider_config = self.dag.providers.configs[eoprod.provider]
+        _provider_config = self.dag.providers.configs[eoprod.provider]
         output_dir = os.path.dirname(path)
 
         # Try to set api.output_dir
@@ -599,7 +591,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         self.dag._setup_downloader(eoprod)
                         self._set_provider_output_dir(eoprod, path)
                         return self._download_product_EOProduct(eoprod, os.path.dirname(path))
-                    except:
+                    except Exception:
                         print("Could not create EOProduct from prod_dict, trying search method.")
                         pass
 
@@ -637,6 +629,7 @@ class EODAGCallHandler(BaseAPICallHandler):
     def download_product_filename(
         self,
         product: Union[str, List],
+        provider: Optional[str] = None,
         fs: Optional[BaseFileSystem] = None,
     ) -> Union[list, str]:
         """
@@ -695,7 +688,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         Check the version of eodag being used and warn if it differs from the latest version on PyPI.
         """
 
-        url = f"https://pypi.org/pypi/eodag/json"
+        url = "https://pypi.org/pypi/eodag/json"
 
         try:
             resp = requests.get(url, timeout=2)

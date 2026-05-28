@@ -6,14 +6,8 @@ the STAC filesystem behaviour for read-only archives.
 """
 
 import os
-import re
-import csv
-import datetime as dt
-import requests
-from typing import Optional, Union, Any, List, Tuple
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItem
-import socket
 from scrappi import ScrappiContext
 
 __author__ = [

@@ -1,8 +1,19 @@
 """scrappi.tests.test_product - tests for scrappi.product"""
 
+import json
 import unittest
+import string
+import random
+import os
+import shutil
+import socket
+from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import unittest.mock as mock
+from matplotlib import pyplot as plt
+from shapely.geometry import Polygon, box
 from scrappi.product import (
     ProductItem,
     ProductItemSet,
@@ -11,21 +22,12 @@ from scrappi.product import (
     product_item_from_dict,
     product_item_set_from_dict,
 )
-from shapely.geometry import Polygon
 from scrappi.api.eodag import EODAGCallHandler
-from eodag import EOProduct
-from processor_tools.utils.formatters import convert_datetime
-
-from datetime import datetime
-from matplotlib import pyplot as plt
+from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.tdrive import TdriveFileSystem
 from scrappi.fs.localfilesystem import LocalFileSystem
-from typing import Dict, Union
-import string
-import random
-import os
-import shutil
-import socket
+from eodag import EOProduct
+from processor_tools.utils.formatters import convert_datetime
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -297,7 +299,7 @@ class TestProductItem(unittest.TestCase):
 
     def test_open_product_item(self):
         tmp_json_path = os.path.join(self.tmp_dir_path, "pi.json")
-        p_dict = self.p.to_json(tmp_json_path)
+        self.p.to_json(tmp_json_path)
 
         p = open_product_item(tmp_json_path)
 
@@ -400,7 +402,7 @@ class TestProductItem(unittest.TestCase):
             fake_eoprod.as_dict.return_value = {"id": self.p.id}
             mock_perform_query.return_value = [fake_eoprod]
 
-            product = self.p.download_product()
+            self.p.download_product()
             assert mock_download_EOProduct.call_args_list[0][0][0].as_dict()["id"] == self.p.id
 
     def test_set_fs(self):
@@ -454,7 +456,7 @@ class TestProductItem(unittest.TestCase):
 
 class TestProductItemSet(unittest.TestCase):
     def setUp(self) -> None:
-        s2_product = ProductItem(
+        _s2_product = ProductItem(
             constellation=S2_PRODUCT_EXAMPLE["constellation"],
             platform=S2_PRODUCT_EXAMPLE["platform"],
             collection=S2_PRODUCT_EXAMPLE["collection"],
@@ -928,13 +930,9 @@ class TestProductItemSet(unittest.TestCase):
     def test_download_product(self):
         ps = ProductItemSet(self.products)
         ps.set_fs("t-drive")
-        example_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "examples",
-        )
         ps.set_fs(self.tmp_dir_path)
         with mock.patch.object(EODAGCallHandler, "download_product") as mock_download_EOProduct:
-            product = ps.download_product()
+            ps.download_product()
             assert mock_download_EOProduct.call_args_list[0][0][0].id == ps[0].id
 
     def test_plot_geometry(self):
@@ -951,19 +949,6 @@ class TestProductItemSet(unittest.TestCase):
 
         p.plot_geometry(padding_type="rel", padding_val=2, geometry_color="y")
         plt.show()
-
-
-import unittest
-import json
-import datetime as dt
-from pathlib import Path
-from tempfile import TemporaryDirectory
-
-from shapely.geometry import box
-
-from scrappi.product import ProductItem
-from scrappi.fs.stac_href_resolver import StacHrefResolver
-from scrappi.fs.stacfilesystem import STACFileSystem
 
 
 # ---------------------------------------------------------------------
@@ -1020,7 +1005,7 @@ class TestStacCatalog(BaseStacTest):
         self.assertEqual(data["id"], "item-1")
 
         # Logical self link
-        self.assertTrue(any(l["href"].startswith("stac://") for l in data.get("links", [])))
+        self.assertTrue(any(link["href"].startswith("stac://") for link in data.get("links", [])))
 
         # Logical asset href
         asset_href = data["assets"]["data"]["href"]
@@ -1041,7 +1026,7 @@ class TestStacCatalog(BaseStacTest):
 
         data = json.loads(collection_json.read_text())
 
-        item_links = [l for l in data["links"] if l["rel"] == "item"]
+        item_links = [link for link in data["links"] if link["rel"] == "item"]
 
         self.assertEqual(len(item_links), 1)
         self.assertTrue(item_links[0]["href"].startswith("stac://"))
@@ -1090,7 +1075,7 @@ class TestStacCatalog(BaseStacTest):
 
         data = json.loads(catalog_json.read_text())
 
-        child_links = [l for l in data["links"] if l["rel"] == "child"]
+        child_links = [link for link in data["links"] if link["rel"] == "child"]
 
         self.assertEqual(len(child_links), 1)
         self.assertTrue(child_links[0]["href"].startswith("stac://collections/"))

@@ -1,9 +1,9 @@
-import os, re
+import os
+import re
 import requests
 from requests.exceptions import SSLError
 import unittest
 import unittest.mock as mock
-import datetime
 from datetime import datetime as dt
 import shutil
 import pytest
@@ -28,7 +28,7 @@ example_download_path = os.path.join(
 )
 
 # scrappi does not make directory, ensure directory is present
-if os.path.exists(example_download_path) == False:
+if not os.path.exists(example_download_path):
     os.mkdir(example_download_path)
 
 product_list = [

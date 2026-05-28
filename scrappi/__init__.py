@@ -33,7 +33,7 @@ user_home_directory = os.path.expanduser("~")
 eodag_config_file_path = os.path.join(user_home_directory, ".config", "eodag", "eodag.yml")
 try:
     eodag_config = {"eodag": read_config(eodag_config_file_path)}
-except:
+except Exception:
     EODataAccessGateway()
     eodag_config = {"eodag": read_config(eodag_config_file_path)}
 

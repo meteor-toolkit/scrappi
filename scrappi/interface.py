@@ -13,8 +13,6 @@ import warnings
 
 import shapely
 import shapely.geometry
-from dateutil.parser import parse
-from pyproj import Transformer
 from typing import Optional, Union, List, Dict, Any
 import xarray as xr
 from processor_tools import Context
@@ -22,7 +20,6 @@ from processor_tools.utils.formatters import convert_datetime
 
 from scrappi.api.factory import APICallHandlerFactory
 from scrappi.fs.factory import FSCallHandlerFactory
-from scrappi.fs.base import BaseFileSystem
 from scrappi.utils.utils import generate_bounding_lat_lon
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.api.base import BaseAPICallHandler
@@ -165,7 +162,7 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
                         apis.append(k)
                     else:
                         return k
-            except:
+            except Exception:
                 pass
 
         if preferred_api != "" and preferred_api in apis:
@@ -187,7 +184,7 @@ def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContex
             try:
                 if collection in v(context=context).list_collections():
                     return k
-            except:
+            except Exception:
                 pass
 
         warnings.warn("No api was found for the specified collection. Returning context['api']['preferred_api'].")
@@ -207,7 +204,7 @@ def list_collections(guess: Optional[str] = None, context: ScrappiContext = None
     for k, v in Factory.api_call_handlers.items():
         try:
             products.extend(list(v(context=context).list_collections()))
-        except:
+        except Exception:
             warnings.warn(f"No collections identified for {k} api")
 
     if guess:
@@ -298,7 +295,7 @@ def is_insitu_collection(collection: str) -> bool:
             api = v()
             if collection in api.list_collections():
                 return isinstance(api, InSituCallHandler)
-        except:
+        except Exception:
             pass
     else:
         warnings.warn(

@@ -1,11 +1,9 @@
 """scrappi.api.tests.test_factory - tests for scrappi.api.factory"""
 
 import unittest
-import unittest.mock as mock
 
 from scrappi.api.factory import APICallHandlerFactory
 from scrappi.api.eodag import EODAGCallHandler
-from scrappi.api.hypernets import HYPERNETSOfflineCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 
 __author__ = [

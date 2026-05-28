@@ -13,12 +13,11 @@ import warnings
 
 from abc import ABC, abstractmethod
 from typing import Optional, Any, Union, List
-from dateutil.parser import parse
 
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.fs.factory import FSCallHandlerFactory
 from scrappi.fs.base import BaseFileSystem
-from scrappi.utils.utils import *
+from scrappi.utils.utils import convert_datetime, convert_geom
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi import ScrappiContext
 

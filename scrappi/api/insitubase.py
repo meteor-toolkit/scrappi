@@ -5,10 +5,13 @@ RadCalNet or HYPERNETS). These base classes provide ROI management and
 common download helpers used by concrete in-situ handlers.
 """
 
-from abc import ABC, abstractmethod
+import warnings
+from abc import abstractmethod
+from typing import Optional, Union, List, Any
+
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import *
+from scrappi.utils.utils import convert_geom_shapely, convert_geom, generate_bounding_lat_lon
 from scrappi.fs.base import BaseFileSystem
 from processor_tools import Context
 

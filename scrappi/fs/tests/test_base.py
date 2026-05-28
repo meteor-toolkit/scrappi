@@ -2,7 +2,6 @@
 
 import unittest
 from scrappi.fs.base import BaseFileSystem
-import os
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",

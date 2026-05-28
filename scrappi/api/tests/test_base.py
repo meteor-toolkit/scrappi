@@ -1,14 +1,12 @@
 """scrappi.api.tests.test_base - tests for scrappi.api.base"""
 
 import unittest
-import unittest.mock as mock
 import datetime as dt
 
 import shapely
 from shapely.geometry import Polygon, Point
 
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItemSet
 from scrappi import ScrappiContext
 
 __author__ = [
@@ -46,7 +44,7 @@ class TestBaseAPICallHandler(unittest.TestCase):
         self.DummyAPICallHandler = DummyAPICallHandler
 
     def test_subclass_builds(self) -> None:
-        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        _dummy_api_call_handler = self.DummyAPICallHandler(context)
 
     def test_get_datetime_obj(self):
         input_dt = dt.datetime(2022, 10, 20)

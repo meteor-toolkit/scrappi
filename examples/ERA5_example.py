@@ -15,7 +15,6 @@ context["fs"]["path"] = example_path
 file_system = make_fs(context=context)
 
 if __name__ == "__main__":
-
     api_name = "eodag"
     start = "2025-07-01T00:00:00"
     end = "2025-08-01T00:00:00"

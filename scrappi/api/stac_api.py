@@ -3,12 +3,11 @@ scrappi.api.stac_api - STAC API call handler for local logical-HREF STAC catalog
 """
 
 from pathlib import Path
-from typing import Optional, Union, List
+from typing import Union, List
 
 import json
 import shapely.geometry
 import shapely.wkt
-import datetime as dt
 
 import pystac
 

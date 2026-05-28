@@ -6,13 +6,7 @@ archive layout used in some deployment environments. It inherits from
 """
 
 import os
-import re
-import csv
-import datetime as dt
-import requests
-from typing import Optional, Union, Any, List, Tuple
 from scrappi.fs.stacfilesystem import STACFileSystem
-from scrappi.product import ProductItem
 import socket
 from scrappi import ScrappiContext
 

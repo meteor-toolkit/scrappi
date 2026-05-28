@@ -3,9 +3,8 @@
 from __future__ import annotations
 from copy import deepcopy
 import tarfile
-from typing import Optional, Union, List, Any
+from typing import Optional, Union, Any
 import zipfile
-from dateutil.parser import parse
 import datetime
 import shapely
 import shapely.wkt
@@ -13,7 +12,6 @@ import shapely.errors
 import shapely.geometry
 from shapely.geometry import Polygon
 from pyproj import Transformer
-import numpy as np
 from pathlib import Path
 from processor_tools.utils.formatters import convert_datetime
 
@@ -342,14 +340,14 @@ def validate_product_download(path: Path) -> bool:
 
     elif path.suffix == ".zip":
         try:
-            with zipfile.ZipFile(path) as z:
+            with zipfile.ZipFile(path) as _:
                 return True
         except Exception:
             return False
 
     elif path.suffix in (".tar", ".gz"):
         try:
-            with tarfile.open(path) as t:
+            with tarfile.open(path) as _:
                 return True
         except tarfile.TarError:
             return False

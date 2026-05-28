@@ -64,7 +64,7 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
             self.hypernets_call_handler = HYPERNETSOfflineCallHandler(
                 archive_path=os.path.join(os.path.dirname(__file__), "archive.db")
             )
-        except Exception as e:
+        except Exception:
             self.hypernets_call_handler = None
 
     def test_get_roi(self):
@@ -127,7 +127,7 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
         context["fs"]["path"] = example_download_path
         try:
             self.hypernets_call_handler = HYPERNETSCallHandler(context)
-        except Exception as e:
+        except Exception:
             self.hypernets_call_handler = None
 
     def test_get_roi(self):
@@ -172,12 +172,11 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
 
         # apply mocking only after skipping check to avoid importing optional
         # `hypernets_api` at module load time on environments where it's absent
-        from unittest.mock import patch
 
         with patch(
             "hypernets_api.online_api.HYPERNETSAPI.query",
             return_value=return_hypernets_api,
-        ) as mock_perform:
+        ) as _mock_perform:
             products = self.hypernets_call_handler.perform_query(query)
             path = products.get_path()
             expected_path = os.path.join(

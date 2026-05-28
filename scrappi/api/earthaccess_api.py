@@ -1,22 +1,15 @@
 """scrappi.api.earthaccess - earthaccess class for API call handler implementations"""
 
-import datetime
 import os
-import shutil
-import re
 import warnings
-import yaml
-import requests
 import shapely
 import shapely.wkt
 import shapely.geometry
 import time
 import numpy as np
 import datetime as dt
-from packaging.version import Version
-from shapely.geometry import Polygon, MultiPolygon, Point
-from pathlib import Path
-from typing import Optional, Union, List, cast
+from shapely.geometry import Polygon, MultiPolygon
+from typing import Optional, Union, List
 
 from processor_tools import Context
 
@@ -26,8 +19,6 @@ from earthaccess import DataGranule
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
-from scrappi.utils.utils import *
-from scrappi import ScrappiContext
 
 __all__ = ["EarthaccessCallHandler"]
 
@@ -46,7 +37,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         try:
             os.environ["EARTHDATA_USERNAME"] = self.context["earthaccess"]["credentials"]["username"]
             os.environ["EARTHDATA_REMOVED_PASSWORD"] = self.context["earthaccess"]["credentials"]["password"]
-        except:
+        except Exception:
             warnings.warn(
                 "No credentials found for earthaccess. Please set these in the config file to enable downloading of products."
             )
@@ -125,7 +116,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             for x in results:
                 try:
                     collections.append(x.summary()["short-name"])
-                except:
+                except Exception:
                     continue
             np.save(os.path.join(os.path.dirname(__file__), "utils", "earthaccess_collections_list.npy"), collections)
         else:

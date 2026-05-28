@@ -4,12 +4,11 @@ import os
 import unittest
 import unittest.mock as mock
 import datetime as dt
-import numpy.testing as npt
-from typing import TYPE_CHECKING, Any, Iterator, Optional, Union, cast
+from typing import cast
 import pytest
 
 from shapely.geometry import Polygon
-from eodag import EOProduct, SearchResult
+from eodag import EOProduct
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi import make_fs
 from scrappi.api.eodag import EODAGCallHandler
@@ -788,7 +787,7 @@ class TestEODAGCallHandler(unittest.TestCase):
                 "longitude_maximum": 150,
             },
         }
-        input_S3 = {
+        _input_S3 = {
             "collection": "S3_EFR",
             "start_time": dt.datetime(2022, 6, 7, 23, 30),
             "stop_time": dt.datetime(2022, 6, 12, 23, 50),

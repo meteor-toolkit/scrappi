@@ -23,9 +23,7 @@ site_def = {
     # "LCFR": [43.55829168, 4.863345627, 43.55948632, 4.86498836],  #same order as dict keys above
     # "RVUS": [38.48687306, -115.7028871, 38.50712799, -115.6771133],
 }
-example_path = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data"
-)
+example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data")
 file_system = make_fs(example_path)
 
 context = ScrappiContext()
@@ -43,7 +41,7 @@ if __name__ == "__main__":
             "geom": site_def[site],
             "start_time": start,
             "stop_time": end,
-            "version": "7"
+            "version": "7",
         }
 
         products = perform_query(query, context)

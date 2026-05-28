@@ -1,12 +1,6 @@
 import os
 from datetime import datetime as dt
-from scrappi.interface import (
-    perform_query,
-    download_product,
-    make_fs,
-    list_collections,
-    set_credentials
-)
+from scrappi.interface import perform_query, download_product, make_fs, list_collections, set_credentials
 
 from scrappi.utils import utils
 import matplotlib.pyplot as plt
@@ -24,9 +18,7 @@ site_def = {
     # "LCFR": [43.55829168, 4.863345627, 43.55948632, 4.86498836],  #same order as dict keys above
     # "RVUS": [38.48687306, -115.7028871, 38.50712799, -115.6771133],
 }
-example_path = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data"
-)
+example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data")
 
 # file_system = make_fs("t-drive")
 file_system = make_fs(example_path)
@@ -41,9 +33,7 @@ if __name__ == "__main__":
 
     for site in site_def.keys():
         query = {
-            "collections": [
-                "S2_MSI_L1C"
-            ],  # ["S2_MSI_L1C", "S3_EFR", "S3_SLSTR_L1RBT", "LANDSAT_C2L1"]
+            "collections": ["S2_MSI_L1C"],  # ["S2_MSI_L1C", "S3_EFR", "S3_SLSTR_L1RBT", "LANDSAT_C2L1"]
             # "platform": "S2A",
             "geom": site_def[site],
             "start_time": start,

@@ -6,11 +6,6 @@ several common product filename/dir conventions (zip, SAFE, nc, json).
 """
 
 import os
-import re
-import csv
-import datetime as dt
-import requests
-from typing import Optional, Union, Any, List, Tuple
 from scrappi.fs.base import BaseFileSystem
 from scrappi.product import ProductItem
 from scrappi import ScrappiContext

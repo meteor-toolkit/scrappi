@@ -1,10 +1,8 @@
 """scrappi.fs.tests.test_localarchive - tests for scrappi.fs.local_archive"""
 
 import unittest
-from unittest.mock import patch
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.stacfilesystem import STACFileSystem
-from scrappi import ScrappiContext
 from datetime import datetime
 from scrappi.product import ProductItem
 from shapely.geometry import Polygon

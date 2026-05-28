@@ -1,8 +1,6 @@
 """scrappi.fs.base - base class for file system call handler implementations"""
 
 from abc import ABC, abstractmethod
-from typing import Optional
-import os
 from scrappi.product import ProductItem
 
 __author__ = [

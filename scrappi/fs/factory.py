@@ -11,10 +11,9 @@ from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.tdrive import TdriveFileSystem
 from scrappi.fs.tdrive_temp import TdriveTempFileSystem
-from scrappi.fs.jasmin import JasminFileSystem
 from scrappi import ScrappiContext
 import os
-from typing import Optional, Union, List, Dict, Any
+from typing import Union
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",

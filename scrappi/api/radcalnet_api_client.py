@@ -22,11 +22,9 @@ import numpy as np
 import socket
 from processor_tools import Context
 
-from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
-from scrappi.fs.base import BaseFileSystem
 
 __author__ = [
     "Ashley James Ramsay <ashley.ramsay@npl.co.uk",
@@ -83,7 +81,7 @@ class RadcalnetCallHandler(InSituCallHandler):
                 # set environment variables (when credentials provided)
                 os.environ["RADCALNET_USERNAME"] = credentials["username"]
                 os.environ["RADCALNET_REMOVED_PASSWORD"] = credentials["password"]
-            except:
+            except Exception:
                 warnings.warn("Provided RADCALNET credentials could not be set in environment variables.")
             self.session = requests.session()
             self.session.auth = (credentials["username"], credentials["password"])

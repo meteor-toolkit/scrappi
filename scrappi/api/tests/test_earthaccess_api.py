@@ -45,7 +45,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         """Test initialization with context"""
         context = ScrappiContext()
         context["earthaccess"] = {"configured": True}
-        handler = EarthaccessCallHandler(context)
+        _handler = EarthaccessCallHandler(context)
         # mock_login should not be called if earthaccess is configured
         # Note: actual behavior depends on context
 
@@ -106,7 +106,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
             input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
-            expected_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
+            _expected_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
 
             with mock.patch.object(handler, "_get_geom", return_value=input_geom):
                 result = handler._set_geom(input_geom)

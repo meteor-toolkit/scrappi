@@ -3,7 +3,6 @@
 import os
 import random
 import shutil
-import shutil
 import string
 import unittest
 import datetime as dt
@@ -12,9 +11,22 @@ import numpy.testing as npt
 
 from unittest import mock
 from shapely.geometry import Point, Polygon
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi.interface import *
-from scrappi.api.factory import APICallHandlerFactory
+from scrappi.product import ProductItem
+from scrappi.interface import (
+    download_product,
+    download_product_filename,
+    download_product_scene,
+    generate_bounding_box,
+    get_api_name,
+    is_insitu_collection,
+    list_collections,
+    make_api,
+    make_fs,
+    make_query_with_tolerance,
+    perform_query,
+    set_credentials,
+    update_context_file,
+)
 from scrappi import THIS_DIRECTORY, ScrappiContext
 
 __author__ = [
@@ -107,7 +119,7 @@ class TestInterface(unittest.TestCase):
         m().list_collections.return_value = ["LANDSAT_C2L1"]
         with mock.patch.dict(
             "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
-        ) as mock_handlers:
+        ) as _mock_handlers:
             self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
 
     def test_get_api_name_all(self):
@@ -119,7 +131,7 @@ class TestInterface(unittest.TestCase):
             "scrappi.interface.Factory.api_call_handlers",
             {"handle1": m, "handle2": m},
             clear=True,
-        ) as mock_handlers:
+        ) as _mock_handlers:
             self.assertEqual(get_api_name("LANDSAT_C2L1", all_apis=True), ["handle1", "handle2"])
 
     def test_get_api_name_None(self):
@@ -131,7 +143,7 @@ class TestInterface(unittest.TestCase):
             "scrappi.interface.Factory.api_call_handlers",
             {"handle1": m, "handle2": m},
             clear=True,
-        ) as mock_handlers:
+        ) as _mock_handlers:
             self.assertEqual(get_api_name("S2_MSI_L1C", context=context), None)
 
     @mock.patch(
@@ -159,7 +171,7 @@ class TestInterface(unittest.TestCase):
     def test_make_api(self):
         context = ScrappiContext()
         m = mock.MagicMock()
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
             make_api("api", context)
             m.assert_called_with(context=context)
 
@@ -167,7 +179,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         context["fs"]["path"] = "fs"
         m = mock.MagicMock()
-        with mock.patch.dict("scrappi.interface.FSFactory.fs_call_handlers", {"fs": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.FSFactory.fs_call_handlers", {"fs": m}, clear=True) as _mock_handlers:
             make_fs("fs", context)
             m.assert_called_with(context=context)
 
@@ -184,7 +196,7 @@ class TestInterface(unittest.TestCase):
     def test_perform_query(self):
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
             context = ScrappiContext()
             context["api"]["preferred_api"] = "api"
             query = {"collection": "LANDSAT_C2L1"}
@@ -196,7 +208,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         m = mock.MagicMock()
         m().list_collections.return_value = ["S3_EFR"]
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
             download_product(self.p, context)
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
@@ -205,7 +217,7 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "api"
         m = mock.MagicMock()
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
             download_product_filename(
                 "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
                 context=context,
@@ -237,14 +249,14 @@ class TestInterface(unittest.TestCase):
                             }
                         },
                     )
-            except:
+            except Exception:
                 print("product not unsupported or non existing")
 
     def test_download_product_scene(self):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "api"
         m = mock.MagicMock()
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as mock_handlers:
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
             download_product_scene("LC09_L1GT_158111_20220126_20220126_02_T2", context)
             m.assert_called_with(context=context)
             m().download_product_scene.assert_called_with(
@@ -311,7 +323,7 @@ class TestInterface(unittest.TestCase):
         with mock.patch(
             "scrappi.interface.Transformer.from_crs",
             side_effect=[mock_transformer, mock_reverse_transformer],
-        ) as mock_from_crs:
+        ) as _mock_from_crs:
             self.assertEqual(
                 make_query_with_tolerance("LANDSAT_C2L1", 1, 2, "2022-01-10", None, 1, None, 1),
                 {
@@ -360,7 +372,7 @@ class TestInterface(unittest.TestCase):
         with mock.patch(
             "scrappi.interface.Transformer.from_crs",
             side_effect=[mock_transformer, mock_reverse_transformer],
-        ) as mock_from_crs:
+        ) as _mock_from_crs:
             self.assertEqual(
                 generate_bounding_box(2, 1, 3, 4326),
                 [[1, 2], [2, 2], [2, 1], [1, 1], [1, 2]],
