@@ -11,14 +11,13 @@ import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon
 from typing import Any, Optional, Union, List
 
-from processor_tools import Context
-
 import earthaccess
 from earthaccess import DataGranule
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
+from scrappi import ScrappiContext
 
 __all__ = ["EarthaccessCallHandler"]
 
@@ -30,7 +29,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
     name = "earthaccess"
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None):
+    def __init__(self, context: Optional[Union[str, List, ScrappiContext]] = None):
 
         super().__init__(context)
 

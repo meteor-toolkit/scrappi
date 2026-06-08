@@ -441,7 +441,7 @@ class ProductItem:
                 self.mk_fs_dirs(new_path)
                 shutil.move(old_path, new_path)
 
-        self.set_fs(new_path)
+        self.set_fs(new_fs)
         return new_path
 
     def mk_fs_dirs(self, p) -> None:

@@ -47,12 +47,12 @@ HYPERNETS_DEFAULT_ROI = {
 }
 
 COLLECTIONS = [
-    "LHYP_REF_L2B",
-    "LHYP_RAD_L1D",
-    "LHYP_IRR_L1D",
-    "LHYP_REF_L2A",
-    "LHYP_RAD_L1B",
-    "LHYP_IRR_L1B",
+    "LHYP_L2B_REF",
+    "LHYP_L1D_RAD",
+    "LHYP_L1D_IRR",
+    "LHYP_L2A_REF",
+    "LHYP_L1B_RAD",
+    "LHYP_L1B_IRR",
 ]
 
 
@@ -223,6 +223,8 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
+        if archive_path is None:
+            archive_path = self.context["fs"]["path"]
         # lazy import of hypernets_api offline API
         try:
             from hypernets_api import OfflineHYPERNETSAPI
@@ -292,6 +294,11 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         :param query: catalogue query
         :returns: ProductItemSet
         """
+        if query["collection"].startswith("LHYP"):
+            query["collection"] = query["collection"][5::]
+
+        if "platform" in query.keys() and "site" not in query.keys():
+            query["site"] = query.pop("platform")
 
         hypernets_results = self.api.query(query)
 

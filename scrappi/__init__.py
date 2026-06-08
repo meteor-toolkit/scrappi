@@ -20,6 +20,7 @@ __all__ = [
     "get_api_name",
     "set_credentials",
     "update_context_file",
+    "is_insitu_collection",
 ]
 
 import os
@@ -74,6 +75,7 @@ from scrappi.interface import (
     get_api_name,
     set_credentials,
     update_context_file,
+    is_insitu_collection,
 )
 from scrappi.product import (
     ProductItem,

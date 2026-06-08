@@ -22,6 +22,8 @@ from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 
+all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac"]  
+
 # API call handlers by name
 API_CALL_HANDLERS = {
     "eodag": EODAGCallHandler,
@@ -35,6 +37,7 @@ API_CALL_HANDLERS = {
 class APICallHandlerFactory:
     def __init__(self):
         self.api_call_handlers = API_CALL_HANDLERS
+        self.all_api_list = all_api_list
 
     def get_api_call_handler(self, name: str, context: Optional[ScrappiContext] = None):
         """
@@ -65,6 +68,11 @@ class APICallHandlerFactory:
             from scrappi.api.hypernets import HYPERNETSCallHandler
 
             return HYPERNETSCallHandler(context=context)
+
+        elif name.lower() == "hypernets_offline":
+            from scrappi.api.hypernets import HYPERNETSOfflineCallHandler
+
+            return HYPERNETSOfflineCallHandler(context=context)
 
         elif name.lower() == "earthaccess":
             from scrappi.api.earthaccess_api import EarthaccessCallHandler

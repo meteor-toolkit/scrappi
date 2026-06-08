@@ -155,13 +155,13 @@ def get_api_name(collection: str, all_apis: bool = False, context: Optional[Scra
 
     if all_apis:
         apis = []
-        for k, v in Factory.api_call_handlers.items():
+        for api in Factory.all_api_list:
             try:
-                if collection in v(context=context).list_collections():
+                if collection in Factory.get_api_call_handler(api, context).list_collections():
                     if all_apis is True:
-                        apis.append(k)
+                        apis.append(api)
                     else:
-                        return k
+                        return api
             except Exception:
                 pass
 
