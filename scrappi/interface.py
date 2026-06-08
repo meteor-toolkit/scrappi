@@ -515,7 +515,6 @@ def make_query_with_tolerance(
     datetime = convert_datetime(date_time)
 
     # create datetime query value
-
     if temporal_tolerance_min is not None and temporal_tolerance_hours is not None:
         raise ValueError("Either temporal_tolerance_min or temporal_tolerance_hours is required, but not both.")
 

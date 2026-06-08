@@ -756,7 +756,7 @@ class TestEODAGCallHandler(unittest.TestCase):
             with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
                 self.eodag_call_handler.download_product_filename(
                     "S2A_MSIL1C_20220928T083731_N0400_R064_T33KWP_20220928T122019.SAFE",
-                    fs,
+                    fs=fs,
                 )
 
                 fake_eoprod.download.assert_called()

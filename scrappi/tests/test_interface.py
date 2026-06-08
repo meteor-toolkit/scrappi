@@ -131,7 +131,10 @@ class TestInterface(unittest.TestCase):
             "scrappi.interface.Factory.api_call_handlers",
             {"handle1": m, "handle2": m},
             clear=True,
-        ) as _mock_handlers:
+        ) as _mock_handlers, mock.patch(
+            "scrappi.interface.Factory.all_api_list",
+            ["handle1", "handle2"],
+        ) as _mock_all_api_list:
             self.assertEqual(get_api_name("LANDSAT_C2L1", all_apis=True), ["handle1", "handle2"])
 
     def test_get_api_name_None(self):
@@ -196,7 +199,14 @@ class TestInterface(unittest.TestCase):
     def test_perform_query(self):
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
+        with mock.patch.dict(
+            "scrappi.interface.Factory.api_call_handlers",
+            {"handle1": m, "handle2": m},
+            clear=True,
+        ) as _mock_handlers, mock.patch(
+            "scrappi.interface.Factory.all_api_list",
+            ["handle1", "handle2"],
+        ) as _mock_all_api_list:
             context = ScrappiContext()
             context["api"]["preferred_api"] = "api"
             query = {"collection": "LANDSAT_C2L1"}
@@ -208,7 +218,14 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         m = mock.MagicMock()
         m().list_collections.return_value = ["S3_EFR"]
-        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"api": m}, clear=True) as _mock_handlers:
+        with mock.patch.dict(
+            "scrappi.interface.Factory.api_call_handlers",
+            {"handle1": m, "handle2": m},
+            clear=True,
+        ) as _mock_handlers, mock.patch(
+            "scrappi.interface.Factory.all_api_list",
+            ["handle1", "handle2"],
+        ) as _mock_all_api_list:
             download_product(self.p, context)
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
@@ -321,7 +338,7 @@ class TestInterface(unittest.TestCase):
         mock_reverse_transformer = mock.MagicMock()
         mock_reverse_transformer.transform.return_value = 10, 10
         with mock.patch(
-            "scrappi.interface.Transformer.from_crs",
+            "scrappi.utils.utils.Transformer.from_crs",
             side_effect=[mock_transformer, mock_reverse_transformer],
         ) as _mock_from_crs:
             self.assertEqual(
@@ -370,7 +387,7 @@ class TestInterface(unittest.TestCase):
         mock_reverse_transformer = mock.MagicMock()
         mock_reverse_transformer.transform.side_effect = [(1, 1), (2, 2)]
         with mock.patch(
-            "scrappi.interface.Transformer.from_crs",
+            "scrappi.utils.utils.Transformer.from_crs",
             side_effect=[mock_transformer, mock_reverse_transformer],
         ) as _mock_from_crs:
             self.assertEqual(

@@ -645,7 +645,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
 
         if isinstance(product, List):
-            return [self.download_product_filename(prod, provider) for prod in product]
+            return [self.download_product_filename(prod, provider, fs) for prod in product]
 
         from scrappi import make_fs
 
