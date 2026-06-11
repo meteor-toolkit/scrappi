@@ -9,6 +9,12 @@ structured product datasets ready for download or further processing.
 > **Warning:** This software is in beta. Results should be used with
 > caution. Please share any feedback via the issue tracker.
 
+## Documentation
+
+The full documentation is available online at:
+
+- https://meteor-toolkit.github.io/scrappi/
+
 ## Usage
 
 ### Virtual environment
@@ -55,54 +61,6 @@ Run the test suite with:
 ```bash
 pytest
 ```
-
-### Quickstart
-
-#### Setting credentials
-
-Most online satellite catalogues require authentication before they can be
-queried for products. This can be done using the config file.
-
-#### Perform a query
-
-Once a suitable API has been identified for a product, use it to perform a
-query:
-
-```python
-from scrappi.interface import perform_query
-import datetime as dt
-
-api_name = "eodag"
-products = perform_query(
-    api_name,
-    {
-        "collections": ["LANDSAT_C2L1"],
-        "start_time": dt.datetime(2022, 1, 20, 7),
-        "stop_time": dt.datetime(2022, 1, 20, 8, 30),
-        "geom": {
-            "latitude_minimum": 40,
-            "longitude_minimum": 30,
-            "latitude_maximum": 50,
-            "longitude_maximum": 50,
-        },
-    },
-)
-```
-
-#### Download an identified product
-
-After querying, set a filesystem and download the products:
-
-```python
-from scrappi.interface import download_product, make_fs
-
-fs = make_fs("./", organise_data=False)
-products.set_fs(fs)
-path_list = download_product(api_name, products)
-```
-
-Please refer to the [documentation](https://scrappi.readthedocs.io/en/latest/)
-for further information.
 
 ## Compatibility
 
