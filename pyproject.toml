@@ -72,7 +72,7 @@ all = [
     "sphinx_automodapi",
     "myst_parser",
     "earthaccess>=0.17.0",
-    "hypernets_api>=0.2.1",
+    "hypernets_api>=0.2.2",
 ]
 
 [project.scripts]

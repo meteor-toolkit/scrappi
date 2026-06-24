@@ -119,7 +119,10 @@ class TestInterface(unittest.TestCase):
         m().list_collections.return_value = ["LANDSAT_C2L1"]
         with mock.patch.dict(
             "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
-        ) as _mock_handlers:
+        ) as _mock_handlers, mock.patch(
+            "scrappi.interface.Factory.all_api_list",
+            ["handle1"],
+        ) as _mock_all_api_list:
             self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
 
     def test_get_api_name_all(self):
