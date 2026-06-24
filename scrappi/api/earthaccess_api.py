@@ -142,7 +142,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             return products
 
         elif isinstance(earthaccess_query["geom"], shapely.geometry.base.BaseGeometry):
-            products = [i for i in products if earthaccess_query["geom"].intersects(i.geometry)]
+            products = [i for i in products if earthaccess_query["geom"].intersects(i.geometry)] # type: ignore
             return products
 
         for p in products:
@@ -346,11 +346,11 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 for attempt in range(self.context.get("max_retrys", 3)):
                     try:
                         path_out = earthaccess.download(product, local_path=path)[0]
-                        path_out = str(path_out)
-                        if os.path.exists(path_out):
+                        path_out_str = str(path_out)
+                        if os.path.exists(path_out_str):
                             break
                         else:
-                            raise ValueError(f"{path_out} not downloaded.")
+                            raise ValueError(f"{path_out_str} not downloaded.")
 
                     except Exception as e:
                         print(f"Download attempt {attempt + 1} failed with error: {e}")

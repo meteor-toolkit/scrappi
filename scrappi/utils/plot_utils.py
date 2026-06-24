@@ -150,8 +150,8 @@ def prepare_map_plot(ax: GeoAxes, tick_step: Optional[float] = None, redo=False)
         gl.xformatter = LONGITUDE_FORMATTER
         gl.yformatter = LATITUDE_FORMATTER
 
-        gl.xlocator = mticker.FixedLocator(x_tick_locs.tolist())
-        gl.ylocator = mticker.FixedLocator(y_tick_locs.tolist())
+        gl.xlocator = mticker.FixedLocator([float(v) for v in x_tick_locs.tolist()])
+        gl.ylocator = mticker.FixedLocator([float(v) for v in y_tick_locs.tolist()])
 
         # Add labels
         ax.text(
