@@ -215,7 +215,9 @@ class RadcalnetCallHandler(InSituCallHandler):
         # metadata is included in the rcn file instead
         raise NotImplementedError("not currently available for rcn files")
 
-    def download_file(self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None) -> Optional[Union[list, str]]:
+    def download_file(
+        self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
+    ) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: rcn ProductItem

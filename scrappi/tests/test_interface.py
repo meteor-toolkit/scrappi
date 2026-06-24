@@ -117,12 +117,15 @@ class TestInterface(unittest.TestCase):
         context["api"]["preferred_api"] = None
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
-        ) as _mock_handlers, mock.patch(
-            "scrappi.interface.Factory.all_api_list",
-            ["handle1"],
-        ) as _mock_all_api_list:
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1"],
+            ) as _mock_all_api_list,
+        ):
             self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
 
     def test_get_api_name_all(self):
@@ -130,14 +133,17 @@ class TestInterface(unittest.TestCase):
         context["api"]["preferred_api"] = None
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers",
-            {"handle1": m, "handle2": m},
-            clear=True,
-        ) as _mock_handlers, mock.patch(
-            "scrappi.interface.Factory.all_api_list",
-            ["handle1", "handle2"],
-        ) as _mock_all_api_list:
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                {"handle1": m, "handle2": m},
+                clear=True,
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1", "handle2"],
+            ) as _mock_all_api_list,
+        ):
             self.assertEqual(get_api_name("LANDSAT_C2L1", all_apis=True), ["handle1", "handle2"])
 
     def test_get_api_name_None(self):
@@ -202,14 +208,17 @@ class TestInterface(unittest.TestCase):
     def test_perform_query(self):
         m = mock.MagicMock()
         m().list_collections.return_value = ["LANDSAT_C2L1"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers",
-            {"handle1": m, "handle2": m},
-            clear=True,
-        ) as _mock_handlers, mock.patch(
-            "scrappi.interface.Factory.all_api_list",
-            ["handle1", "handle2"],
-        ) as _mock_all_api_list:
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                {"handle1": m, "handle2": m},
+                clear=True,
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1", "handle2"],
+            ) as _mock_all_api_list,
+        ):
             context = ScrappiContext()
             context["api"]["preferred_api"] = "api"
             query = {"collection": "LANDSAT_C2L1"}
@@ -221,14 +230,17 @@ class TestInterface(unittest.TestCase):
         context = ScrappiContext()
         m = mock.MagicMock()
         m().list_collections.return_value = ["S3_EFR"]
-        with mock.patch.dict(
-            "scrappi.interface.Factory.api_call_handlers",
-            {"handle1": m, "handle2": m},
-            clear=True,
-        ) as _mock_handlers, mock.patch(
-            "scrappi.interface.Factory.all_api_list",
-            ["handle1", "handle2"],
-        ) as _mock_all_api_list:
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                {"handle1": m, "handle2": m},
+                clear=True,
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1", "handle2"],
+            ) as _mock_all_api_list,
+        ):
             download_product(self.p, context)
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p

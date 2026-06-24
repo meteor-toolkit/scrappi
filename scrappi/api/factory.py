@@ -22,7 +22,7 @@ from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 
-all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac"]  
+all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac"]
 
 # API call handlers by name
 API_CALL_HANDLERS = {

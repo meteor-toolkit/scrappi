@@ -1107,7 +1107,9 @@ def open_product_item(path: str, filesystem: Optional[str] = None, api: str = "e
     return product_item_from_dict(product_item_dict, api=api, filesystem=filesystem)
 
 
-def product_item_from_dict(product_item_dict: dict, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItem:
+def product_item_from_dict(
+    product_item_dict: dict, filesystem: Optional[str] = None, api: str = "eodag"
+) -> ProductItem:
     """
     Returns ProductItem object from defining dictionary
 
@@ -1166,8 +1168,14 @@ def product_item_from_stac(
         geom = item.geometry
 
     # temporal
-    raw_start = item.datetime if hasattr(item, "datetime") else (item.properties.get("start_datetime") if item.properties else None)
-    start_time: Union[dt.datetime, str] = raw_start if isinstance(raw_start, (dt.datetime, str)) else (str(raw_start) if raw_start is not None else "")
+    raw_start = (
+        item.datetime
+        if hasattr(item, "datetime")
+        else (item.properties.get("start_datetime") if item.properties else None)
+    )
+    start_time: Union[dt.datetime, str] = (
+        raw_start if isinstance(raw_start, (dt.datetime, str)) else (str(raw_start) if raw_start is not None else "")
+    )
     stop_time = None
     if item.properties:
         stop_time = (
@@ -1212,7 +1220,9 @@ def product_item_from_stac(
 
     prod_dict = item.to_dict() if hasattr(item, "to_dict") else item.properties
 
-    stop_time_str: Union[dt.datetime, str] = stop_time if isinstance(stop_time, (dt.datetime, str)) else (str(stop_time) if stop_time is not None else "")
+    stop_time_str: Union[dt.datetime, str] = (
+        stop_time if isinstance(stop_time, (dt.datetime, str)) else (str(stop_time) if stop_time is not None else "")
+    )
     return ProductItem(
         constellation=constellation or "",
         platform=platform or "",

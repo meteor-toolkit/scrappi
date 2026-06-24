@@ -135,7 +135,9 @@ def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
     return queries1, queries2, indices
 
 
-def get_api_name(collection: str, all_apis: bool = False, context: Optional[ScrappiContext] = None) -> Optional[Union[str, list]]:
+def get_api_name(
+    collection: str, all_apis: bool = False, context: Optional[ScrappiContext] = None
+) -> Optional[Union[str, list]]:
     """
     Return name of API call handler capable of reading in desired satellite collection.
     If preferred_api is set in context, this is returned.
@@ -163,7 +165,9 @@ def get_api_name(collection: str, all_apis: bool = False, context: Optional[Scra
                     else:
                         return api
             except Exception as e:
-                warnings.warn(f"Error occurred for {api} while identifying available apis for collection {collection}: {e}")
+                warnings.warn(
+                    f"Error occurred for {api} while identifying available apis for collection {collection}: {e}"
+                )
                 pass
 
         if preferred_api != "" and preferred_api in apis:
@@ -309,7 +313,9 @@ def is_insitu_collection(collection: str) -> bool:
         return False
 
 
-def set_credentials(api: str, credentials: dict, context: Optional[ScrappiContext] = None, provider: Optional[str] = None):
+def set_credentials(
+    api: str, credentials: dict, context: Optional[ScrappiContext] = None, provider: Optional[str] = None
+):
     """
     Set credentials for a given API
 
