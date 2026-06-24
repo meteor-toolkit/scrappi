@@ -162,7 +162,8 @@ def get_api_name(collection: str, all_apis: bool = False, context: Optional[Scra
                         apis.append(api)
                     else:
                         return api
-            except Exception:
+            except Exception as e:
+                warnings.warn(f"Error occurred while checking API: {api} ({e})")
                 pass
 
         if preferred_api != "" and preferred_api in apis:
