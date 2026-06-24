@@ -4,7 +4,8 @@ from scrappi.interface import (
     perform_query,
     download_product,
     make_fs,
-    list_satellite_products_api,
+    get_api_name,
+    list_collections
 )
 from scrappi import ScrappiContext
 import matplotlib.pyplot as plt
@@ -24,7 +25,7 @@ if __name__ == "__main__":
     start = "2025-01-01T00:00:00"
     end = "2025-03-01T00:00:00"
 
-    print(list_satellite_products_api(guess="CAMS"))
+    print(list_collections(guess="CAMS"))
 
     query = {
         "collections": ["CAMS_EAC4"],

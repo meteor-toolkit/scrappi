@@ -176,13 +176,13 @@ def get_api_name(collection: str, all_apis: bool = False, context: Optional[Scra
         if context and context["api"]["preferred_api"]:
             if (
                 collection
-                in Factory.api_call_handlers[context["api"]["preferred_api"]](context=context).list_collections()
+                in Factory.get_api_call_handler(context["api"]["preferred_api"], context=context).list_collections()
             ):
                 return context["api"]["preferred_api"]
 
-        for k, v in Factory.api_call_handlers.items():
+        for k in Factory.all_api_list:
             try:
-                if collection in v(context=context).list_collections():
+                if collection in Factory.get_api_call_handler(k, context=context).list_collections():
                     return k
             except Exception:
                 pass
@@ -201,9 +201,9 @@ def list_collections(guess: Optional[str] = None, context: Optional[ScrappiConte
     :return: list of product types/collections
     """
     products = []
-    for k, v in Factory.api_call_handlers.items():
+    for k in Factory.all_api_list:
         try:
-            products.extend(list(v(context=context).list_collections()))
+            products.extend(list(Factory.get_api_call_handler(k, context).list_collections()))
         except Exception:
             warnings.warn(f"No collections identified for {k} api")
 
@@ -293,9 +293,9 @@ def is_insitu_collection(collection: str) -> bool:
     :param collection: name of the satellite collection to search through
     :return: bool indicating whether collection is in situ
     """
-    for k, v in Factory.api_call_handlers.items():
+    for k in Factory.all_api_list:
         try:
-            api = v()
+            api = Factory.get_api_call_handler(k)
             if collection in api.list_collections():
                 return isinstance(api, InSituCallHandler)
         except Exception:

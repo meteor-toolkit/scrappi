@@ -45,8 +45,8 @@ class RadcalnetCallHandler(InSituCallHandler):
     url_base: str = "https://www.radcalnet.org/api/json/"
     DEFAULT_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = {
         "GONA": {
-            "latitude": -23.600200982764363,
-            "longitude": 15.119555974379182,
+            "latitude": -23.600201,
+            "longitude": 15.119556,
             "default_roi": 250,
         },
         "BTCN": {"latitude": 40.851307, "longitude": 109.62922, "default_roi": 5},
