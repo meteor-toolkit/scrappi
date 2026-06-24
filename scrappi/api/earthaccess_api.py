@@ -142,7 +142,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             return products
 
         elif isinstance(earthaccess_query["geom"], shapely.geometry.base.BaseGeometry):
-            products = [i for i in products if earthaccess_query["geom"].intersects(i.geometry)] # type: ignore
+            products = [i for i in products if earthaccess_query["geom"].intersects(i.geometry)]  # type: ignore
             return products
 
         for p in products:
