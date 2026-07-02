@@ -79,6 +79,8 @@ class BaseAPICallHandler(ABC):
             return "Sentinel-3"
         elif name[0:3] in ["MOD", "MYD"]:
             return "MODIS"
+        elif name in ["Metop-A", "Metop-B", "Metop-C"]:
+            return "Metop"
 
         else:
             raise NotImplementedError("constellation name could not be parsed")
