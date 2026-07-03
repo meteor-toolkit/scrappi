@@ -69,7 +69,10 @@ class STACFileSystem(LocalFileSystem):
         """
         constellation = product_item.constellation
         platform = product_item.platform
-        collection = product_item.collection
+        if ':' in product_item.collection:
+            collection = product_item.collection.replace(":", "_")
+        else:
+            collection = product_item.collection
         start_time = product_item.start_time
         day = start_time.strftime("%d")
         month = start_time.strftime("%m")

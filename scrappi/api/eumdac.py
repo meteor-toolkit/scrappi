@@ -9,7 +9,7 @@ import shapely.geometry
 import time
 import numpy as np
 import datetime as dt
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, shape
 from typing import Any, Optional, Union, List
 
 import eumdac
@@ -75,7 +75,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
         geom = self._get_geom(geom)
         if isinstance(geom, dict):
-            return "{lon_min}, {lat_min}, {lon_max}, {lat_max})".format(
+            return "{lon_min}, {lat_min}, {lon_max}, {lat_max}".format(
                 lon_min=geom["longitude_minimum"],
                 lat_min=geom["latitude_minimum"],
                 lon_max=geom["longitude_maximum"],
@@ -146,12 +146,15 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
         for p in products:
             for s in ["_geometry"]:
-                if isinstance(p.__dict__[s], MultiPolygon):
-                    if len(p.__dict__[s].geoms) > 1:
+                geometry = p.__dict__.get(s)
+                if geometry is None:
+                    continue
+                if isinstance(geometry, MultiPolygon):
+                    if len(geometry.geoms) > 1:
                         raise NotImplementedError(
                             "The satellite product uses multiple Polygons within a MultiPolygon. This is not yet implemented within scrappi."
                         )
-                    p.__dict__[s] = p.__dict__[s].geoms[0]
+                    p.__dict__[s] = geometry.geoms[0]
 
         return products
 
@@ -184,7 +187,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         product_item_list = []
         for i, prod in enumerate(product_list):
             prod_dict = prod._browse_properties
-            prod_geom = prod._geometry
+            prod_geom = self.convert_geom(prod._geometry)
 
             # check if platform is set
             if ("platform" in query) and self.get_platform(prod_dict) != query["platform"]:
@@ -195,13 +198,13 @@ class EUMDACCallHandler(BaseAPICallHandler):
             else:
                 url = ""
 
-            if "productInformation" in prod_dict.keys():
-                collection = prod_dict["productInformation"]["productType"]
-            else:
+            try:
+                collection = str(prod.collection)
+            except KeyError:
                 collection = query["collection"]
 
             # store product item
-            product_list.append(
+            product_item_list.append(
                 ProductItem(
                     constellation=self.get_constellation(prod_dict),
                     platform=self.get_platform(prod_dict),
@@ -220,7 +223,28 @@ class EUMDACCallHandler(BaseAPICallHandler):
                 )
             )
 
-        return ProductItemSet(product_list)
+        return ProductItemSet(product_item_list)
+    
+    def convert_geom(self, geom: Union[dict, shapely.geometry.base.BaseGeometry]) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        """
+        Convert product metadata geometry to a format suitable for filtering and downloading
+        :param geom: geometry to convert
+        :return: geometry in shapely format
+        """
+
+
+        geometry = shape(geom) if isinstance(geom, dict) else geom
+
+        if geometry.geom_type == "Polygon":
+            return geometry
+
+        if geometry.geom_type == "MultiPolygon":
+            if len(geometry.geoms) == 1:
+                return geometry.geoms[0]
+            raise ValueError("MultiPolygon contains more than one polygon")
+
+        raise ValueError(f"Unsupported geometry type: {geometry.geom_type}")
+
 
     def get_platform(self, prod_dict: dict) -> str:
         """
@@ -253,7 +277,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :param prod_dict: eumdac product dictionary
         :return: version of product
         """
-        if "productInformation" in prod_dict.keys():
+        if "productVersion" in prod_dict["productInformation"].keys():
             return prod_dict["productInformation"]["productVersion"]
         else:
             return ""
@@ -268,7 +292,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
         if "date" in prod_dict.keys():
             return [
-                datetime.fromisoformat(t.replace('Z', '+00:00'))
+                dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
                 for t in prod_dict['date'].split('/')
             ][0]
         else:
@@ -284,7 +308,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
         if "date" in prod_dict.keys():
             return [
-                datetime.fromisoformat(t.replace('Z', '+00:00'))
+                dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
                 for t in prod_dict['date'].split('/')
             ][1]
         else:
@@ -436,7 +460,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :return: path (or list of paths) to downloaded product(s)
         """
 
-        if isinstance(product, List):
+        if isinstance(product, list):
             return [self.download_product_filename(prod, fs) for prod in product]
 
         from scrappi import make_fs
@@ -454,8 +478,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         elif isinstance(product, str):
             found = False
             eumdac_product: Any = None
-            product_prov = datastore.get_product(collection_id=collection,
-                                                 product_id=product)
+            product_prov = self.api.get_product(collection_id=collection, product_id=product)
             if len(product_prov) > 0:
                 found = True
                 eumdac_product = product_prov[0]
