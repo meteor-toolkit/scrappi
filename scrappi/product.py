@@ -9,6 +9,7 @@ with helpers for filtering, sorting and STAC materialisation.
 
 import warnings
 import json
+import re
 from typing import TYPE_CHECKING, Dict, Any, Optional, Sequence, Union, List, Tuple
 
 if TYPE_CHECKING:
@@ -43,7 +44,6 @@ __all__ = [
     "product_item_from_dict",
     "product_item_set_from_dict",
 ]
-
 
 class ProductItem:
     """
@@ -151,6 +151,11 @@ class ProductItem:
     def stac(self) -> "pystac.Item":
         """Return a pystac.Item representing this ProductItem."""
         return self.to_stac_item()
+
+    @property
+    def collection_path(self) -> str:
+        """Return a filesystem-safe collection name for paths and STAC directories."""
+        return sanitize_collection_name(self.collection)
 
     def to_stac_item(
         self,
@@ -290,7 +295,7 @@ class ProductItem:
         _data_root = Path(fs.data_root)
 
         item_path = fs.return_stac_item_path(self)
-        collection_json = stac_root / self.collection / "collection.json"
+        collection_json = stac_root / self.collection_path / "collection.json"
         root_catalog_json = stac_root / "catalog.json"
 
         collection_json.parent.mkdir(parents=True, exist_ok=True)
@@ -325,7 +330,7 @@ class ProductItem:
             collection.extra_fields["constellation"] = self.constellation
             collection.extra_fields["platform"] = self.platform
 
-        collection.set_self_href(fs.stac_href("collections", self.collection, "collection.json"))
+        collection.set_self_href(fs.stac_href("collections", self.collection_path, "collection.json"))
 
         # ---------------- Item ----------------
         item = self.to_stac_item(filesystem=filesystem, overwrite=True)
@@ -1290,6 +1295,13 @@ def product_item_set_from_dict(
 
     return pis
 
+def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
+    """Return a filesystem- and STAC-safe collection segment for paths."""
+    if collection is None:
+        return ""
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(collection)).strip("._-")
+    return safe_name or "collection"
 
 if __name__ == "__main__":
     pass

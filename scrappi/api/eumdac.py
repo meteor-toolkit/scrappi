@@ -9,10 +9,11 @@ import shapely.geometry
 import time
 import numpy as np
 import datetime as dt
+import eumdac
+import requests
 from shapely.geometry import Polygon, MultiPolygon, shape
 from typing import Any, Optional, Union, List
 
-import eumdac
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet

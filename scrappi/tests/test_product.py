@@ -1031,6 +1031,24 @@ class TestStacCatalog(BaseStacTest):
         self.assertEqual(len(item_links), 1)
         self.assertTrue(item_links[0]["href"].startswith("stac://"))
 
+    def test_collection_name_is_preserved_for_metadata_but_sanitized_for_paths(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            collection="EO:EUM:DAT:METOP:IASIL1C-ALL",
+        )
+
+        p.register_in_filesystem_catalog()
+
+        collection_json = Path(self.fs.stac_root) / "EO_EUM_DAT_METOP_IASIL1C-ALL" / "collection.json"
+        self.assertTrue(collection_json.exists())
+
+        data = json.loads(collection_json.read_text())
+        self.assertEqual(data["id"], "EO:EUM:DAT:METOP:IASIL1C-ALL")
+        self.assertEqual(p.collection, "EO:EUM:DAT:METOP:IASIL1C-ALL")
+        self.assertEqual(p.collection_path, "EO_EUM_DAT_METOP_IASIL1C-ALL")
+
     def test_collection_extent_expands_with_multiple_items(self):
         p1 = self.make_product(
             "item-1",
