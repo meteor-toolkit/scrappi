@@ -126,7 +126,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             )
         return collections
 
-    def _perform_query(self, query: dict) -> list:
+    def _perform_query(self, query: dict, format_query: bool = True) -> list:
         """
         Return catalogue product DataGranules that satisfy query
 
@@ -135,7 +135,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         """
 
         # reformat query into style suitable for earthaccess searching
-        earthaccess_query = self._format_query(query)
+        if format_query:
+            earthaccess_query = self._format_query(query)
+        else:
+            earthaccess_query = query
 
         # search catalogue with query
         products = earthaccess.search_data(**earthaccess_query)
@@ -158,7 +161,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
         return products
 
-    def perform_query(self, query: dict) -> ProductItemSet:
+    def perform_query(self, query: dict, format_query: bool = True) -> ProductItemSet:
         """
         Return ProductItemSet containing ProductItems that satisfy query
 
@@ -179,7 +182,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                     products.append_ProductItemSet(self.perform_query(query))
                 return products
 
-        granule_list = self._perform_query(query)
+        granule_list = self._perform_query(query, format_query=format_query)
 
         if len(granule_list) == 0:
             return ProductItemSet()
@@ -393,7 +396,18 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
-
+            
+            aux_cols = self.context["earthaccess"]["auxiliary_collections"].get(product.collection, None)
+            if aux_cols:
+                for c in aux_cols:
+                    try:
+                        aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:4]) + "*", "short_name": c}
+                        aux_prod = self.perform_query(aux_query, format_query=False)
+                        self.download_product(aux_prod)
+                    except Exception as e:
+                        warnings.warn(f"Failed to download auxiliary product for {product.id}: {e}")
+                        continue
+                    
             if exists:
                 print(f"{path} exists")
                 return path
@@ -402,7 +416,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 eoprod = product.api_product
 
                 return self._download_product_DataGranule(eoprod, os.path.dirname(path), product.id)
-
+            
+            elif product.url is not None and isinstance(product.url, str):
+                return self._download_product_DataGranule(product.url, os.path.dirname(path), product.id)
+            
             else:
                 if product.prod_dict is not None and "RelatedUrls" in product.prod_dict.keys():
                     url = product.prod_dict["RelatedUrls"][
