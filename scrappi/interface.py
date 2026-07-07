@@ -283,6 +283,7 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     # run query for different apis until results found
     api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
     for api in api_list:
+        print(f"performing query for {query['collection']} using {api} api")
         api_handler = make_api(api, context)
         products = api_handler.perform_query(query)
         if len(products) > 0:

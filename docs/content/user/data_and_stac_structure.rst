@@ -1,3 +1,4 @@
+.. _data_and_stac_structure:
 
 Data and STAC Catalogue Structure
 ================================
