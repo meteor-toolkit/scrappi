@@ -239,7 +239,7 @@ class ProductItem:
                     href=self.url,
                     media_type="application/octet-stream",
                     title="data",
-                    extra_fields={"scrappi:asset_state": "remote"},
+                    extra_fields={"scrappi:asset_state": "remote", "scrappi:api": self.api.name if self.api else None},
                 ),
             )
 
