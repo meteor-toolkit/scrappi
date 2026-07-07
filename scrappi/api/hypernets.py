@@ -310,7 +310,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                 ProductItem(
                     constellation="HYPERNETS",
                     platform=prod["site_id"],
-                    collection=query["collection"],
+                    collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
                     geometry=self.get_roi_shapely(prod["site_id"]),
                     start_time=self._get_datetime(prod["datetime_start"]),

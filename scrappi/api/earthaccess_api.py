@@ -59,8 +59,8 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         return self._get_datetime(date_time).strftime("%Y-%m-%dT%H:%M:%S")
 
     def _set_geom(
-        self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        self, query: dict
+    ) -> dict:
         """
         Convert input geometries to ones suited to the apis query format
         All accepted geometries work for earthaccess api
@@ -68,24 +68,24 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :param geom: geometry to convert
         :return: geometry in accepted earthaccess format
         """
-        geom = self._get_geom(geom)
+        geom = self._get_geom(query['geom'])
         if isinstance(geom, dict):
-            return (
+            query["bounding_box"] = (
                 geom["longitude_minimum"],
                 geom["latitude_minimum"],
                 geom["longitude_maximum"],
                 geom["latitude_maximum"],
             )
         else:
-            if not isinstance(
+            if isinstance(
                 geom,
                 (
                     shapely.geometry.base.BaseGeometry,
                     shapely.geometry.base.BaseMultipartGeometry,
                 ),
             ):
-                geom = shapely.wkt.loads(geom)
-            return geom
+                query["polygon"] = list(geom.exterior.coords)
+        return query
 
     def _format_query(self, query: dict) -> dict:
         """
@@ -95,12 +95,13 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :return: formatted query dict
         """
         earthaccess_query = query.copy()
+        earthaccess_query = self._set_geom(query)
         earthaccess_query["short_name"] = self._set_product_type(query["collection"])
         earthaccess_query["temporal"] = (
             self._set_datetime(query["start_time"]),
             self._set_datetime(query["stop_time"]),
         )
-        earthaccess_query["bounding_box"] = self._set_geom(query["geom"])
+        
 
         for k in ["start_time", "stop_time", "collections", "collection", "geom"]:
             earthaccess_query.pop(k, None)
