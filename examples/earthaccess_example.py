@@ -28,6 +28,7 @@ file_system = make_fs(example_path)
 
 context = ScrappiContext()
 context.set_preferred_api("earthaccess")
+context.set_fs(file_system)
 
 if __name__ == "__main__":
     start = "2025-05-01T00:00:00"
@@ -46,6 +47,5 @@ if __name__ == "__main__":
 
         products = perform_query(query, context)
         print(products)
-        products.set_fs(file_system)
         path = download_product(products, context)
         print(path)
