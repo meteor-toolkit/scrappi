@@ -7,11 +7,10 @@ import shapely
 import shapely.wkt
 import shapely.geometry
 import time
-import numpy as np
 import datetime as dt
 import eumdac
 import requests
-from shapely.geometry import Polygon, MultiPolygon, shape
+from shapely.geometry import MultiPolygon, shape
 from typing import Any, Optional, Union, List
 
 
@@ -37,7 +36,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         try:
             eumdac_key = self.context["eumdac"]["credentials"]["key"]
             eumdac_secret = self.context["eumdac"]["credentials"]["secret"]
-            
+
         except Exception:
             warnings.warn(
                 "No credentials found for eumdac. Please set these in the config file to enable downloading of products."
@@ -54,7 +53,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
         return self._get_product_type(collection)
 
-    def _set_datetime(self, date_time: Union[dt.datetime, str]) -> str:
+    def _set_datetime(self, date_time: Union[dt.datetime, str]) -> dt.datetime:
         """
         Convert input datetime to a datetime object suited to the eumdac query format
 
@@ -136,7 +135,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         eumdac_query.pop("selected_collection", None)
 
         # search catalogue with query
-        products = collection.search(**eumdac_query)
+        products: list[Any] = list(collection.search(**eumdac_query))
 
         if not any(key in eumdac_query.keys() for key in ["geo", "bbox"]):
             return products
@@ -225,14 +224,15 @@ class EUMDACCallHandler(BaseAPICallHandler):
             )
 
         return ProductItemSet(product_item_list)
-    
-    def convert_geom(self, geom: Union[dict, shapely.geometry.base.BaseGeometry]) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+
+    def convert_geom(
+        self, geom: Union[dict, shapely.geometry.base.BaseGeometry]
+    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
         """
         Convert product metadata geometry to a format suitable for filtering and downloading
         :param geom: geometry to convert
         :return: geometry in shapely format
         """
-
 
         geometry = shape(geom) if isinstance(geom, dict) else geom
 
@@ -245,7 +245,6 @@ class EUMDACCallHandler(BaseAPICallHandler):
             raise ValueError("MultiPolygon contains more than one polygon")
 
         raise ValueError(f"Unsupported geometry type: {geometry.geom_type}")
-
 
     def get_platform(self, prod_dict: dict) -> str:
         """
@@ -267,7 +266,9 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :return: constellation identifier
         """
         try:
-            return self.parse_constellation_from_name(prod_dict["acquisitionInformation"][0]["platform"]["platformShortName"])
+            return self.parse_constellation_from_name(
+                prod_dict["acquisitionInformation"][0]["platform"]["platformShortName"]
+            )
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -292,10 +293,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
 
         if "date" in prod_dict.keys():
-            return [
-                dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
-                for t in prod_dict['date'].split('/')
-            ][0]
+            return [dt.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in prod_dict["date"].split("/")][0]
         else:
             raise ValueError("start time not found in product dictionary")
 
@@ -308,10 +306,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
 
         if "date" in prod_dict.keys():
-            return [
-                dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
-                for t in prod_dict['date'].split('/')
-            ][1]
+            return [dt.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in prod_dict["date"].split("/")][1]
         else:
             raise ValueError("stop time not found in product dictionary")
 
@@ -323,7 +318,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :param prod_dict: eumdac product dictionary
         :return: dictionary with filter attributes
         """
-        filter_dict = {}
+        filter_dict: dict[str, Any] = {}
 
         # To be implemented if any suitable filter attributes are identified in future
 
@@ -355,9 +350,9 @@ class EUMDACCallHandler(BaseAPICallHandler):
                 if isinstance(product, eumdac.product.Product):
                     for attempt in range(self.context.get("max_retrys", 3)):
                         try:
-                            with product.open() as fsrc, open(os.path.join(path, product_title), mode='wb') as fdst:
+                            with product.open() as fsrc, open(os.path.join(path, product_title), mode="wb") as fdst:
                                 shutil.copyfileobj(fsrc, fdst)
-                                print(f'Download of product {product} finished.')
+                                print(f"Download of product {product} finished.")
                             if os.path.exists(os.path.join(path, product_title)):
                                 break
                             else:
@@ -372,15 +367,13 @@ class EUMDACCallHandler(BaseAPICallHandler):
                                 print(f"Max download attempts reached. Download failed for product {product_title}.")
                                 raise e
 
-                elif isinstance(product, str):     
+                elif isinstance(product, str):
                     for attempt in range(self.context.get("max_retrys", 3)):
                         try:
-                            response = requests.get(product,
-                                                    headers={"Authorization": f"Bearer {self.eumdac_token}"}
-                                                    )
+                            response = requests.get(product, headers={"Authorization": f"Bearer {self.eumdac_token}"})
                             with open(os.path.join(path, product_title), "wb") as f:
                                 f.write(response.content)
-                                print(f'Download of product {product} finished.')
+                                print(f"Download of product {product} finished.")
                             if os.path.exists(os.path.join(path, product_title)):
                                 break
                             else:
@@ -393,8 +386,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
                                 time.sleep(self.context.get("retry_wait", 5))
                             else:
                                 print(f"Max download attempts reached. Download failed for product {product_title}.")
-                                raise e 
-
+                                raise e
 
             return os.path.join(path, product_title)
 
@@ -436,7 +428,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
             else:
                 if product.prod_dict is not None and "links" in product.prod_dict.keys():
-                    url = product.prod_dict['links']['data'][0]['href']
+                    url = product.prod_dict["links"]["data"][0]["href"]
                     return self._download_product(url, os.path.dirname(path), product.id)
 
             return None
@@ -462,7 +454,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
 
         if isinstance(product, list):
-            return [self.download_product_filename(prod, fs) for prod in product]
+            return [self.download_product_filename(prod, collection, fs) for prod in product]
 
         from scrappi import make_fs
 
@@ -479,8 +471,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
         elif isinstance(product, str):
             found = False
             eumdac_product: Any = None
-            product_prov = self.api.get_product(collection_id=collection, product_id=product)
-            if len(product_prov) > 0:
+            product_prov: Any = self.api.get_product(collection_id=collection, product_id=product)
+            if isinstance(product_prov, list) and len(product_prov) > 0:
                 found = True
                 eumdac_product = product_prov[0]
 
@@ -493,9 +485,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
             path = resolved_fs.directory
 
-            return self._download_product(
-                eumdac_product, path, eumdac_product._id
-            )
+            return self._download_product(eumdac_product, path, eumdac_product._id)
 
         else:
             raise ValueError("products are not in the right format for filename download by scrappi EUMDAC (str)")

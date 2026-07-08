@@ -21,6 +21,7 @@ from scrappi.api.eodag import EODAGCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
+from scrappi.api.eumdac import EUMDACCallHandler
 
 all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac"]
 
@@ -28,7 +29,7 @@ all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radca
 API_CALL_HANDLERS = {
     "eodag": EODAGCallHandler,
     # "earthaccess": EarthaccessCallHandler,  #handled separately below to allow lazy import
-    #"eumdac": EUMDACCallHandler,  handled separately below to allow lazy import
+    "eumdac": EUMDACCallHandler,
     # "hypernets": HYPERNETSCallHandler, #handled separately below to allow lazy import
     "radcalnet": RadcalnetCallHandler,
     "stac": STACAPICallHandler,
@@ -79,11 +80,6 @@ class APICallHandlerFactory:
             from scrappi.api.earthaccess_api import EarthaccessCallHandler
 
             return EarthaccessCallHandler(context=context)
-    
-        elif name.lower() == "eumdac":
-            from scrappi.api.eumdac import EUMDACCallHandler
-
-            return EUMDACCallHandler(context=context)
 
         elif name in self.api_call_handlers.keys():
             return self.api_call_handlers[name.lower()](context=context)

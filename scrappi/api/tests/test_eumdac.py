@@ -27,12 +27,8 @@ class TestEUMDACCallHandler(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures"""
-        self.access_token_patcher = mock.patch(
-            "scrappi.api.eumdac.eumdac.AccessToken", return_value=mock.Mock()
-        )
-        self.data_store_patcher = mock.patch(
-            "scrappi.api.eumdac.eumdac.DataStore", return_value=mock.Mock()
-        )
+        self.access_token_patcher = mock.patch("scrappi.api.eumdac.eumdac.AccessToken", return_value=mock.Mock())
+        self.data_store_patcher = mock.patch("scrappi.api.eumdac.eumdac.DataStore", return_value=mock.Mock())
         self.access_token_patcher.start()
         self.data_store_patcher.start()
         self.addCleanup(self.access_token_patcher.stop)
@@ -261,7 +257,7 @@ class TestEUMDACCallHandler(unittest.TestCase):
             geometry=Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
             start_time=dt.datetime(2022, 6, 7),
             stop_time=dt.datetime(2022, 6, 8),
-            prod_dict={"links": {"data": [{"href": "https://example.com/data"}] }},
+            prod_dict={"links": {"data": [{"href": "https://example.com/data"}]}},
             filesystem=example_path,
         )
 
@@ -311,7 +307,9 @@ class TestEUMDACCallHandler(unittest.TestCase):
 
     def test_download_product_filename_list(self):
         """Test download_product_filename with a list of filenames"""
-        with mock.patch.object(self.handler, "download_product_filename", return_value=["/path/to/prod1", "/path/to/prod2"]):
+        with mock.patch.object(
+            self.handler, "download_product_filename", return_value=["/path/to/prod1", "/path/to/prod2"]
+        ):
             result = self.handler.download_product_filename(["prod-1", "prod-2"], "EO:EUM:DAT:TEST")
             self.assertEqual(result, ["/path/to/prod1", "/path/to/prod2"])
 

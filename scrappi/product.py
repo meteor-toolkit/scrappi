@@ -45,6 +45,7 @@ __all__ = [
     "product_item_set_from_dict",
 ]
 
+
 class ProductItem:
     """
     Object representing a product item in a data catalogue
@@ -1295,6 +1296,7 @@ def product_item_set_from_dict(
 
     return pis
 
+
 def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
     """Return a filesystem- and STAC-safe collection segment for paths."""
     if collection is None:
@@ -1302,6 +1304,7 @@ def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
 
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(collection)).strip("._-")
     return safe_name or "collection"
+
 
 if __name__ == "__main__":
     pass
