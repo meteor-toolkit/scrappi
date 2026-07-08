@@ -69,7 +69,7 @@ class STACFileSystem(LocalFileSystem):
         """
         constellation = product_item.constellation
         platform = product_item.platform
-        collection = product_item.collection
+        collection = product_item.collection_path
         start_time = product_item.start_time
         day = start_time.strftime("%d")
         month = start_time.strftime("%m")
@@ -128,7 +128,7 @@ class STACFileSystem(LocalFileSystem):
         :param product_info: stac item defining info, including ``"product_name"`` and ``"datetime"``
         :return: stac item path
         """
-        collection = product_item.collection
+        collection = product_item.collection_path
         start_time = product_item.start_time
         day = start_time.strftime("%d")
         month = start_time.strftime("%m")
