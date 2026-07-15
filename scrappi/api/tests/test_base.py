@@ -159,6 +159,63 @@ class TestBaseAPICallHandler(unittest.TestCase):
         dummy_api_call_handler = self.DummyAPICallHandler(context)
         self.assertEqual(dummy_api_call_handler._get_product_type("LANDSAT_C2L1"), "LANDSAT_C2L1")
 
+    def test_parse_platform_from_name_sentinel2(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for prefix in ["S2A", "S2B", "S2C"]:
+            name = f"{prefix}_MSIL1C_20221001T084801_N0400_R107_T33KWP_20221001T123324"
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), prefix)
+
+    def test_parse_platform_from_name_sentinel3(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for prefix in ["S3A", "S3B"]:
+            name = f"{prefix}_OL_1_EFR____20221001T084801_20221001T085101_20221001T104506"
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), prefix)
+
+    def test_parse_platform_from_name_landsat8_returns_short_code(self):
+        """LC08/LO08 product IDs return the short code 'LS8', not 'Landsat-8'.
+
+        Regression test: previously this returned the long-form name 'Landsat-8',
+        inconsistent with the short-code form used for every other mission
+        (e.g. 'S2A') and with the satellite identifiers used by downstream
+        consumers (e.g. orbitx's satellite short codes), so a client-side filter
+        comparing this value against a configured platform identifier could
+        never match.
+        """
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for prefix in ["LC08", "LO08"]:
+            name = f"{prefix}_L1TP_172030_20220120_20220127_02_T2A"
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "LS8")
+
+    def test_parse_platform_from_name_landsat9_returns_short_code(self):
+        """LC09/LO09 product IDs return the short code 'LS9', not 'Landsat-9'."""
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for prefix in ["LC09", "LO09"]:
+            name = f"{prefix}_L1TP_179076_20220926_20230327_02_T1"
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "LS9")
+
+    def test_parse_platform_from_name_ecmwf_passthrough(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for prefix in ["CAMS", "ERA5", "REAN"]:
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(f"{prefix}_20220101"), prefix)
+
+    def test_parse_platform_from_name_modis_terra(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        name = "MOD021KM.A2022001.0000.061.2022002123456.hdf"
+        self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "Terra")
+
+    def test_parse_platform_from_name_modis_aqua(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        name = "MYD021KM.A2022001.0000.061.2022002123456.hdf"
+        self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "Aqua")
+
+    def test_parse_platform_from_name_unrecognized_raises(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        self.assertRaises(
+            NotImplementedError,
+            dummy_api_call_handler.parse_platform_from_name,
+            "UNKNOWN_PRODUCT_ID_12345",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
