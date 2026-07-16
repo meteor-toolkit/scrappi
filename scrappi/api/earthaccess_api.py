@@ -256,6 +256,9 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         except NotImplementedError:
             if "Platforms" in prod_dict.keys():
                 return [x["ShortName"] for x in prod_dict["Platforms"]][0]
+            elif "CollectionReference" in prod_dict.keys():
+                if "MCD" in prod_dict["CollectionReference"]["ShortName"]:
+                    return "Combined"
             else:
                 raise NotImplementedError("platform name could not be parsed")
 
@@ -271,6 +274,9 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         except NotImplementedError:
             if "Platforms" in prod_dict.keys():
                 return [x["Instruments"][0]["ShortName"] for x in prod_dict["Platforms"]][0]
+            elif "CollectionReference" in prod_dict.keys():
+                if "MCD" in prod_dict["CollectionReference"]["ShortName"]:
+                    return "MODIS"
             else:
                 raise NotImplementedError("platform name could not be parsed")
 
@@ -401,7 +407,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             if aux_cols:
                 for c in aux_cols:
                     try:
-                        aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:4]) + "*", "short_name": c}
+                        aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3]) + "*", "short_name": c, "version": "7"}
                         aux_prod = self.perform_query(aux_query, format_query=False)
                         self.download_product(aux_prod)
                     except Exception as e:
