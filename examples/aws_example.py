@@ -21,17 +21,15 @@ site_def = {
         "longitude_maximum": 12,
     },}
 
-example_path = os.path.join(r"C:\Users\wp2\Documents\projects\region_segmentation", "examples", "downloaded_data")
+example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data")
 file_system = make_fs(example_path)
 
 context = ScrappiContext()
 context.set_preferred_api("aws")
 
 if __name__ == "__main__":
-    start = "2025-05-01T00:00:00"
-    end = "2025-05-05T00:00:00"
     for site in site_def.keys():
-        query = {
+        world_cover_query = {
             "collections": [
                 "ESA_WorldCover",
             ],
@@ -39,25 +37,23 @@ if __name__ == "__main__":
             "version": 200,
         }
 
-        products = perform_query(query, context)
-        print(products)
-        products.set_fs(file_system)
-        path = download_product(products, context)
-        print(path)
+        world_cover_products = perform_query(world_cover_query, context)
+        print(world_cover_products)
+        world_cover_products.set_fs(file_system)
+        world_cover_path = download_product(world_cover_products, context)
+        print(world_cover_path)
+
     for site in site_def.keys():
-        query = {
+        dem_30_query = {
             "collections": [
                 "Copernicus-dem-30m",
             ],
             "geom": site_def[site],
-            #"start_time": start,
-            #"stop_time": end,
-            #"version": "7",
         }
 
-        products = perform_query(query, context)
-        print(products)
-        products.set_fs(file_system)
-        path = download_product(products, context)
-        print(path)
+        dem_products = perform_query(dem_30_query, context)
+        print(dem_products)
+        dem_products.set_fs(file_system)
+        dem_path = download_product(dem_products, context)
+        print(dem_path)
 
