@@ -256,9 +256,6 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         except NotImplementedError:
             if "Platforms" in prod_dict.keys():
                 return [x["ShortName"] for x in prod_dict["Platforms"]][0]
-            elif "CollectionReference" in prod_dict.keys():
-                if "MCD" in prod_dict["CollectionReference"]["ShortName"]:
-                    return "Combined"
             else:
                 raise NotImplementedError("platform name could not be parsed")
 
@@ -274,9 +271,6 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         except NotImplementedError:
             if "Platforms" in prod_dict.keys():
                 return [x["Instruments"][0]["ShortName"] for x in prod_dict["Platforms"]][0]
-            elif "CollectionReference" in prod_dict.keys():
-                if "MCD" in prod_dict["CollectionReference"]["ShortName"]:
-                    return "MODIS"
             else:
                 raise NotImplementedError("platform name could not be parsed")
 
