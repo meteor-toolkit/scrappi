@@ -96,7 +96,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :return: formatted query dict
         """
         earthaccess_query = query.copy()
-        earthaccess_query = self._set_geom(query)
+        earthaccess_query = self._set_geom(earthaccess_query)
         earthaccess_query["short_name"] = self._set_product_type(query["collection"])
         if "temporal" not in earthaccess_query.keys():
             earthaccess_query["temporal"] = (
