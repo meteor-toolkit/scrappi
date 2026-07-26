@@ -196,6 +196,8 @@ class ProductItem:
             properties["prod_dict"] = self.prod_dict or {}
         if self.context["fs"].get("store_filter_dict_in_stac", False):
             properties["filter_dict"] = self.filter_dict or {}
+        if self.context["fs"].get("store_cloud_fraction_in_stac", False):
+            properties["cloud_fraction"] = self.cloud_fraction
 
         # Create STAC Item (use start_time as datetime; stop_time added to properties)
         item = pystac.Item(

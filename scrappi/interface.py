@@ -160,7 +160,7 @@ def get_api_name(
         for api in Factory.all_api_list:
             try:
                 if collection in Factory.get_api_call_handler(api, context).list_collections():
-                    if all_apis is True:
+                    if all_apis:
                         apis.append(api)
                     else:
                         return api
@@ -278,15 +278,25 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 products.append_ProductItemSet(perform_query(query, context))
             return products
 
-    apis = get_api_name(query["collection"], context=context, all_apis=True)
 
-    # run query for different apis until results found
-    api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
-    for api in api_list:
-        api_handler = make_api(api, context)
-        products = api_handler.perform_query(query)
-        if len(products) > 0:
-            return products
+    api = get_api_name(query["collection"], context=context)
+    api_handler = make_api(api, context)
+    products = api_handler.perform_query(query)
+    if len(products) > 0:
+        return products
+
+    if context["api"]["try_all_apis"]:
+        apis = get_api_name(query["collection"], context=context, all_apis=True)
+        # remove preferred_api from list of apis to try, as it has already been tried above
+        apis = [a for a in apis if a != api]
+
+        # run query for different apis until results found
+        api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+        for api in api_list:
+            api_handler = make_api(api, context)
+            products = api_handler.perform_query(query)
+            if len(products) > 0:
+                return products
 
     return ProductItemSet()
 
@@ -382,43 +392,57 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
             print(f"{path} exists")
             return path
 
-    apis = get_api_name(product.collection, context=context, all_apis=True)
-    download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+    api = get_api_name(product.collection, context=context)
+    api_handler = make_api(api, context=context)
+    download_path = api_handler.download_product(product)
+    if download_path is not None:
+        _register_product_in_catalog(product, context)
+        return download_path
 
-    for api in download_apis:
-        api_handler = make_api(api, context=context)
-        download_path = api_handler.download_product(product)
-        if download_path is not None:
-            # After successful download, attempt to register the product in filesystem STAC catalogs
+    if context["api"]["try_all_apis"]:
+        apis = get_api_name(product.collection, context=context, all_apis=True)
+        apis = [a for a in apis if a != api] # remove preferred_api from list of apis to try, as it has already been tried above
+        download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+
+        for api in download_apis:
+            api_handler = make_api(api, context=context)
+            download_path = api_handler.download_product(product)
+            if download_path is not None:
+                _register_product_in_catalog(product, context)
+                return download_path
+
+
+def _register_product_in_catalog(product: ProductItem, context: ScrappiContext):
+    """
+    Register a downloaded product in the filesystem's STAC catalog, if applicable.
+
+    :param product: ProductItem that has been downloaded
+    :param context: ScrappiContext for configuration
+    """
+    try:
+        register_flag = False
+        try:
+            register_flag = bool(context["fs"]["register_stac_items"])
+        except Exception:
+            register_flag = False
+
+        if register_flag and isinstance(product, ProductItem):
+            # prefer product.filesystem; make_fs will handle strings
             try:
-                # Check context setting to decide whether to auto-register
-                register_flag = False
-                try:
-                    register_flag = bool(context["fs"]["register_stac_items"])
-                except Exception:
-                    register_flag = False
-
-                if register_flag and isinstance(product, ProductItem):
-                    # prefer product.filesystem; make_fs will handle strings
-                    try:
-                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                    except Exception:
-                        # fallback: try using make_fs with product.filesystem attribute
-                        try:
-                            fs = make_fs(product.filesystem)
-                            product.register_in_filesystem_catalog(
-                                filesystem=fs,
-                                overwrite=context["fs"]["overwrite_stac_items"],
-                            )
-                        except Exception as e:
-                            warnings.warn(f"Failed to register product in STAC catalog: {e}")
-                # for ProductItemSet we assume individual downloads will have registered themselves
+                product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
             except Exception:
-                # Do not let registration errors prevent returning the download path
-                pass
-
-            return download_path
-
+                # fallback: try using make_fs with product.filesystem attribute
+                try:
+                    fs = make_fs(product.filesystem)
+                    product.register_in_filesystem_catalog(
+                        filesystem=fs,
+                        overwrite=context["fs"]["overwrite_stac_items"],
+                    )
+                except Exception as e:
+                    warnings.warn(f"Failed to register product in STAC catalog: {e}")
+    except Exception:
+        # Do not let registration errors prevent returning the download path
+        pass
 
 def download_product_filename(
     product: Union[str, List],

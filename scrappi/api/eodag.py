@@ -248,7 +248,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set
-            if ("platform" in query) and self.get_platform(prod_dict) != query["platform"]:
+            if ("platform" in query) and (query["platform"] is not None) and self.get_platform(prod_dict) != query["platform"]:
                 continue
 
             # check shape of geometry
@@ -264,10 +264,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             else:
                 url = ""
 
-            if "collection" in prod_dict["properties"].keys():
-                collection = prod_dict["properties"]["collection"]
-            else:
-                collection = query["collection"]
+            collection = query["collection"]
 
             # store product item
             product_list.append(
