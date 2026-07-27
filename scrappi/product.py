@@ -9,6 +9,7 @@ with helpers for filtering, sorting and STAC materialisation.
 
 import warnings
 import json
+import re
 from typing import TYPE_CHECKING, Dict, Any, Optional, Sequence, Union, List, Tuple
 
 if TYPE_CHECKING:
@@ -102,8 +103,9 @@ class ProductItem:
             self.context = ScrappiContext()
         else:
             self.context = context
-        self.set_api(api, context)
-        self.set_fs(filesystem, context)
+        self.api = api
+        self.fs = self.set_fs(filesystem)
+        
 
     def __str__(self) -> str:
         """Custom __str__"""
@@ -152,6 +154,11 @@ class ProductItem:
         """Return a pystac.Item representing this ProductItem."""
         return self.to_stac_item()
 
+    @property
+    def collection_path(self) -> str:
+        """Return a filesystem-safe collection name for paths and STAC directories."""
+        return sanitize_collection_name(self.collection)
+
     def to_stac_item(
         self,
         filesystem: Optional["STACFileSystem"] = None,
@@ -163,7 +170,12 @@ class ProductItem:
         :param assets: optional mapping of asset_key -> {href, media_type, title}
         :return: `pystac.Item` representing the product
         """
-        fs = filesystem or self.filesystem
+        if filesystem:
+            fs = self.set_fs(filesystem)
+        elif self.filesystem:
+            fs = self.filesystem
+        else:
+            fs = self.set_fs()
         if fs is None:
             raise ValueError("No filesystem provided")
 
@@ -190,6 +202,8 @@ class ProductItem:
             properties["prod_dict"] = self.prod_dict or {}
         if self.context["fs"].get("store_filter_dict_in_stac", False):
             properties["filter_dict"] = self.filter_dict or {}
+        if self.context["fs"].get("store_cloud_fraction_in_stac", False):
+            properties["cloud_fraction"] = self.cloud_fraction
 
         # Create STAC Item (use start_time as datetime; stop_time added to properties)
         item = pystac.Item(
@@ -290,7 +304,7 @@ class ProductItem:
         _data_root = Path(fs.data_root)
 
         item_path = fs.return_stac_item_path(self)
-        collection_json = stac_root / self.collection / "collection.json"
+        collection_json = stac_root / self.collection_path / "collection.json"
         root_catalog_json = stac_root / "catalog.json"
 
         collection_json.parent.mkdir(parents=True, exist_ok=True)
@@ -325,7 +339,7 @@ class ProductItem:
             collection.extra_fields["constellation"] = self.constellation
             collection.extra_fields["platform"] = self.platform
 
-        collection.set_self_href(fs.stac_href("collections", self.collection, "collection.json"))
+        collection.set_self_href(fs.stac_href("collections", self.collection_path, "collection.json"))
 
         # ---------------- Item ----------------
         item = self.to_stac_item(filesystem=filesystem, overwrite=True)
@@ -384,6 +398,9 @@ class ProductItem:
         """
         from scrappi.interface import make_fs
 
+        if not context:
+            context=self.context
+
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
 
@@ -396,7 +413,10 @@ class ProductItem:
         :param config_dict: config dictionary (api dependent)
         """
         from scrappi.interface import make_api
-
+        if not context:
+            context=self.context
+        if not api:
+            api=self.api
         self.api = make_api(api, context)
 
     def move_product(self, new_fs: Union[str, Any], copy: bool = True) -> str:
@@ -1292,6 +1312,15 @@ def product_item_set_from_dict(
         pis.add_ProductItem(product_item_from_dict(p, api=api, filesystem=filesystem))
 
     return pis
+
+
+def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
+    """Return a filesystem- and STAC-safe collection segment for paths."""
+    if collection is None:
+        return ""
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(collection)).strip("._-")
+    return safe_name or "collection"
 
 
 if __name__ == "__main__":

@@ -14,12 +14,14 @@ fs:
   data_base_url: 
   store_prod_dict_in_stac: False
   store_filter_dict_in_stac: False
+  store_cloud_fraction_in_stac: False
 
 api:
   preferred_api: "eodag"
   preferred_provider: "cop_dataspace"
   eodag_logging_level: 1
   fetch_collection_update: False
+  try_all_apis: True
 
 eodag:
   usgs:

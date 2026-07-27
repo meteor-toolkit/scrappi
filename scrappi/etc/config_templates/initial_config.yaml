@@ -12,7 +12,8 @@ fs:
 api:
   preferred_api: "eodag"
   preferred_provider: "cop_dataspace"
-
+  try_all_apis: True
+  
 eodag:
   usgs:
     priority: 4 # Lower value means lower priority (Default: 0)
