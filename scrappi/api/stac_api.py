@@ -145,7 +145,7 @@ class STACAPICallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: Union[ProductItem, ProductItemSet],
     ):
         """
         Resolve asset paths for STAC products.

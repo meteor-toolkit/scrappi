@@ -187,7 +187,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
         return ProductItemSet(product_list)
 
     def download_file(
-        self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
+        self, prod: ProductItem, dest: Optional[Union[str, Any]] = None
     ) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth

@@ -216,7 +216,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         raise NotImplementedError("not currently available for rcn files")
 
     def download_file(
-        self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
+        self, prod: ProductItem, dest: Optional[Union[str, Any]] = None
     ) -> Optional[Union[list, str]]:
         """
         Download the file at URL into dest using class credentials for basic auth

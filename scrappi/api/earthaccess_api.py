@@ -188,7 +188,8 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 prod_geom = unary_union(shape(granule_list[i].__geo_interface__))
 
             if "RelatedUrls" in prod_dict.keys():
-                url = prod["RelatedUrls"][[x["Type"] for x in prod["RelatedUrls"]].index("GET DATA")]["URL"]
+                url = granule_list[i].data_links()[0]
+                # url = prod["RelatedUrls"][[x["Type"] for x in prod["RelatedUrls"]].index("GET DATA")]["URL"]
             else:
                 url = ""
 
@@ -350,7 +351,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: Union[ProductItem, ProductItemSet],
     ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
@@ -397,9 +398,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             
             else:
                 if product.prod_dict is not None and "RelatedUrls" in product.prod_dict.keys():
-                    url = product.prod_dict["RelatedUrls"][
-                        [x["Type"] for x in product.prod_dict["RelatedUrls"]].index("GET DATA")
-                    ]["URL"]
+                    url = product.api_product.data_links()[0]
+                    # url = product.prod_dict["RelatedUrls"][
+                    #     [x["Type"] for x in product.prod_dict["RelatedUrls"]].index("GET DATA")
+                    # ]["URL"]
 
                     return self._download_product_DataGranule(url, os.path.dirname(path), product.id)
 

@@ -534,7 +534,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: Union[ProductItem, ProductItemSet],
     ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path

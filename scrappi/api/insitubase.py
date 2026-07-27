@@ -90,9 +90,9 @@ class InSituCallHandler(BaseAPICallHandler):
         """
         pass
 
-    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
+    def download_product(self, product: Union[ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
         """
-        Download catalogue product(s) at defined URL to local path
+        Download catalogue product(s) from query results to local path
 
         :param product: product object
         :param fs: file system to use when writing the data. Alternatively, an existing product path can be provided as a string. If nothing is provided, it defaults to the path of scrappi/examples/downloaded_data
@@ -143,7 +143,7 @@ class InSituOfflineCallHandler(InSituCallHandler):
 
     def download_file(
         self,
-        product: Union[str, ProductItem],
+        product: ProductItem,
         fs: Optional[Union[str, BaseFileSystem]] = None,
     ) -> Union[list, str]:
         """

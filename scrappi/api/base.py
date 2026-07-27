@@ -192,10 +192,10 @@ class BaseAPICallHandler(ABC):
     @abstractmethod
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: Union[ProductItem, ProductItemSet],
     ) -> Optional[Union[list, str]]:
         """
-        Download catalogue product(s) at defined URL to local path
+        Download catalogue product(s) from query results to local path
 
         :param product: ProductItem of ProductItemSet from a product query
         :param fs: filesystem (can be path or file system object (BaseFileSystem)). Defaults to None, in which case product.filesystem is used.
