@@ -444,32 +444,7 @@ def _register_product_in_catalog(product: ProductItem, context: ScrappiContext):
         if register_flag and isinstance(product, ProductItem):
             # prefer product.filesystem; make_fs will handle strings
             try:
-<<<<<<< HEAD
-                # Check context setting to decide whether to auto-register
-                register_flag = False
-                try:
-                    register_flag = bool(context["fs"]["register_stac_items"])
-                except Exception:
-                    register_flag = False
-
-                if register_flag and isinstance(product, ProductItem):
-                    # prefer product.filesystem; make_fs will handle strings
-                    try:
-                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                    except Exception:
-                        # fallback: try using make_fs with product.filesystem attribute
-                        try:
-                            fs = make_fs(product.filesystem)
-                            product.register_in_filesystem_catalog(
-                                filesystem=fs,
-                                overwrite=context["fs"]["overwrite_stac_items"],
-                            )
-                        except Exception as e:
-                            logger.debug("Failed to register product in STAC catalog: %s", e)
-                # for ProductItemSet we assume individual downloads will have registered themselves
-=======
                 product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
->>>>>>> 51842314d254fa4d63784e06f1f8afc482c8d6ca
             except Exception:
                 # fallback: try using make_fs with product.filesystem attribute
                 try:
