@@ -258,9 +258,13 @@ class ProductItem:
             )
 
         if self.quicklook and "quicklook" not in item.assets:
+            if isinstance(self.quicklook,list):
+                quicklook = self.quicklook[0]
+            else:
+                quicklook = self.quicklook
             item.add_asset(
                 "quicklook",
-                pystac.Asset(href=self.quicklook, media_type="image/jpeg", title="quicklook"),
+                pystac.Asset(href=quicklook, media_type="image/jpeg", title="quicklook"),
             )
 
         return item
