@@ -220,7 +220,7 @@ class TestInterface(unittest.TestCase):
             ) as _mock_all_api_list,
         ):
             context = ScrappiContext()
-            context["api"]["preferred_api"] = "api"
+            context["api"]["preferred_api"] = "handle1"
             query = {"collection": "LANDSAT_C2L1"}
             perform_query(query, context)
             m.assert_called_with(context=context)
@@ -241,7 +241,7 @@ class TestInterface(unittest.TestCase):
                 ["handle1", "handle2"],
             ) as _mock_all_api_list,
         ):
-            download_product(self.p, context)
+            download_product(self.p, context, "handle1")
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
 

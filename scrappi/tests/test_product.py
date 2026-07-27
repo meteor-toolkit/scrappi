@@ -419,6 +419,7 @@ class TestProductItem(unittest.TestCase):
         assert isinstance(self.p.filesystem, LocalFileSystem)
 
     def test_set_api(self):
+        self.p.set_api()
         assert isinstance(self.p.api, EODAGCallHandler)
         self.p.set_api(
             api="eodag:cop_dataspace",
@@ -863,6 +864,7 @@ class TestProductItemSet(unittest.TestCase):
 
     def test_set_api(self):
         ps = ProductItemSet(self.products)
+        ps.set_api()
 
         assert isinstance(ps[0].api, EODAGCallHandler)
         ps.set_api("eodag")
