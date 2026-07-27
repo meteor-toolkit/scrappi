@@ -57,7 +57,7 @@ class BaseAPICallHandler(ABC):
             return "Landsat-8"
         elif name[0:4] in ["LC09", "LO09"]:
             return "Landsat-9"
-        elif name[0:4] in ["CAMS", "ERA5", "REAN"]:
+        elif name[0:4] in ["CAMS", "ERA5", "REAN", "OCO2", "OCO3"]:
             return name[0:4]
         elif name[0:3] in ["S2A", "S2B", "S2C", "S3A", "S3B"]:
             return name[0:3]
@@ -83,6 +83,8 @@ class BaseAPICallHandler(ABC):
             return "MODIS"
         elif name in ["Metop-A", "Metop-B", "Metop-C"]:
             return "Metop"
+        elif name[0:3] in ["OCO"]:
+            return name[0:3]
 
         else:
             raise NotImplementedError("constellation name could not be parsed")

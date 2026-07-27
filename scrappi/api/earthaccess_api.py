@@ -8,7 +8,8 @@ import shapely.geometry
 import time
 import numpy as np
 import datetime as dt
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, shape
+from shapely.ops import unary_union
 from typing import Any, Optional, Union, List
 
 import earthaccess
@@ -143,22 +144,6 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         # search catalogue with query
         products = earthaccess.search_data(**earthaccess_query)
 
-        if "geom" not in earthaccess_query.keys():
-            return products
-
-        elif isinstance(earthaccess_query["geom"], shapely.geometry.base.BaseGeometry):
-            products = [i for i in products if earthaccess_query["geom"].intersects(i.geometry)]  # type: ignore
-            return products
-
-        for p in products:
-            for s in ["geometry", "search_intersection"]:
-                if isinstance(p.__dict__[s], MultiPolygon):
-                    if len(p.__dict__[s].geoms) > 1:
-                        raise NotImplementedError(
-                            "The satellite product uses multiple Polygons within a MultiPolygon. This is not yet implemented within scrappi."
-                        )
-                    p.__dict__[s] = p.__dict__[s].geoms[0]
-
         return products
 
     def perform_query(self, query: dict, format_query: bool = True) -> ProductItemSet:
@@ -200,17 +185,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
             # check shape of geometry
             if "SpatialExtent" in prod_dict.keys():
-                prod_geom = Polygon(
-                    [
-                        (
-                            x["Longitude"],
-                            x["Latitude"],
-                        )
-                        for x in prod["SpatialExtent"]["HorizontalSpatialDomain"]["Geometry"]["GPolygons"][0][
-                            "Boundary"
-                        ]["Points"]
-                    ]
-                )
+                prod_geom = unary_union(shape(granule_list[i].__geo_interface__))
 
             if "RelatedUrls" in prod_dict.keys():
                 url = prod["RelatedUrls"][[x["Type"] for x in prod["RelatedUrls"]].index("GET DATA")]["URL"]
