@@ -23,6 +23,7 @@ from scrappi.fs.factory import FSCallHandlerFactory
 from scrappi.utils.utils import generate_bounding_lat_lon
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.api.base import BaseAPICallHandler
+from scrappi.fs.base import BaseFileSystem
 from scrappi.api.insitubase import InSituCallHandler
 from scrappi import ScrappiContext
 
@@ -247,6 +248,8 @@ def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     """
     if not context:
         context = ScrappiContext()
+    if isinstance(fs, BaseFileSystem):
+        return fs
     if not fs:
         fs = context["fs"]["path"]
     return FSFactory.get_fs_call_handler(fs, context)
@@ -391,6 +394,13 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         if exists:
             print(f"{path} exists")
             return path
+
+        if product.api:
+            product.set_api()
+            download_path = product.api.download_product(product)
+            if download_path is not None:
+                _register_product_in_catalog(product, context)
+                return download_path
 
     api = get_api_name(product.collection, context=context)
     api_handler = make_api(api, context=context)

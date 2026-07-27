@@ -103,8 +103,9 @@ class ProductItem:
             self.context = ScrappiContext()
         else:
             self.context = context
-        self.set_api(api, context)
-        self.set_fs(filesystem, context)
+        self.api = api
+        self.fs = self.set_fs(filesystem)
+        
 
     def __str__(self) -> str:
         """Custom __str__"""
@@ -169,7 +170,12 @@ class ProductItem:
         :param assets: optional mapping of asset_key -> {href, media_type, title}
         :return: `pystac.Item` representing the product
         """
-        fs = filesystem or self.filesystem
+        if filesystem:
+            fs = self.set_fs(filesystem)
+        elif self.filesystem:
+            fs = self.filesystem
+        else:
+            fs = self.set_fs()
         if fs is None:
             raise ValueError("No filesystem provided")
 
@@ -392,6 +398,9 @@ class ProductItem:
         """
         from scrappi.interface import make_fs
 
+        if not context:
+            context=self.context
+
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
 
@@ -404,7 +413,10 @@ class ProductItem:
         :param config_dict: config dictionary (api dependent)
         """
         from scrappi.interface import make_api
-
+        if not context:
+            context=self.context
+        if not api:
+            api=self.api
         self.api = make_api(api, context)
 
     def move_product(self, new_fs: Union[str, Any], copy: bool = True) -> str:
