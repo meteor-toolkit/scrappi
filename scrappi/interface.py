@@ -367,7 +367,7 @@ def update_context_file(context_update: dict):
     return context
 
 
-def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None):
+def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None, api: Optional[BaseAPICallHandler] = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
@@ -388,22 +388,25 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
     if isinstance(product, ProductItemSet):
         return [p.download_product(context=context) for p in product]
 
-    if isinstance(product, ProductItem):
-        path, exists = product.filesystem.return_path(product, check_exists=True)
+    if not isinstance(product, ProductItem):
+        raise ValueError("Provided product for download should be a ProductItem or ProductItemSet")
+    
+    path, exists = product.filesystem.return_path(product, check_exists=True)
 
-        if exists:
-            print(f"{path} exists")
-            return path
+    if exists:
+        print(f"{path} exists")
+        return path
 
-        if product.api:
-            product.set_api()
-            download_path = product.api.download_product(product)
-            if download_path is not None:
-                _register_product_in_catalog(product, context)
-                return download_path
+    if api:
+        api_handler = make_api(api, context=context)
 
-    api = get_api_name(product.collection, context=context)
-    api_handler = make_api(api, context=context)
+    elif product.api:
+        product.set_api()
+        api_handler =  product.api
+    else:
+        api = get_api_name(product.collection, context=context)
+        api_handler = make_api(api, context=context)
+        
     download_path = api_handler.download_product(product)
     if download_path is not None:
         _register_product_in_catalog(product, context)

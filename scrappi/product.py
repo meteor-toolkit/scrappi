@@ -716,7 +716,7 @@ class ProductItemSet:
 
         self._products.remove(ProductItem)
 
-    def set_api(self, api: str):
+    def set_api(self, api: Optional[str] = None):
         """
         set API for each product item in the product item set
 
