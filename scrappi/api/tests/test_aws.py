@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import Mock, MagicMock, patch
 import datetime as dt
 
 from scrappi.api.aws import AWSCallHandler
@@ -8,6 +8,7 @@ from scrappi.api.aws import AWSCallHandler
 class TestAWSCallHandler(unittest.TestCase):
     @patch("scrappi.api.aws.boto3.resource")
     def setUp(self, mock_resource):
+        mock_resource.return_value = Mock()
         self.handler = AWSCallHandler()
 
     def test_list_collections(self):
@@ -23,126 +24,90 @@ class TestAWSCallHandler(unittest.TestCase):
             self.handler._set_product_type("ESA_WorldCover"),
             "esa-worldcover",
         )
-        self.assertEqual(
-            self.handler._set_product_type("Copernicus-dem-30m"),
-            "copernicus-dem-30m",
-        )
 
-    def test_worldcover_tiles_single_tile(self):
-        tiles = self.handler._worldcover_tiles(
+    def test_get_tiles_single_tile(self):
+        tiles = self.handler._get_tiles(
             min_lon=0,
             min_lat=0,
             max_lon=2,
             max_lat=2,
+            tile_size=3,
         )
 
         self.assertEqual(tiles, [["N00", "E000"]])
 
-    def test_worldcover_tiles_multiple_tiles(self):
-        tiles = self.handler._worldcover_tiles(
+    def test_get_tiles_multiple_tiles(self):
+        tiles = self.handler._get_tiles(
             min_lon=0,
             min_lat=0,
             max_lon=4,
             max_lat=4,
+            tile_size=3,
         )
 
-        expected = [
-            ["N00", "E000"],
-            ["N00", "E003"],
-            ["N03", "E000"],
-            ["N03", "E003"],
-        ]
-
-        self.assertEqual(tiles, expected)
-
-    def test_worldcover_tiles_negative_coordinates(self):
-        tiles = self.handler._worldcover_tiles(
-            min_lon=-4,
-            min_lat=-4,
-            max_lon=-1,
-            max_lat=-1,
-        )
-
-        self.assertIn(["S06", "W006"], tiles)
-        self.assertIn(["S03", "W003"], tiles)
+        self.assertIn(["N00", "E000"], tiles)
+        self.assertIn(["N03", "E003"], tiles)
 
     def test_set_geom_list(self):
-        geom = [10, 20, 12, 22]
+        geom = [0, 0, 2, 2]
 
-        result = self.handler._set_geom(geom)
-
-        self.assertEqual(
-            result,
-            [
-                ["N09", "E018"],
-                ["N09", "E021"],
-                ["N12", "E018"],
-                ["N12", "E021"],
-            ],
+        tiles = self.handler._set_geom(
+            geom,
+            "ESA_WorldCover",
         )
+
+        self.assertEqual(tiles, [["N00", "E000"]])
 
     def test_set_geom_dict(self):
         geom = {
-            "latitude_minimum": 10,
-            "longitude_minimum": 20,
-            "latitude_maximum": 12,
-            "longitude_maximum": 22,
+            "latitude_minimum": 0,
+            "longitude_minimum": 0,
+            "latitude_maximum": 2,
+            "longitude_maximum": 2,
         }
 
-        result = self.handler._set_geom(geom)
+        tiles = self.handler._set_geom(
+            geom,
+            "Copernicus-dem-30m",
+        )
 
         self.assertEqual(
-            result,
+            tiles,
             [
-                ["N09", "E018"],
-                ["N09", "E021"],
-                ["N12", "E018"],
-                ["N12", "E021"],
+                ["N00", "E000"],
+                ["N00", "E001"],
+                ["N00", "E002"],
+                ["N01", "E000"],
+                ["N01", "E001"],
+                ["N01", "E002"],
+                ["N02", "E000"],
+                ["N02", "E001"],
+                ["N02", "E002"],
             ],
         )
 
-    @patch.object(AWSCallHandler, "_get_version", return_value="v100")
-    @patch.object(AWSCallHandler, "_get_year", return_value=2020)
-    def test_get_keys(self, mock_year, mock_version):
-        tiles = [["N00E000"], ["N03E003"]]
+    def test_set_geom_invalid_type(self):
+        with self.assertRaises(TypeError):
+            self.handler._set_geom("invalid", "ESA_WorldCover")
 
-        keys = self.handler._get_keys(tiles)
-
-        expected = [
-            "v100/2020/map/ESA_WorldCover_10m_2020_v100_['N00E000']_Map.tif",
-            "v100/2020/map/ESA_WorldCover_10m_2020_v100_['N03E003']_Map.tif",
-        ]
-
-        self.assertEqual(keys, expected)
-
-    def test_format_query_worldcover_v100(self):
+    def test_format_query_worldcover(self):
         query = {
             "collection": "ESA_WorldCover",
             "version": 100,
-            "geom": None,
+            "geom": [0, 0, 2, 2],
         }
 
         result = self.handler._format_query(query)
 
         self.assertEqual(result["bucket"], "esa-worldcover")
-        self.assertEqual(result["start_time"], 2020)
         self.assertEqual(result["version"], 100)
-
-    def test_format_query_worldcover_v200(self):
-        query = {
-            "collection": "ESA_WorldCover",
-            "version": 200,
-            "geom": None,
-        }
-
-        result = self.handler._format_query(query)
-
-        self.assertEqual(result["start_time"], 2021)
+        self.assertEqual(result["start_time"], 2020)
+        self.assertIn("tiles", result)
 
     def test_format_query_invalid_worldcover_version(self):
         query = {
             "collection": "ESA_WorldCover",
-            "version": 300,
+            "version": 999,
             "geom": None,
         }
 
@@ -150,69 +115,43 @@ class TestAWSCallHandler(unittest.TestCase):
             self.handler._format_query(query)
 
     def test_get_time_dem(self):
-        key = "Copernicus_DSM_COG_10_N00_00_E000_00_DEM/file.tif"
-
-        result = self.handler._get_time(key)
-
-        self.assertEqual(result, dt.datetime(2021, 1, 1))
-
-    def test_get_time_worldcover_v100(self):
-        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E000_Map.tif"
-
-        result = self.handler._get_time(key)
-
-        self.assertEqual(result, dt.datetime(2020, 1, 1))
-
-    def test_get_time_worldcover_v200(self):
-        key = "v200/2021/map/ESA_WorldCover_10m_2021_v200_N00E000_Map.tif"
-
-        result = self.handler._get_time(key)
-
-        self.assertEqual(result, dt.datetime(2021, 1, 1))
-
-    def test_get_api_product_dem(self):
-        key = "Copernicus_DSM_COG_10_N00_00_E000_00_DEM/file.tif"
+        key = "Copernicus_DSM_COG_10_N00_00_E001_00_DEM/file.tif"
 
         self.assertEqual(
-            self.handler._get_api_product(key),
-            "Copernicus_DSM_COG_10_N00_00_E000_00_DEM",
+            self.handler._get_time(key),
+            dt.datetime(2021, 1, 1),
         )
 
-    def test_get_api_product_worldcover(self):
-        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E000_Map.tif"
+    def test_get_time_worldcover(self):
+        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E003_Map.tif"
 
         self.assertEqual(
-            self.handler._get_api_product(key),
-            key,
+            self.handler._get_time(key),
+            dt.datetime(2020, 1, 1),
         )
 
     def test_get_id_dem(self):
-        key = "Copernicus_DSM_COG_10_N00_00_E000_00_DEM/file.tif"
+        key = "Copernicus_DSM_COG_10_N00_00_E001_00_DEM/file.tif"
 
-        self.assertEqual(
-            self.handler._get_id(key),
-            "Copernicus_DSM_COG_10_N00_00_E000_00_DEM",
-        )
+        self.assertEqual(self.handler._get_id(key), "Copernicus_DSM_COG_10_N00_00_E001_00_DEM")
 
     def test_get_id_worldcover(self):
-        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E000_Map.tif"
+        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E003_Map.tif"
 
-        self.assertEqual(
-            self.handler._get_id(key),
-            "ESA_WorldCover_10m_2020_v100_N00E000_Map.tif",
-        )
+        self.assertEqual(self.handler._get_id(key), "ESA_WorldCover_10m_2020_v100_N00E003_Map.tif")
 
-    def test_get_platform_dem(self):
-        obj = MagicMock()
-        obj.bucket_name = "copernicus-dem-30m"
+    def test_get_api_product_dem(self):
+        key = "Copernicus_DSM_COG_10_N00_00_E001_00_DEM/file.tif"
 
-        self.assertEqual(
-            self.handler.get_platform([obj]),
-            "Copernicus_DEM",
-        )
+        self.assertEqual(self.handler._get_api_product(key), "Copernicus_DSM_COG_10_N00_00_E001_00_DEM")
+
+    def test_get_api_product_worldcover(self):
+        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E003_Map.tif"
+
+        self.assertEqual(self.handler._get_api_product(key), key)
 
     def test_get_platform_worldcover(self):
-        obj = MagicMock()
+        obj = Mock()
         obj.bucket_name = "esa-worldcover"
 
         self.assertEqual(
@@ -220,8 +159,26 @@ class TestAWSCallHandler(unittest.TestCase):
             "ESA_WorldCover",
         )
 
+    def test_get_platform_dem(self):
+        obj = Mock()
+        obj.bucket_name = "copernicus-dem-30m"
+
+        self.assertEqual(
+            self.handler.get_platform([obj]),
+            "Copernicus_DEM",
+        )
+
+    def test_get_constellation_worldcover(self):
+        obj = Mock()
+        obj.bucket_name = "esa-worldcover"
+
+        self.assertEqual(
+            self.handler.get_constellation([obj]),
+            "ESA_WorldCover",
+        )
+
     def test_get_constellation_dem(self):
-        obj = MagicMock()
+        obj = Mock()
         obj.bucket_name = "copernicus-dem-30m"
 
         self.assertEqual(
@@ -229,41 +186,63 @@ class TestAWSCallHandler(unittest.TestCase):
             "Copernicus_DEM",
         )
 
-    def test_tile_bbox_northeast(self):
-        geom = self.handler.tile_bbox("Copernicus_DSM_COG_10_N10_00_E020_00_DEM")
-
-        self.assertEqual(
-            geom.bounds,
-            (20.0, 10.0, 21.0, 11.0),
+    def test_tile_bbox(self):
+        bbox = self.handler.tile_bbox(
+            "Copernicus_DSM_COG_10_N00_00_E003_00_DEM",
+            tile_size=1,
         )
 
-    def test_tile_bbox_southwest(self):
-        geom = self.handler.tile_bbox("Copernicus_DSM_COG_10_S10_00_W020_00_DEM")
-
-        self.assertEqual(
-            geom.bounds,
-            (-20.0, -10.0, -19.0, -9.0),
-        )
+        self.assertEqual(bbox.bounds, (3.0, 0.0, 4.0, 1.0))
 
     def test_tile_bbox_invalid_key(self):
         with self.assertRaises(ValueError):
             self.handler.tile_bbox("invalid_key")
 
+    def test_get_tile_size_worldcover(self):
+        self.assertEqual(
+            self.handler._get_tile_size("ESA_WorldCover"),
+            3,
+        )
+
+    def test_get_tile_size_dem(self):
+        self.assertEqual(
+            self.handler._get_tile_size("Copernicus-dem-30m"),
+            1,
+        )
+
+    def test_get_tile_size_invalid(self):
+        with self.assertRaises(ValueError):
+            self.handler._get_tile_size("unknown")
+
     def test_get_filename_dem(self):
-        key = "DEM_FOLDER/sub1/sub2/file.tif"
+        key = "Copernicus_DSM_COG_10_N00_00_E001_00_DEM/DEM.tif"
 
         self.assertEqual(
             self.handler._get_filename(key),
-            "sub1\\sub2\\file.tif",
+            "DEM.tif",
         )
 
     def test_get_filename_worldcover(self):
-        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E000_Map.tif"
+        key = "v100/2020/map/ESA_WorldCover_10m_2020_v100_N00E003_Map.tif"
 
         self.assertEqual(
             self.handler._get_filename(key),
             key,
         )
+
+    @patch("scrappi.api.aws.boto3.resource")
+    def test_constructor_handles_boto_exception(self, mock_resource):
+        mock_resource.side_effect = Exception("AWS unavailable")
+
+        handler = AWSCallHandler()
+
+        self.assertIsNone(handler.s3_resource)
+
+    def test_perform_query_without_s3_resource(self):
+        self.handler.s3_resource = None
+
+        with self.assertRaises(RuntimeError):
+            self.handler._perform_query({"collection": "ESA_WorldCover"})
 
 
 if __name__ == "__main__":

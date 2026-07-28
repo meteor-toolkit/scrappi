@@ -15,11 +15,14 @@ from scrappi import ScrappiContext
 
 site_def = {
     "GONA": {
-        "latitude_minimum": 9,
-        "longitude_minimum": 10.11465119,
-        "latitude_maximum": 12,
-        "longitude_maximum": 12,
-    },}
+        "latitude_minimum": -23.60472105,
+        "longitude_minimum": 15.11465119,
+        "latitude_maximum": -23.59568076,
+        "longitude_maximum": 15.12446109,
+    },
+    # "LCFR": [43.55829168, 4.863345627, 43.55948632, 4.86498836],  #same order as dict keys above
+    # "RVUS": [38.48687306, -115.7028871, 38.50712799, -115.6771133],
+}
 
 example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data")
 file_system = make_fs(example_path)

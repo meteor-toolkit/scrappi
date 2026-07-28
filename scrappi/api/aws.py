@@ -4,7 +4,7 @@ import os
 import warnings
 import shapely
 import datetime as dt
-from typing import Any, Optional, Union, List
+from typing import Any, Optional, Union, List, Tuple
 import boto3
 import math
 from botocore import UNSIGNED
@@ -34,6 +34,12 @@ class AWSCallHandler(BaseAPICallHandler):
 
     name = "aws"
 
+    WORLDCOVER_VERSION_YEAR = {
+            100: 2020,
+            200: 2021,
+        }
+
+
     def __init__(
         self,
         context: Optional[Union[str, list, ScrappiContext]] = None,
@@ -60,6 +66,9 @@ class AWSCallHandler(BaseAPICallHandler):
             "Copernicus-dem-90m": "copernicus-dem-90m",
         }
 
+
+        self.s3_resource = None
+
         try:
             self.s3_resource = boto3.resource(
                 "s3",
@@ -71,46 +80,40 @@ class AWSCallHandler(BaseAPICallHandler):
                 stacklevel=2,
             )
 
-    def return_path(self, product_item: ProductItem, check_exists: bool = False):
-        """
-        Returns path from info in ProductItem
-
-        :param product_info: productItem defining info, including ``"product_name"`` and ``"datetime"``
-        :param check_exists: if true, returns None if product not in archive
-        :return: product path
-        """
-        pass
-
-    def _worldcover_tiles(
+    def _get_tiles(
         self,
         min_lon: float,
         min_lat: float,
         max_lon: float,
         max_lat: float,
+        tile_size: int = 3,
     ) -> list[list[str]]:
         """
-        Determine ESA WorldCover tiles intersecting a bounding box.
+        Determine tiles intersecting a bounding box.
 
-        The WorldCover tiling scheme uses 3-degree tile boundaries. This
-        function calculates all tile identifiers required to cover the
-        supplied bounding box.
+        Parameters
+        ----------
+        min_lon, min_lat, max_lon, max_lat : float
+            Bounding box coordinates.
+        tile_size : int
+            Tile size in degrees (e.g. 3 for WorldCover, 1 for Copernicus DEM).
 
-        :param min_lon: minimum longitude
-        :param min_lat: minimum latitude
-        :param max_lon: maximum longitude
-        :param max_lat: maximum latitude
-        :return: list of tile identifiers
+        Returns
+        -------
+        list[list[str]]
+            Tile identifiers of the form [["N00", "E003"], ...].
         """
+
         lats = range(
-            math.floor(min_lat / 3) * 3,
-            math.floor(max_lat / 3) * 3 + 1,
-            3,
+            math.floor(min_lat / tile_size) * tile_size,
+            math.floor(max_lat / tile_size) * tile_size + 1,
+            tile_size,
         )
 
         lons = range(
-            math.floor(min_lon / 3) * 3,
-            math.floor(max_lon / 3) * 3 + 1,
-            3,
+            math.floor(min_lon / tile_size) * tile_size,
+            math.floor(max_lon / tile_size) * tile_size + 1,
+            tile_size,
         )
 
         tiles = []
@@ -129,55 +132,34 @@ class AWSCallHandler(BaseAPICallHandler):
 
         return tiles
 
-    def _get_keys(self, tiles):
-        """
-        Construct WorldCover object keys from tile identifiers.
-
-        Generates AWS S3 object keys for a list of WorldCover tiles based
-        on the requested version and year.
-
-        :param tiles: list of tile identifiers
-        :return: list of AWS object keys
-        """
-        # get from the query
-        version = self._get_version()  # v100
-        year = self._get_year()  # 2020
-
-        keys = []
-        for tile in tiles:
-            keys.append(f"{version}/{year}/map/ESA_WorldCover_10m_{year}_{version}_{tile}_Map.tif")
-        return keys
-
-    def _get_version(self):
-        """
-        Return the requested WorldCover version.
-
-        This method should be implemented by subclasses or completed
-        during query formatting.
-
-        :return: WorldCover version identifier
-        """
-
-    def _get_year(self):
-        pass
-
-    def _set_product_type(self, collection):
+    def _set_product_type(self, collection) -> str:
         return self.buckets[collection]
 
-    def _set_geom(self, geom):
+    def _set_geom(self, geom, collection) -> List[List[str]]:
         if isinstance(geom, list):
             min_lat, min_lon, max_lat, max_lon = geom
 
-        if isinstance(geom, dict):
+        elif isinstance(geom, dict):
             min_lat, min_lon, max_lat, max_lon = (
                 geom["latitude_minimum"],
                 geom["longitude_minimum"],
                 geom["latitude_maximum"],
                 geom["longitude_maximum"],
             )
+        else:
+            raise TypeError(
+                f"Unsupported geometry type: {type(geom)}"
+            )
 
-        tiles = self._worldcover_tiles(min_lon, min_lat, max_lon, max_lat)
-        return tiles
+        tile_size = 3 if "WorldCover" in collection else 1
+
+        return self._get_tiles(
+            min_lon,
+            min_lat,
+            max_lon,
+            max_lat,
+            tile_size=tile_size,
+        )
 
     def _format_query(self, query: dict) -> dict:
         """
@@ -190,20 +172,24 @@ class AWSCallHandler(BaseAPICallHandler):
         aws_query = query.copy()
         aws_query["bucket"] = self._set_product_type(query["collection"])
 
-        if "version" in query.keys() and "WorldCover" in query["collection"]:
+        if "version" in query and "WorldCover" in query["collection"]:
             aws_query["version"] = query["version"]
-            if query["version"] == 200:
-                aws_query["start_time"] = 2021
-            elif query["version"] == 100:
-                aws_query["start_time"] = 2020
-            else:
+
+            try:
+                aws_query["start_time"] = self.WORLDCOVER_VERSION_YEAR[
+                    query["version"]
+                ]
+            except KeyError:
                 raise ValueError(
-                    f"Version {query['version']} not supported for {query['collection']}. Available versions are: 100, 200."
+                    f"Version {query['version']} not supported for "
+                    f"{query['collection']}. Available versions are: "
+                    f"{list(self.WORLDCOVER_VERSION_YEAR.keys())}."
                 )
-
         if query["geom"]:
-            aws_query["tiles"] = self._set_geom(query["geom"])  # List of lists of tiles["NS", "EW"]
-
+            aws_query["tiles"] = self._set_geom(
+                query["geom"],
+                query["collection"],
+            )
         return aws_query
 
     def list_collections(self) -> List:
@@ -216,6 +202,9 @@ class AWSCallHandler(BaseAPICallHandler):
         :param query: catalogue query
         :returns: product urls satisfying query
         """
+        if self.s3_resource is None:
+            raise RuntimeError("AWS S3 resource is not available.")
+        
         aws_query = self._format_query(query)
         bucket = self.s3_resource.Bucket(aws_query["bucket"])
 
@@ -283,7 +272,7 @@ class AWSCallHandler(BaseAPICallHandler):
                     platform=self.get_platform(prod_dict),  # Copernicus DEM
                     collection=query["collections"][0],  # Copernicus DEM 30m
                     id=self._get_id(prod[0].key),  # first part of the key
-                    geometry=self.tile_bbox(prod[0].key).wkt,
+                    geometry=self.tile_bbox(prod[0].key, tile_size=self._get_tile_size(query["collections"][0])).wkt,
                     start_time=self._get_time(prod[0].key),
                     stop_time=self._get_time(prod[0].key),
                     api=self,
@@ -294,28 +283,32 @@ class AWSCallHandler(BaseAPICallHandler):
 
         return ProductItemSet(product_list)
 
-    def _get_time(self, key):
+    def _get_time(self, key: str) -> dt.datetime | None:
         if "DEM" in key.upper():
             return dt.datetime(2021, 1, 1)
         elif "worldcover" in key.lower():
-            if "v100" in key.lower():
-                return dt.datetime(year=2020, month=1, day=1)
-            elif "v200" in key.lower():
-                return dt.datetime(year=2021, month=1, day=1)
+            version_match = re.search(r"v(\d+)", key.lower())
 
-    def _get_api_product(self, key):
+            if version_match:
+                version = int(version_match.group(1))
+                year = self.WORLDCOVER_VERSION_YEAR.get(version)
+
+                if year is not None:
+                    return dt.datetime(year=year, month=1, day=1)
+
+    def _get_api_product(self, key:str) -> str | None:
         if "DEM" in key.upper():
             return key.split("/")[0]
         elif "worldcover" in key.lower():
             return key
 
-    def _get_id(self, key):
+    def _get_id(self, key: str) -> str | None:
         if "DEM" in key.upper():
             return key.split("/")[0]
         elif "worldcover" in key.lower():
             return key.split("/")[-1]
 
-    def get_platform(self, prod_dict: dict) -> str:
+    def get_platform(self, prod_dict: dict) -> str | None:
         """
         Function to extract to platform identifier
 
@@ -328,10 +321,11 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "Copernicus_DEM"
                 elif "worldcover" in prod_dict[0].bucket_name:
                     return "ESA_WorldCover"
+                
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
 
-    def get_constellation(self, prod_dict: dict) -> str:
+    def get_constellation(self, prod_dict: dict) -> str | None:
         """
         Function to extract constellation identifier
 
@@ -347,24 +341,39 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "ESA_WorldCover"
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
-
-    def tile_bbox(self, key):
+        
+    def tile_bbox(self, key: str, tile_size: int = 1) -> shapely.Polygon:
         lat_m = re.search(r"([NS])(\d{2})", key)
         lon_m = re.search(r"([EW])(\d{3})", key)
 
         if not lat_m or not lon_m:
-            raise ValueError(f"Could not extract tile coordinates from {key}")
+            raise ValueError(
+                f"Could not extract tile coordinates from {key}"
+            )
 
         lat = int(lat_m.group(2))
         lon = int(lon_m.group(2))
 
         if lat_m.group(1) == "S":
             lat = -lat
+
         if lon_m.group(1) == "W":
             lon = -lon
 
-        return shapely.box(lon, lat, lon + 1, lat + 1)
-
+        return shapely.box(
+            lon,
+            lat,
+            lon + tile_size,
+            lat + tile_size,
+        )
+    def _get_tile_size(self, collection: str) -> int:
+        if "WorldCover" in collection:
+            return 3
+        elif "dem" in collection.lower():
+            return 1
+        else:
+            raise ValueError(f"Unknown collection {collection}")
+        
     def download_product(
         self,
         product: Union[str, ProductItem, ProductItemSet],
@@ -400,7 +409,7 @@ class AWSCallHandler(BaseAPICallHandler):
                 "products are not in the right format for download by scrappi earthaccess (ProductItem, ProductItemSet)"
             )
 
-    def _download(self, bucket, key, path):
+    def _download(self, bucket: str, key: str, path: str) -> str:
         s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
         s3_bucket = self.s3_resource.Bucket(bucket)
         products = list(s3_bucket.objects.filter(Prefix=key))
@@ -423,8 +432,8 @@ class AWSCallHandler(BaseAPICallHandler):
                 # filename of the last one
             return os.path.dirname(os.path.dirname(filename))
 
-    def _get_filename(self, key):
+    def _get_filename(self, key: str) -> str | None:
         if "DEM" in key.upper():
-            return "\\".join(key.split("/")[1:])
+            return os.path.join(*key.split("/")[1:])
         elif "worldcover" in key.lower():
             return key
