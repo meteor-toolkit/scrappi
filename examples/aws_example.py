@@ -43,7 +43,7 @@ if __name__ == "__main__":
         world_cover_path = download_product(world_cover_products, context)
         print(world_cover_path)
 
-    for site in site_def.keys():
+
         dem_30_query = {
             "collections": [
                 "Copernicus-dem-30m",

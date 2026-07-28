@@ -22,7 +22,8 @@ from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 from scrappi.api.eumdac import EUMDACCallHandler
-from scrappi.api.aws_api import AWSCallHandler
+from scrappi.api.aws import AWSCallHandler
+
 all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac", "aws"]
 
 # API call handlers by name
@@ -33,7 +34,7 @@ API_CALL_HANDLERS = {
     # "hypernets": HYPERNETSCallHandler, #handled separately below to allow lazy import
     "radcalnet": RadcalnetCallHandler,
     "stac": STACAPICallHandler,
-    "aws" : AWSCallHandler
+    "aws": AWSCallHandler,
 }
 
 
