@@ -4,7 +4,7 @@ import requests
 from requests.exceptions import SSLError
 import unittest
 import unittest.mock as mock
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta, timezone
 import shutil
 import pytest
 
@@ -101,6 +101,56 @@ class TestRCNCallHandler(unittest.TestCase):
         self.assertEqual(year, 2017)
         self.assertEqual(doy, 200)
         self.assertTrue(re.search(version_pattern, version))
+
+    def test_daylight_window_hours_matches_original_hardcoded_window_for_gona(self):
+        """Regression/consistency check: the per-site window this replaces a
+        hardcoded 08:00-14:00 UTC window that was only ever really correct
+        for GONA (its local solar noon happens to fall in the middle of that
+        range) -- confirms the longitude-based computation reproduces it."""
+        self.rcnHandler = RadcalnetCallHandler()
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("GONA")
+        self.assertAlmostEqual(start_hour, 8.0, delta=0.1)
+        self.assertAlmostEqual(stop_hour, 14.0, delta=0.1)
+
+    def test_daylight_window_hours_shifts_for_a_western_site(self):
+        """RVUS (115.69 degW) is far enough west of GONA (15.12 degE) that
+        its real daylight window falls many hours later in UTC -- this is
+        the site/scenario the hardcoded 08:00-14:00 window was silently
+        wrong for (see also eomatch's Sat2InSituMUFinder.to_matchup_set,
+        which rejects candidate matchups whose products fall outside this
+        window plus a tolerance)."""
+        self.rcnHandler = RadcalnetCallHandler()
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
+        self.assertAlmostEqual(start_hour, 16.71, delta=0.1)
+        self.assertAlmostEqual(stop_hour, 22.71, delta=0.1)
+
+    def test_daylight_window_hours_is_six_hours_wide_for_every_site(self):
+        self.rcnHandler = RadcalnetCallHandler()
+        for site in self.rcnHandler.DEFAULT_SITE_DEFINITIONS:
+            start_hour, stop_hour = self.rcnHandler._daylight_window_hours(site)
+            self.assertAlmostEqual(stop_hour - start_hour, 6.0, delta=1e-9)
+
+    def test_perform_query_products_use_per_site_daylight_window(self):
+        """End-to-end: perform_query()'s constructed ProductItems carry each
+        product's site-appropriate window, not the old universal 08:00-14:00."""
+        self.rcnHandler = RadcalnetCallHandler()
+        with mock.patch.object(self.rcnHandler, "get_files_list", return_value=["RVUS01_2025_334_v04.09.output"]):
+            products = self.rcnHandler.perform_query(
+                {
+                    "collection": "RCN_TOA",
+                    "site": "RVUS",
+                    "start_time": dt(2025, 11, 30),
+                    "stop_time": dt(2025, 12, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 1)
+        product = list(products)[0]
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
+        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=timezone.utc)
+        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=timezone.utc)
+        self.assertEqual(product.start_time, expected_start)
+        self.assertEqual(product.stop_time, expected_stop)
 
     @pytest.mark.slow
     def test_download_product(self):

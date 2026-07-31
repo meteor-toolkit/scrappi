@@ -142,6 +142,7 @@ class RadcalnetCallHandler(InSituCallHandler):
             site_instrument, year, doy, version = self.parse_name(filename)
             site = site_instrument[0:4]
             geom = self._default_geometries[site]  # get default geometry for site as Polygon
+            start_hour, stop_hour = self._daylight_window_hours(site)
             product_list.append(
                 ProductItem(
                     constellation="RadCalNet",
@@ -149,8 +150,8 @@ class RadcalnetCallHandler(InSituCallHandler):
                     collection=query["collection"],
                     id=filename,
                     geometry=geom,
-                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=8),
-                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=14),
+                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
+                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
                     url="",
                     quicklook="",
                     api="radcalnet",
@@ -159,6 +160,32 @@ class RadcalnetCallHandler(InSituCallHandler):
             )
 
         return ProductItemSet(product_list)
+
+    def _daylight_window_hours(self, site: str) -> tuple:
+        """Return this site's approximate daylight recording window as (start_hour, stop_hour).
+
+        RadCalNet only records meaningful reflectance data during daylight,
+        so each site's file only covers a window around its own local solar
+        noon -- not a fixed UTC clock window, since that shifts with
+        longitude (e.g. RVUS, at 115.69 degW, has its daylight window many
+        hours later in UTC than GONA, at 15.12 degE). Approximated as local
+        solar noon +/- 3 hours (local solar time offset from UTC =
+        longitude / 15 deg-per-hour) -- this matches the site whose window
+        this was originally hardcoded from (GONA: solar noon ~10:59 UTC,
+        window ~08:00-14:00 UTC) almost exactly.
+
+        Returned hours are relative to local midnight on the file's own date
+        and may be negative or exceed 24 for sites whose window straddles a
+        UTC day boundary -- ``timedelta(hours=...)`` normalises this
+        correctly when added to a ``datetime``, so callers don't need to
+        handle the wraparound themselves.
+
+        :param site: RadCalNet site identifier, e.g. ``"GONA"``.
+        :return: ``(start_hour, stop_hour)`` as floats.
+        """
+        longitude = self.DEFAULT_SITE_DEFINITIONS[site]["longitude"]
+        solar_noon_utc = 12.0 - longitude / 15.0
+        return solar_noon_utc - 3.0, solar_noon_utc + 3.0
 
     def check_date_in_range(self, year: int, doy: int, date1: dt.date, date2: dt.date) -> bool:
         """
