@@ -35,7 +35,24 @@ eodag:
     auth:
         credentials:
             username: 
-            password: 
+            password:
+  cop_ads:
+    auth:
+      credentials:
+        apikey: 
+    download:
+      timeout: 200
+      wait: 1
+    priority: 5
+    search: null
+  cop_cds:
+    auth:
+      credentials:
+        apikey: 
+    download:
+      timeout: 200
+      wait: 1
+    priority: 6
 
 RadCalNet:
   credentials:
