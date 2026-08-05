@@ -398,7 +398,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             path, exists = product.filesystem.return_path(product, check_exists=True)
             
             
-            if self.context["earthaccess"]['auxiliary_collections']:
+            if self.context["earthaccess"].get("auxiliary_collections", None):
                 aux_cols = self.context["earthaccess"].get("auxiliary_collections", None).get(product.collection, None)
                 if aux_cols is not None:
                     for c in aux_cols:
