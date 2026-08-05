@@ -44,6 +44,7 @@ product_list = [
     "GONA01_2022_307_v04.09.output",
     "GONA01_2022_308_v04.09.output",
     "GONA01_2022_313_v04.09.output",
+    "GONA01_2022_314_v04.09.output",
 ]
 
 
@@ -247,63 +248,47 @@ class TestRCNCallHandler(unittest.TestCase):
             print("SSL Error detected, this is expected if running via the NPL LAN")
             print(err)
 
-    # "BSCN": convert_geom_shapely(
-    # [(109.6181134, 40.86734998), (109.6175416, 40.86381612),
-    # (109.612886896779, 40.86424995), (109.6134581, 40.86778386), (109.6181134, 40.86734998)]),
-    # "BTCN": convert_geom_shapely(
-    # [(109.6293071, 40.85135863), (109.629288, 40.85124087),
-    # (109.6291329, 40.85125537),	(109.629152,40.85137313), (109.6293071, 40.85135863)]),
-    # "GONA": convert_geom_shapely(
-    # [(15.11465119, 23.59568831), (15.12445257, 23.59568076),
-    # (15.12446109, 23.6047135),  (15.11465905, 23.60472105), (15.11465119, 23.59568831)]),
-    # "RVUS": convert_geom_shapely(
-    # [(4.863345627, 43.55935528), (4.864808188, 43.55948632), (4.86498836, 43.55842271),
-    # (4.863525825, 43.55829168), (4.863345627, 43.55935528)]),
-    # "LCFR": convert_geom_shapely(
-    # [(-115.6879503, 38.48687306), (-115.7028871, 38.49538812), (-115.6920493, 38.50712799),
-    # (-115.6771133, 38.49860936), (-115.6879503, 38.48687306)])
-
     def test_site_size(self):
         # make shapely files to compare with
         shapes = {
             "BSCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.6151061872157,
-                    "latitude_minimum": 40.86446369669309,
-                    "longitude_maximum": 109.61589376182471,
-                    "latitude_maximum": 40.867136318760544,
+                    "longitude_minimum": 109.61374874265117,
+                    "latitude_minimum": 40.864427753168556,
+                    "longitude_maximum": 109.61725132962366,
+                    "latitude_maximum": 40.86717222107943,
                 }
             ),
             "BTCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.62920690365492,
-                    "latitude_minimum": 40.8512624569282,
-                    "longitude_maximum": 109.62923309628796,
-                    "latitude_maximum": 40.851351543088896,
+                    "longitude_minimum": 109.62916162640767,
+                    "latitude_minimum": 40.85126126573982,
+                    "longitude_maximum": 109.6292783736726,
+                    "latitude_maximum": 40.851352734231575,
                 }
             ),
             "GONA": convert_geom_shapely(
                 {
-                    "longitude_minimum": 15.117532788744471,
-                    "latitude_minimum": -23.602627898833834,
-                    "longitude_maximum": 15.121579092331926,
-                    "latitude_maximum": -23.59777408779308,
+                    "longitude_minimum": 15.117107578351696,
+                    "latitude_minimum": -23.602461051102456,
+                    "longitude_maximum": 15.122004337734927,
+                    "latitude_maximum": -23.597940909979695,
                 }
             ),
             "LCFR": convert_geom_shapely(
                 {
-                    "longitude_minimum": 4.863764033960914,
-                    "latitude_minimum": 43.55864688771256,
-                    "longitude_maximum": 4.864569969233603,
-                    "latitude_maximum": 43.559131110606714,
+                    "longitude_minimum": 4.863787427354276,
+                    "latitude_minimum": 43.55862507162645,
+                    "longitude_maximum": 4.864546575957476,
+                    "latitude_maximum": 43.55915292704115,
                 }
             ),
             "RVUS": convert_geom_shapely(
                 {
-                    "longitude_minimum": -115.695507468333,
-                    "latitude_minimum": 38.49614047027827,
-                    "longitude_maximum": -115.68449303343614,
-                    "latitude_maximum": 38.49785907324905,
+                    "longitude_minimum": -115.69581358554443,
+                    "latitude_minimum": 38.49255908632671,
+                    "longitude_maximum": -115.68418570083671,
+                    "latitude_maximum": 38.50144060902196,
                 }
             ),
         }
