@@ -133,3 +133,4 @@ examples/.downloaded/
 # package user configuration
 scrappi/etc/config_templates/NPL_config.yaml
 .scrappi/NPL_config.yaml
+CLAUDE.md

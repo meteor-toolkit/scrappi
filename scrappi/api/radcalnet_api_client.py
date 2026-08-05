@@ -142,6 +142,7 @@ class RadcalnetCallHandler(InSituCallHandler):
             site_instrument, year, doy, version = self.parse_name(filename)
             site = site_instrument[0:4]
             geom = self._default_geometries[site]  # get default geometry for site as Polygon
+            start_hour, stop_hour = self._daylight_window_hours(site)
             product_list.append(
                 ProductItem(
                     constellation="RadCalNet",
@@ -149,8 +150,8 @@ class RadcalnetCallHandler(InSituCallHandler):
                     collection=query["collection"],
                     id=filename,
                     geometry=geom,
-                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=8),
-                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=14),
+                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
+                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
                     url="",
                     quicklook="",
                     api="radcalnet",
@@ -160,12 +161,40 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         return ProductItemSet(product_list)
 
+    def _daylight_window_hours(self, site: str) -> tuple:
+        """Return this site's approximate daylight recording window as (start_hour, stop_hour).
+
+        RadCalNet only records meaningful reflectance data during daylight,
+        so each site's file only covers a window around its own local solar
+        noon -- not a fixed UTC clock window, since that shifts with
+        longitude (e.g. RVUS, at 115.69 degW, has its daylight window many
+        hours later in UTC than GONA, at 15.12 degE). Approximated as local
+        solar noon +/- 3 hours (local solar time offset from UTC =
+        longitude / 15 deg-per-hour) -- this matches the site whose window
+        this was originally hardcoded from (GONA: solar noon ~10:59 UTC,
+        window ~08:00-14:00 UTC) almost exactly.
+
+        Returned hours are relative to local midnight on the file's own date
+        and may be negative or exceed 24 for sites whose window straddles a
+        UTC day boundary -- ``timedelta(hours=...)`` normalises this
+        correctly when added to a ``datetime``, so callers don't need to
+        handle the wraparound themselves.
+
+        :param site: RadCalNet site identifier, e.g. ``"GONA"``.
+        :return: ``(start_hour, stop_hour)`` as floats.
+        """
+        longitude = self.DEFAULT_SITE_DEFINITIONS[site]["longitude"]
+        solar_noon_utc = 12.0 - longitude / 15.0
+        return solar_noon_utc - 3.0, solar_noon_utc + 3.0
+
     def check_date_in_range(self, year: int, doy: int, date1: dt.date, date2: dt.date) -> bool:
         """
         Function to check whether date of file is between the query dates.
 
         :param year: year of RCN file
-        :param doy: day of year of RCN file
+        :param doy: day of year of RCN file (1-indexed, i.e. 1 Jan = 1 -- matches
+            the convention RadCalNet's own filenames use, and how ``perform_query``
+            reconstructs a file's date via ``datetime(year, 1, 1) + timedelta(days=doy - 1)``)
         :param date1: start datetime in query
         :param date2: stop datetime in query
         :return: boolean indicated whether date is in query range or not
@@ -175,8 +204,12 @@ class RadcalnetCallHandler(InSituCallHandler):
         tz2 = getattr(date2, "tzinfo", None)
         baseline1 = dt.datetime(date1.year, 1, 1, 0, 0, tzinfo=tz1)
         baseline2 = dt.datetime(date2.year, 1, 1, 0, 0, tzinfo=tz2)
-        doy1: int = (date1 - baseline1).days
-        doy2: int = (date2 - baseline2).days
+        # +1: (date - baseline).days counts full days elapsed since 1 Jan 00:00, which is
+        # 0-indexed (1 Jan itself = 0) -- doy above is 1-indexed, so without this offset
+        # every comparison below is silently shifted a day early, matching a file from the
+        # day before the query window against a same-day (or any) query.
+        doy1: int = (date1 - baseline1).days + 1
+        doy2: int = (date2 - baseline2).days + 1
 
         if date1.year == date2.year:
             if year == date1.year and doy1 <= doy <= doy2:

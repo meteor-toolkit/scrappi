@@ -53,10 +53,21 @@ class BaseAPICallHandler(ABC):
             self.context = ScrappiContext(context)
 
     def parse_platform_from_name(self, name):
+        """
+        Parse the platform short code from a product ID or name.
+
+        Returns the same short-code form for every mission (e.g. ``S2A``,
+        ``LS8``, ``LS9``) rather than a mix of raw prefixes and human-readable
+        names, so the result can be compared directly against platform
+        identifiers used elsewhere (e.g. orbitx's satellite short codes).
+
+        :param name: product ID or name to parse.
+        :returns: platform short code.
+        """
         if name[0:4] in ["LC08", "LO08"]:
-            return "Landsat-8"
+            return "LS8"
         elif name[0:4] in ["LC09", "LO09"]:
-            return "Landsat-9"
+            return "LS9"
         elif name[0:4] in ["CAMS", "ERA5", "REAN"]:
             return name[0:4]
         elif name[0:3] in ["S2A", "S2B", "S2C", "S3A", "S3B"]:
@@ -79,6 +90,8 @@ class BaseAPICallHandler(ABC):
             return "Sentinel-3"
         elif name[0:3] in ["MOD", "MYD"]:
             return "MODIS"
+        elif name in ["Metop-A", "Metop-B", "Metop-C"]:
+            return "Metop"
 
         else:
             raise NotImplementedError("constellation name could not be parsed")
