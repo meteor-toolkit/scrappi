@@ -183,6 +183,18 @@ class ProductItem:
         return stac_item
 
     def to_new_stac_item(self, fs):
+        """
+        Build a new pystac.Item for this product, ready to be written to disk.
+
+        Always includes ``constellation`` and ``platform`` in ``properties``,
+        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set (read
+        back by :py:func:`product_item_from_stac`). ``prod_dict``/``filter_dict``
+        are included only when explicitly enabled via
+        ``context["fs"]["store_prod_dict_in_stac"]``/``store_filter_dict_in_stac``.
+
+        :param fs: filesystem used to resolve asset paths for this product.
+        :return: newly constructed `pystac.Item`.
+        """
         # GeoJSON geometry and bbox
         geom = mapping(self.geometry)
         bbox = list(self.geometry.bounds)
@@ -192,6 +204,8 @@ class ProductItem:
         properties["constellation"] = self.constellation
         properties["platform"] = self.platform
         # properties["collection"] = self.collection
+        if self.cloud_fraction is not None:
+            properties["eo:cloud_cover"] = self.cloud_fraction
         if self.context["fs"].get("store_prod_dict_in_stac", False):
             properties["prod_dict"] = self.prod_dict or {}
         if self.context["fs"].get("store_filter_dict_in_stac", False):
