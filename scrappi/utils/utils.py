@@ -42,7 +42,7 @@ def add_seconds_to_datetime(dt, seconds):
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def retrieve_UTM_crs_from_lat_lon(latitude: float, longitude: float) -> str:
+def retrieve_UTM_crs_from_lat_lon(latitude, longitude) -> str:
     """
     retrieve the UTM (WGS85 base) zone applicable for the given point coordinates and return the coresponding epsg string.
 
