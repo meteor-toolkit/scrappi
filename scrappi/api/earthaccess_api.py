@@ -397,16 +397,18 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
             
-            aux_cols = self.context["earthaccess"].get("auxiliary_collections", None).get(product.collection, None)
-            if aux_cols:
-                for c in aux_cols:
-                    try:
-                        aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3]) + "*", "short_name": c, "version": "7"}
-                        aux_prod = self.perform_query(aux_query, format_query=False)
-                        self.download_product(aux_prod)
-                    except Exception as e:
-                        warnings.warn(f"Failed to download auxiliary product for {product.id}: {e}")
-                        continue
+            
+            if self.context["earthaccess"]['auxiliary_collections']:
+                aux_cols = self.context["earthaccess"].get("auxiliary_collections", None).get(product.collection, None)
+                if aux_cols is not None:
+                    for c in aux_cols:
+                        try:
+                            aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3]) + "*", "short_name": c, "version": "7"}
+                            aux_prod = self.perform_query(aux_query, format_query=False)
+                            self.download_product(aux_prod)
+                        except Exception as e:
+                            warnings.warn(f"Failed to download auxiliary product for {product.id}: {e}")
+                            continue
                     
             if exists:
                 print(f"{path} exists")
