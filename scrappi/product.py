@@ -9,6 +9,7 @@ with helpers for filtering, sorting and STAC materialisation.
 
 import warnings
 import json
+import re
 from typing import TYPE_CHECKING, Dict, Any, Optional, Sequence, Union, List, Tuple
 
 if TYPE_CHECKING:
@@ -152,6 +153,11 @@ class ProductItem:
         """Return a pystac.Item representing this ProductItem."""
         return self.to_stac_item()
 
+    @property
+    def collection_path(self) -> str:
+        """Return a filesystem-safe collection name for paths and STAC directories."""
+        return sanitize_collection_name(self.collection)
+
     def to_stac_item(
         self,
         filesystem: Optional["STACFileSystem"] = None,
@@ -177,6 +183,18 @@ class ProductItem:
         return stac_item
 
     def to_new_stac_item(self, fs):
+        """
+        Build a new pystac.Item for this product, ready to be written to disk.
+
+        Always includes ``constellation`` and ``platform`` in ``properties``,
+        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set (read
+        back by :py:func:`product_item_from_stac`). ``prod_dict``/``filter_dict``
+        are included only when explicitly enabled via
+        ``context["fs"]["store_prod_dict_in_stac"]``/``store_filter_dict_in_stac``.
+
+        :param fs: filesystem used to resolve asset paths for this product.
+        :return: newly constructed `pystac.Item`.
+        """
         # GeoJSON geometry and bbox
         geom = mapping(self.geometry)
         bbox = list(self.geometry.bounds)
@@ -186,6 +204,8 @@ class ProductItem:
         properties["constellation"] = self.constellation
         properties["platform"] = self.platform
         # properties["collection"] = self.collection
+        if self.cloud_fraction is not None:
+            properties["eo:cloud_cover"] = self.cloud_fraction
         if self.context["fs"].get("store_prod_dict_in_stac", False):
             properties["prod_dict"] = self.prod_dict or {}
         if self.context["fs"].get("store_filter_dict_in_stac", False):
@@ -290,7 +310,7 @@ class ProductItem:
         _data_root = Path(fs.data_root)
 
         item_path = fs.return_stac_item_path(self)
-        collection_json = stac_root / self.collection / "collection.json"
+        collection_json = stac_root / self.collection_path / "collection.json"
         root_catalog_json = stac_root / "catalog.json"
 
         collection_json.parent.mkdir(parents=True, exist_ok=True)
@@ -325,7 +345,7 @@ class ProductItem:
             collection.extra_fields["constellation"] = self.constellation
             collection.extra_fields["platform"] = self.platform
 
-        collection.set_self_href(fs.stac_href("collections", self.collection, "collection.json"))
+        collection.set_self_href(fs.stac_href("collections", self.collection_path, "collection.json"))
 
         # ---------------- Item ----------------
         item = self.to_stac_item(filesystem=filesystem, overwrite=True)
@@ -1292,6 +1312,15 @@ def product_item_set_from_dict(
         pis.add_ProductItem(product_item_from_dict(p, api=api, filesystem=filesystem))
 
     return pis
+
+
+def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
+    """Return a filesystem- and STAC-safe collection segment for paths."""
+    if collection is None:
+        return ""
+
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(collection)).strip("._-")
+    return safe_name or "collection"
 
 
 if __name__ == "__main__":

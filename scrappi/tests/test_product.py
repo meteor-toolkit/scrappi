@@ -20,6 +20,7 @@ from scrappi.product import (
     open_product_item,
     open_product_item_set,
     product_item_from_dict,
+    product_item_from_stac,
     product_item_set_from_dict,
 )
 from scrappi.api.eodag import EODAGCallHandler
@@ -971,6 +972,7 @@ class BaseStacTest(unittest.TestCase):
         start_time,
         stop_time=None,
         collection="TEST_COLLECTION",
+        cloud_fraction=None,
     ):
         geom = box(*bounds)
 
@@ -984,6 +986,7 @@ class BaseStacTest(unittest.TestCase):
             stop_time=stop_time or start_time,
             filesystem=self.fs,
             url="asset://",
+            cloud_fraction=cloud_fraction,
         )
 
 
@@ -1030,6 +1033,24 @@ class TestStacCatalog(BaseStacTest):
 
         self.assertEqual(len(item_links), 1)
         self.assertTrue(item_links[0]["href"].startswith("stac://"))
+
+    def test_collection_name_is_preserved_for_metadata_but_sanitized_for_paths(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            collection="EO:EUM:DAT:METOP:IASIL1C-ALL",
+        )
+
+        p.register_in_filesystem_catalog()
+
+        collection_json = Path(self.fs.stac_root) / "EO_EUM_DAT_METOP_IASIL1C-ALL" / "collection.json"
+        self.assertTrue(collection_json.exists())
+
+        data = json.loads(collection_json.read_text())
+        self.assertEqual(data["id"], "EO:EUM:DAT:METOP:IASIL1C-ALL")
+        self.assertEqual(p.collection, "EO:EUM:DAT:METOP:IASIL1C-ALL")
+        self.assertEqual(p.collection_path, "EO_EUM_DAT_METOP_IASIL1C-ALL")
 
     def test_collection_extent_expands_with_multiple_items(self):
         p1 = self.make_product(
@@ -1097,6 +1118,52 @@ class TestStacCatalog(BaseStacTest):
             self.assertNotIn("C:\\", text)
             self.assertNotIn("/home/", text)
             self.assertTrue(("stac://" in text) or ("asset://" in text) or ("http://"))
+
+    # -----------------------------------------------------------------
+
+    def test_cloud_cover_written_to_properties_when_set(self):
+        """cloud_fraction is persisted as the STAC eo extension's
+        eo:cloud_cover property, so it survives a save/reload cycle instead
+        of being silently dropped."""
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            cloud_fraction=23.5,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertEqual(data["properties"]["eo:cloud_cover"], 23.5)
+
+    def test_cloud_cover_omitted_from_properties_when_not_set(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertNotIn("eo:cloud_cover", data["properties"])
+
+    def test_cloud_fraction_round_trips_through_product_item_from_stac(self):
+        """End-to-end: a product saved with cloud_fraction set, then read
+        back via product_item_from_stac (as MatchupCatalogue.get_events does
+        for existing catalogues), recovers the same value."""
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            cloud_fraction=12.3,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertEqual(reloaded.cloud_fraction, 12.3)
 
 
 if __name__ == "__main__":

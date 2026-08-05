@@ -27,6 +27,8 @@ dependencies = [
     "cartopy",
     "matplotlib",
     "usgs",
+    "eumdac",
+    "boto3"
 ]
 
 [project.optional-dependencies]
