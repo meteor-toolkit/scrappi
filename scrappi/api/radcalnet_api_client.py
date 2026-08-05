@@ -192,7 +192,9 @@ class RadcalnetCallHandler(InSituCallHandler):
         Function to check whether date of file is between the query dates.
 
         :param year: year of RCN file
-        :param doy: day of year of RCN file
+        :param doy: day of year of RCN file (1-indexed, i.e. 1 Jan = 1 -- matches
+            the convention RadCalNet's own filenames use, and how ``perform_query``
+            reconstructs a file's date via ``datetime(year, 1, 1) + timedelta(days=doy - 1)``)
         :param date1: start datetime in query
         :param date2: stop datetime in query
         :return: boolean indicated whether date is in query range or not
@@ -202,8 +204,12 @@ class RadcalnetCallHandler(InSituCallHandler):
         tz2 = getattr(date2, "tzinfo", None)
         baseline1 = dt.datetime(date1.year, 1, 1, 0, 0, tzinfo=tz1)
         baseline2 = dt.datetime(date2.year, 1, 1, 0, 0, tzinfo=tz2)
-        doy1: int = (date1 - baseline1).days
-        doy2: int = (date2 - baseline2).days
+        # +1: (date - baseline).days counts full days elapsed since 1 Jan 00:00, which is
+        # 0-indexed (1 Jan itself = 0) -- doy above is 1-indexed, so without this offset
+        # every comparison below is silently shifted a day early, matching a file from the
+        # day before the query window against a same-day (or any) query.
+        doy1: int = (date1 - baseline1).days + 1
+        doy2: int = (date2 - baseline2).days + 1
 
         if date1.year == date2.year:
             if year == date1.year and doy1 <= doy <= doy2:

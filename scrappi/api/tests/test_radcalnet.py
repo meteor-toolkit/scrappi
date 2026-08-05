@@ -92,6 +92,46 @@ class TestRCNCallHandler(unittest.TestCase):
             ["GONA01_2022_289_v04.09.output", "GONA01_2022_290_v04.09.output"],
         )
 
+    def test_check_date_in_range_matches_same_calendar_day(self):
+        """Regression test: a query window entirely within one calendar day must
+        match that day's own file (doy is 1-indexed, e.g. 1 Jan = 1), not the
+        day before. check_date_in_range used to compute its internal doy1/doy2
+        boundaries as 0-indexed (days elapsed since 1 Jan 00:00), silently
+        shifting every match one day earlier than the file it should have found."""
+        self.rcnHandler = RadcalnetCallHandler()
+        # 15 March 2024 (leap year) = day-of-year 75 (1-indexed); a satellite-overpass
+        # query window buffered several hours either side, but still same-day.
+        date1 = dt(2024, 3, 15, 4, 30)
+        date2 = dt(2024, 3, 15, 16, 30)
+        self.assertTrue(self.rcnHandler.check_date_in_range(2024, 75, date1, date2))
+        self.assertFalse(self.rcnHandler.check_date_in_range(2024, 74, date1, date2))
+        self.assertFalse(self.rcnHandler.check_date_in_range(2024, 76, date1, date2))
+
+    def test_check_date_in_range_matches_first_and_last_day_of_year(self):
+        """Boundary check: 1 Jan (doy=1) and 31 Dec must each still match a
+        same-day query window -- the ends of the 1-indexed doy1/doy2 fix."""
+        self.rcnHandler = RadcalnetCallHandler()
+        jan1 = dt(2024, 1, 1, 0, 0)
+        jan1_end = dt(2024, 1, 1, 23, 59, 59)
+        self.assertTrue(self.rcnHandler.check_date_in_range(2024, 1, jan1, jan1_end))
+
+        dec31 = dt(2024, 12, 31, 0, 0)
+        dec31_end = dt(2024, 12, 31, 23, 59, 59)
+        # 2024 is a leap year: 31 Dec = day-of-year 366
+        self.assertTrue(self.rcnHandler.check_date_in_range(2024, 366, dec31, dec31_end))
+
+    def test_check_date_in_range_wide_window_still_excludes_out_of_range_days(self):
+        """A multi-month query window should still exclude days clearly outside it,
+        confirming the +1 fix didn't just make everything match."""
+        self.rcnHandler = RadcalnetCallHandler()
+        date1 = dt(2022, 10, 10)
+        date2 = dt(2022, 11, 10)
+        # 10 Oct 2022 = doy 283, 10 Nov 2022 = doy 314
+        self.assertTrue(self.rcnHandler.check_date_in_range(2022, 283, date1, date2))
+        self.assertTrue(self.rcnHandler.check_date_in_range(2022, 314, date1, date2))
+        self.assertFalse(self.rcnHandler.check_date_in_range(2022, 282, date1, date2))
+        self.assertFalse(self.rcnHandler.check_date_in_range(2022, 315, date1, date2))
+
     def test_parse_name(self):
         version_pattern = re.compile("v*.*.output")
 
