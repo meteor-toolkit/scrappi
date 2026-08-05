@@ -103,8 +103,9 @@ class ProductItem:
             self.context = ScrappiContext()
         else:
             self.context = context
-        self.set_api(api, context)
-        self.set_fs(filesystem, context)
+        self.api = api
+        self.fs = self.set_fs(filesystem)
+        
 
     def __str__(self) -> str:
         """Custom __str__"""
@@ -169,7 +170,12 @@ class ProductItem:
         :param assets: optional mapping of asset_key -> {href, media_type, title}
         :return: `pystac.Item` representing the product
         """
-        fs = filesystem or self.filesystem
+        if filesystem:
+            fs = self.set_fs(filesystem)
+        elif self.filesystem:
+            fs = self.filesystem
+        else:
+            fs = self.set_fs()
         if fs is None:
             raise ValueError("No filesystem provided")
 
@@ -210,6 +216,8 @@ class ProductItem:
             properties["prod_dict"] = self.prod_dict or {}
         if self.context["fs"].get("store_filter_dict_in_stac", False):
             properties["filter_dict"] = self.filter_dict or {}
+        if self.context["fs"].get("store_cloud_fraction_in_stac", False):
+            properties["cloud_fraction"] = self.cloud_fraction
 
         # Create STAC Item (use start_time as datetime; stop_time added to properties)
         item = pystac.Item(
@@ -264,9 +272,13 @@ class ProductItem:
             )
 
         if self.quicklook and "quicklook" not in item.assets:
+            if isinstance(self.quicklook,list):
+                quicklook = self.quicklook[0]
+            else:
+                quicklook = self.quicklook
             item.add_asset(
                 "quicklook",
-                pystac.Asset(href=self.quicklook, media_type="image/jpeg", title="quicklook"),
+                pystac.Asset(href=quicklook, media_type="image/jpeg", title="quicklook"),
             )
 
         return item
@@ -404,6 +416,9 @@ class ProductItem:
         """
         from scrappi.interface import make_fs
 
+        if not context:
+            context=self.context
+
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
 
@@ -416,7 +431,10 @@ class ProductItem:
         :param config_dict: config dictionary (api dependent)
         """
         from scrappi.interface import make_api
-
+        if not context:
+            context=self.context
+        if not api:
+            api=self.api
         self.api = make_api(api, context)
 
     def move_product(self, new_fs: Union[str, Any], copy: bool = True) -> str:
@@ -716,7 +734,7 @@ class ProductItemSet:
 
         self._products.remove(ProductItem)
 
-    def set_api(self, api: str):
+    def set_api(self, api: Optional[str] = None):
         """
         set API for each product item in the product item set
 

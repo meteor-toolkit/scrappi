@@ -52,7 +52,7 @@ class FSCallHandlerFactory:
             context = ScrappiContext()
 
         if name is None:
-            return TdriveFileSystem(context=context)
+            raise ValueError("No filesystem name provided to FSCallHandlerFactory")
         elif isinstance(name, BaseFileSystem):
             return name
         elif name.lower() in self.fs_call_handlers.keys():

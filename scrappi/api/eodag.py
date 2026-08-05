@@ -18,6 +18,9 @@ import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon, Point
 from pathlib import Path
 from typing import Any, Optional, Union, List
+import logging
+
+log = logging.getLogger(__name__)
 
 from processor_tools import Context
 
@@ -176,6 +179,11 @@ class EODAGCallHandler(BaseAPICallHandler):
         :returns: product urls satisfying query
         """
         # query_geom = query["geom"]
+        products = self.dag.search(
+            productType="reanalysis-era5-single-levels",
+            start="2024-01-01T00:00:00Z",
+            end="2024-01-01T23:59:59Z",
+        )
 
         # reformat query into style suitable for eodag searching
         eodag_query = query.copy()
@@ -248,7 +256,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set
-            if ("platform" in query) and self.get_platform(prod_dict) != query["platform"]:
+            if ("platform" in query) and (query["platform"] is not None) and self.get_platform(prod_dict) != query["platform"]:
                 continue
 
             # check shape of geometry
@@ -264,33 +272,47 @@ class EODAGCallHandler(BaseAPICallHandler):
             else:
                 url = ""
 
-            if "collection" in prod_dict["properties"].keys():
-                collection = prod_dict["properties"]["collection"]
-            else:
-                collection = query["collection"]
+            collection = query["collection"]
 
-            # store product item
-            product_list.append(
-                ProductItem(
-                    constellation=self.get_constellation(prod_dict),
-                    platform=self.get_platform(prod_dict),
-                    collection=collection,
-                    id=prod_dict["id"],
-                    geometry=prod_geom,
-                    start_time=self.find_start_time(prod_dict),
-                    stop_time=self.find_stop_time(prod_dict),
-                    prod_dict=prod_dict,
-                    filter_dict=self.extract_filter_attributes(prod_dict),
-                    api=self,
-                    url=url,
-                    quicklook=prod_dict["properties"]["eodag:quicklook"],
-                    cloud_fraction=prod_dict["properties"]["eo:cloud_cover"],
-                    context=self.context,
-                    api_product=prod,
+            try:
+                # store product item
+                product_list.append(
+                    ProductItem(
+                        constellation=self.get_constellation(prod_dict),
+                        platform=self.get_platform(prod_dict),
+                        collection=collection,
+                        id=self.get_id(prod_dict, query),
+                        geometry=prod_geom,
+                        start_time=self.find_start_time(prod_dict),
+                        stop_time=self.find_stop_time(prod_dict),
+                        prod_dict=prod_dict,
+                        filter_dict=self.extract_filter_attributes(prod_dict),
+                        api=self,
+                        url=url,
+                        quicklook=prod_dict["properties"]["eodag:quicklook"],
+                        cloud_fraction=prod_dict["properties"]["eo:cloud_cover"],
+                        context=self.context,
+                        api_product=prod,
+                    )
                 )
-            )
+            except Exception as e:
+                log.warning(f"Error creating ProductItem for product {prod_dict['id']}: {e}")
+                continue
 
         return ProductItemSet(product_list)
+
+    def get_id(self, prod_dict: dict, query: dict) -> str:
+        """
+        Function to extract the product id
+
+        :param prod_dict: eodag product dictionary
+        :param query: query dictionary
+        :return: product id
+        """
+        if self.get_constellation(prod_dict) == "ECMWF":
+            variable_str = "_".join(query["variable"])
+            return query["collection"] + "_" + prod_dict["properties"]["start_datetime"][0:10] + "_" + prod_dict["properties"]["end_datetime"][0:10] + "_" + variable_str
+        return prod_dict["id"]
 
     def get_platform(self, prod_dict: dict) -> str:
         """
@@ -387,17 +409,19 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return filter_dict
 
-    def _download_product_EOProduct(self, product: EOProduct, path: str) -> Union[list, str]:
+    def _download_product_EOProduct(self, product: EOProduct, path: str, product_title: str = None) -> Union[list, str]:
         """
         Download catalogue product(s) at defined URL to local path
 
         :param product: search result from a eodag product query
         :param path: path to write product to
+        :param product_title: title of the product to download
         :return: path to which product has been downloaded
         """
 
         if isinstance(product, EOProduct):
-            product_title = product.properties["id"]
+            if product_title is None:
+                product_title = product.properties["id"]
             if os.path.isfile(os.path.join(path, product_title.split(".")[0] + ".zip")):
                 print(f"zipped {product_title} exists in {path}")
             elif os.path.exists(os.path.join(path, product_title)):
@@ -451,29 +475,14 @@ class EODAGCallHandler(BaseAPICallHandler):
                     os.path.basename(path_out) == product_title
                     or os.path.basename(path_out.split(".")[0]) == product_title
                 ):
-                    # Safely check configuration option to allow modifying downloaded filename
-                    allow_modify = False
-                    try:
-                        allow_modify = bool(
-                            self.context["eodag"][product.provider].get("allow_modify_download_filename", False)
-                        )
-                    except Exception:
-                        allow_modify = False
-
-                    if allow_modify:
-                        warnings.warn(
-                            f"Filename of the downloaded file ({os.path.basename(path_out)}) does not match the product title ({product_title}). Modifying product_title to correct."
-                        )
-                        product_title = os.path.basename(path_out)
-                        product.properties["id"] = product_title
-                    else:
-                        warnings.warn(
-                            f"Filename of the downloaded file ({os.path.basename(path_out)}) does not match the product title ({product_title}). Continuing without modifying product_title."
-                        )
-                        if path_out.split(".")[-1] == "zip":
-                            if not product_title.split(".")[-1] == "zip":
-                                warnings.warn("Adding .zip to the product title (returned downloaded file has .zip)")
-                                product_title += ".zip"
+                    
+                    warnings.warn(
+                        f"Filename of the downloaded file ({os.path.basename(path_out)}) does not match the product title ({product_title})."
+                    )
+                    if path_out.split(".")[-1] == "zip":
+                        if not product_title.split(".")[-1] == "zip":
+                            warnings.warn("Adding .zip to the product title (returned downloaded file has .zip)")
+                            product_title += ".zip"
 
                 path_out = Path(path_out)
                 expected = Path(path) / product_title
@@ -493,17 +502,15 @@ class EODAGCallHandler(BaseAPICallHandler):
                         for f in os.listdir(os.path.join(path, product_title))
                         if os.path.isfile(os.path.join(os.path.join(path, product_title), f))
                     ]
-                    print(files)
                     if len(files) == 1:
                         warnings.warn(
                             "Downloaded product is a directory containing only one file. Moving this file to the expected location and removing the directory."
                         )
                         shutil.move(
                             os.path.join(path, product_title, files[0]),
-                            os.path.join(path, files[0]),
+                            os.path.join(path, product_title + "." + files[0].split(".")[-1]),
                         )
                         os.rmdir(os.path.join(path, product_title))
-                        product_title = files[0]
             return os.path.join(path, product_title)
 
         else:
@@ -556,6 +563,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
+            product_title = product.id
 
             if exists:
                 print(f"{path} exists")
@@ -579,7 +587,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 eoprod = product.api_product
                 # self._set_provider_output_dir(eoprod, path)
 
-                return self._download_product_EOProduct(eoprod, os.path.dirname(path))
+                return self._download_product_EOProduct(eoprod, os.path.dirname(path), product_title=product_title)
 
             else:
                 if product.prod_dict is not None and "properties" in product.prod_dict.keys():
@@ -590,7 +598,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         # ].api.products = self.dag.providers_config[eoprod.provider].products
                         self.dag._setup_downloader(eoprod)
                         self._set_provider_output_dir(eoprod, path)
-                        return self._download_product_EOProduct(eoprod, os.path.dirname(path))
+                        return self._download_product_EOProduct(eoprod, os.path.dirname(path), product_title=product_title)
                     except Exception:
                         print("Could not create EOProduct from prod_dict, trying search method.")
                         pass
@@ -619,7 +627,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         % searchresult
                     )
 
-                return self._download_product_EOProduct(searchresult[correct_ids[0]], os.path.dirname(path))
+                return self._download_product_EOProduct(searchresult[correct_ids[0]], os.path.dirname(path), product_title=product_title)
 
             return None
 
@@ -683,7 +691,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
             path = resolved_fs.directory
 
-            return self._download_product_EOProduct(eoprod, path)
+            return self._download_product_EOProduct(eoprod, path, product_title=product)
 
         else:
             raise ValueError("products are not in the right format for filename download by scrappi eodag (str)")
