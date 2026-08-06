@@ -265,45 +265,54 @@ class TestRCNCallHandler(unittest.TestCase):
 
     def test_site_size(self):
         # make shapely files to compare with
+        #
+        # These bounds are generated with generate_bounding_lat_lon's local
+        # Azimuthal Equidistant projection (its default), which preserves true
+        # ground distance from the site's centre point in every direction --
+        # each site's box is a true default_roi*2 metre square (verified
+        # geodesically), unlike the previous fixed-CRS (EPSG:32630, UTM zone
+        # 30N) default, which was only accurate near that zone's own meridian
+        # and produced a badly non-square box far from it (e.g. RVUS's
+        # nominal 1000m x 1000m square previously came out ~960m x ~190m).
         shapes = {
             "BSCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.6151061872157,
-                    "latitude_minimum": 40.86446369669309,
-                    "longitude_maximum": 109.61589376182471,
-                    "latitude_maximum": 40.867136318760544,
+                    "longitude_minimum": 109.6137207949809,
+                    "latitude_minimum": 40.86444925920302,
+                    "longitude_maximum": 109.61727927732053,
+                    "latitude_maximum": 40.86715071303549,
                 }
             ),
             "BTCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.62920690365492,
-                    "latitude_minimum": 40.8512624569282,
-                    "longitude_maximum": 109.62923309628796,
-                    "latitude_maximum": 40.851351543088896,
+                    "longitude_minimum": 109.62916070492611,
+                    "latitude_minimum": 40.85126197564054,
+                    "longitude_maximum": 109.62927929515419,
+                    "latitude_maximum": 40.851352024328634,
                 }
             ),
             "GONA": convert_geom_shapely(
                 {
-                    "longitude_minimum": 15.117532788744471,
-                    "latitude_minimum": -23.602627898833834,
-                    "longitude_maximum": 15.121579092331926,
-                    "latitude_maximum": -23.59777408779308,
+                    "longitude_minimum": 15.11710650612445,
+                    "latitude_minimum": -23.602458266106517,
+                    "longitude_maximum": 15.12200541002855,
+                    "latitude_maximum": -23.597943694603075,
                 }
             ),
             "LCFR": convert_geom_shapely(
                 {
-                    "longitude_minimum": 4.863764033960914,
-                    "latitude_minimum": 43.55864688771256,
-                    "longitude_maximum": 4.864569969233603,
-                    "latitude_maximum": 43.559131110606714,
+                    "longitude_minimum": 4.863795705480817,
+                    "latitude_minimum": 43.558618981217094,
+                    "longitude_maximum": 4.864538297835298,
+                    "latitude_maximum": 43.55915901756431,
                 }
             ),
             "RVUS": convert_geom_shapely(
                 {
-                    "longitude_minimum": -115.695507468333,
-                    "latitude_minimum": 38.49614047027827,
-                    "longitude_maximum": -115.68449303343614,
-                    "latitude_maximum": 38.49785907324905,
+                    "longitude_minimum": -115.69573119658749,
+                    "latitude_minimum": 38.49249559303247,
+                    "longitude_maximum": -115.6842680896183,
+                    "latitude_maximum": 38.50150412301871,
                 }
             ),
         }
