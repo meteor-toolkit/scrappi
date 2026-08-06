@@ -73,13 +73,18 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
         poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
+        # local Azimuthal Equidistant projection produces a true 200m x 200m
+        # square (verified geodesically) -- these coordinates differ from
+        # values computed under the old fixed-CRS (EPSG:32630) default by
+        # ~17m/~207m, not a rounding difference; see that function's docstring.
         poly_test = Polygon(
             [
-                [15.124910675201583, -23.60243406476357],
-                [15.126869311371303, -23.60243406476357],
-                [15.126869311371303, -23.600625929012605],
-                [15.124910675201583, -23.600625929012605],
-                [15.124910675201583, -23.60243406476357],
+                [15.124910202637997, -23.60243291100309],
+                [15.1268697839455, -23.60243291100309],
+                [15.1268697839455, -23.600627082710055],
+                [15.124910202637997, -23.600627082710055],
+                [15.124910202637997, -23.60243291100309],
             ]
         )
         assert poly_roi.equals(poly_test)
@@ -137,13 +142,18 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
         poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
+        # local Azimuthal Equidistant projection produces a true 200m x 200m
+        # square (verified geodesically) -- these coordinates differ from
+        # values computed under the old fixed-CRS (EPSG:32630) default by
+        # ~17m/~207m, not a rounding difference; see that function's docstring.
         poly_test = Polygon(
             [
-                [15.124910675201583, -23.60243406476357],
-                [15.126869311371303, -23.60243406476357],
-                [15.126869311371303, -23.600625929012605],
-                [15.124910675201583, -23.600625929012605],
-                [15.124910675201583, -23.60243406476357],
+                [15.124910202637997, -23.60243291100309],
+                [15.1268697839455, -23.60243291100309],
+                [15.1268697839455, -23.600627082710055],
+                [15.124910202637997, -23.600627082710055],
+                [15.124910202637997, -23.60243291100309],
             ]
         )
         assert poly_roi.equals(poly_test)

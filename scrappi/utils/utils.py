@@ -73,13 +73,21 @@ def generate_bounding_lat_lon(latitude, longitude, distance, crs=None) -> list:
     :param latitude: latitude of point in WGS84 ("EPSG:4326")
     :param longitude: longitude of point in WGS84 ("EPSG:4326")
     :param distance: distance in m of point from each side of the box
-    :param crs: [optional] projected coordinate reference system that that uses the unit meters and which shall be used for the creation of the box (e.g. UTM 30N: crs="EPSG:32630"). Default is None, where the UTM crs is retrieved based on the given coordinates.
-    :return: list of min-max coordinates of box in WGS84
+    :param crs: optional projected CRS to buffer in (e.g. a UTM zone EPSG
+        code). Defaults to ``None``, which uses a local Azimuthal Equidistant
+        projection centred on (longitude, latitude) -- this preserves true
+        ground distance from the centre point in every direction regardless
+        of where on Earth the point is, unlike a single fixed CRS (e.g. the
+        previous hardcoded default of "EPSG:32630", UTM zone 30N), which is
+        only accurate for metre-based buffering near its own zone and
+        introduces large, asymmetric distortion far from it -- e.g. a nominal
+        1000m square previously came out ~960m x ~190m for a site ~118
+        degrees of longitude from zone 30N. Pass an explicit ``crs`` to force
+        a different projection.
+    :return: list of coordinates of box
     """
-    # check crs
     if crs is None:
-        # retrieve UTM crs
-        crs = retrieve_UTM_crs_from_lat_lon(latitude, longitude)
+        crs = f"+proj=aeqd +lat_0={latitude} +lon_0={longitude} +datum=WGS84 +units=m +no_defs"
 
     if not isinstance(crs, str):
         # convert crs to string
