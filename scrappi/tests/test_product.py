@@ -371,7 +371,12 @@ class TestProductItem(unittest.TestCase):
                 p.get_path()
                 == r"T:\ECO\EOServer\data\product_archive\data\Sentinel-3\S3B\S3_EFR\2022\05\17\S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
             )
-        elif socket.gethostname() == "eoserver.npl.co.uk":
+        if socket.gethostname().split(".")[0].lower() in [
+                    "eoserver",
+                    "leiden",
+                    "leipzig",
+                    "lyon",
+                ]:
             assert (
                 p.get_path()
                 == r"/mnt/t/data/product_archive/data/Sentinel-3/S3B/S3_EFR/2022/05/17/S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
@@ -439,21 +444,41 @@ class TestProductItem(unittest.TestCase):
         p.move_product(example_path)
 
         assert isinstance(p.filesystem, LocalFileSystem)
-        assert mock_shutil.call_args[0][0] == os.path.join(
-            "T:\\",
-            "ECO",
-            "EOServer",
-            "data",
-            "product_archive",
-            "data",
-            "Sentinel-3",
-            "S3B",
-            "S3_EFR",
-            "2022",
-            "05",
-            "17",
-            "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
-        )
+        if socket.gethostname().split(".")[0].lower() in [
+                    "eoserver",
+                    "leiden",
+                    "leipzig",
+                    "lyon",
+                ]:
+            assert mock_shutil.call_args[0][0] == os.path.join(
+                        "/mnt/t/",
+                        "data",
+                        "product_archive",
+                        "data",
+                        "Sentinel-3",
+                        "S3B",
+                        "S3_EFR",
+                        "2022",
+                        "05",
+                        "17",
+                        "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
+                    )
+        else:
+            assert mock_shutil.call_args[0][0] == os.path.join(
+                "T:\\",
+                "ECO",
+                "EOServer",
+                "data",
+                "product_archive",
+                "data",
+                "Sentinel-3",
+                "S3B",
+                "S3_EFR",
+                "2022",
+                "05",
+                "17",
+                "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
+            )
 
 
 class TestProductItemSet(unittest.TestCase):
@@ -908,7 +933,12 @@ class TestProductItemSet(unittest.TestCase):
                 ps.get_path()[0]
                 == r"T:\ECO\EOServer\data\product_archive\data\Sentinel-3\S3B\S3_EFR\2022\05\17\S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
             )
-        if socket.gethostname() == "eoserver.npl.co.uk":
+        if socket.gethostname().split(".")[0].lower() in [
+                            "eoserver",
+                            "leiden",
+                            "leipzig",
+                            "lyon",
+                        ]:
             assert (
                 ps.get_path()[0]
                 == r"/mnt/t/data/product_archive/data/Sentinel-3/S3B/S3_EFR/2022/05/17/S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
