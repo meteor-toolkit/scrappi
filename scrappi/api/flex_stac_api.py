@@ -10,13 +10,17 @@ import shapely.geometry
 import shapely.wkt
 
 import pystac
+import requests
+import warnings
+import shutil
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet, product_item_from_stac
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.stac_href_resolver import StacHrefResolver
+from scrappi.utils.utils import convert_geom_shapely, validate_product_download
 
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import webbrowser
 
@@ -36,6 +40,10 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 
+
+COLLECTIONS = {"FLEX_L2": "L2A_AtmCorr_DATA", "FLEX_L1": "FLORIS_L1C_DATA"}
+
+
 class FLEXSTACAPICallHandler(BaseAPICallHandler):
     """
     FLEX STAC API handler 
@@ -46,30 +54,85 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
     def __init__(self, context=None):
         super().__init__(context)
 
-        fs_path = self.context["fs"]["path"]
-        self.fs = STACFileSystem(path=fs_path, context=self.context)
+        self.cp_stac_endpoint = self.context["flex_stac"]["cp_stac_endpoint"]
+        self.search_url = self.cp_stac_endpoint + "search"
+        self.keycloak_base_url = self.context["flex_stac"]["keycloak_base_url"]
+        self.client_id: str = "discover"
+        self.default_realm: str = self.context["flex_stac"]["realm"]
+        self.request_token_response = None
 
-        self.resolver = StacHrefResolver(
-            stac_root=self.fs.stac_root,
-            data_root=self.fs.data_root,
-        )
+    def authenticate(self):
+        """
+        Authenticate with the FLEX Collaborative Platform using Keycloak device flow.
+        This method will prompt the user to open a URL in their browser and log in to obtain an access token.
+        The access token will be stored in the instance for subsequent API calls.
+        """
+        if self.request_token_response is None:
+            # Get User Code
 
-        self.stac_root = Path(self.fs.stac_root)
-        self.collections_dir = self.stac_root
+            user_code_response = self.getUserCode()
+            self.request_token_response = self.getToken(user_code_response)
+        else: 
+            print("Existing token, using it!") 
+
+        # Construct headers
+        self.headers = {"Authorization": f"{self.request_token_response.token_type} {self.request_token_response.access_token}"}
+
 
     # ------------------------------------------------------------------
     # Discovery
     # ------------------------------------------------------------------
 
     def list_collections(self) -> List[str]:
-        if not self.collections_dir.exists():
-            return []
-
-        return [p.name for p in self.collections_dir.iterdir() if (p / "collection.json").exists()]
+        
+        return list(COLLECTIONS.keys())
 
     # ------------------------------------------------------------------
     # Query
     # ------------------------------------------------------------------
+
+    def _query_stac(self, query: dict) -> ProductItemSet:
+        """
+        Query the FLEX STAC API using the provided query parameters.
+        """
+        if "collection" in query:
+            if isinstance(query["collection"], (list, tuple)):
+                collections = query["collection"]
+            else:
+                collections = [query["collection"]]
+        else:
+            collections = self.list_collections()
+
+        # Map collection names to their actual IDs
+        collections = [COLLECTIONS.get(c, c) for c in collections]
+
+        start_time = self._get_datetime(query["start_time"]) if "start_time" in query else None
+        stop_time = self._get_datetime(query["stop_time"]) if "stop_time" in query else None
+        # produce UTC ISO timestamps with trailing 'Z' (no +00:00)
+        if start_time and stop_time:
+            s_str = start_time.replace(tzinfo=None).isoformat()
+            e_str = stop_time.replace(tzinfo=None).isoformat()
+            time_period = f"{s_str}Z/{e_str}Z"
+        else:
+            time_period = None
+
+        geom_filter = query.get("geom")
+        if geom_filter is not None:
+            geom_filter = convert_geom_shapely(geom_filter)
+
+        roi = {"type": "Polygon", "coordinates": [list(geom_filter.exterior.coords)]} if geom_filter else None
+        
+        stac_query = {
+            "collections": collections,
+            "datetime": time_period,
+            "intersects": roi,
+            "limit": self.context["flex_stac"]["max_query_results"],
+        }
+        
+        response = requests.post(self.search_url, json=stac_query)
+        response.raise_for_status()
+        return response
+    
 
     def perform_query(self, query: dict) -> ProductItemSet:
         """
@@ -82,78 +145,20 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
           - stop_time
         """
 
-        # ---- collections to search ----
-        if "collection" in query:
-            if isinstance(query["collection"], (list, tuple)):
-                collections = query["collection"]
-            else:
-                collections = [query["collection"]]
-        else:
-            collections = self.list_collections()
+        self.authenticate()
+        response = self._query_stac(query)
 
-        # ---- filters ----
-        geom_filter = query.get("geom")
-        if geom_filter is not None:
-            geom_filter = self._get_geom(geom_filter)
+        matches = []
+        for item in response.json()["features"]:
+            item["collection"] = query["collection"]  # Add collection to item for consistency
 
-        start_time = self._get_datetime(query["start_time"]) if "start_time" in query else None
-        stop_time = self._get_datetime(query["stop_time"]) if "stop_time" in query else None
-
-        asset_state = query.get("asset_state")
-
-        matches: List[ProductItem] = []
-
-        # ------------------------------------------------------------------
-        # Iterate collections
-        # ------------------------------------------------------------------
-        for coll_id in collections:
-            coll_json = self.collections_dir / coll_id / "collection.json"
-            if not coll_json.exists():
+            # ---- convert to ProductItem ----
+            try:
+                pi = product_item_from_stac(item, self.context)
+                pi.api = self
+                matches.append(pi)
+            except Exception:
                 continue
-
-            collection = pystac.Collection.from_dict(json.loads(coll_json.read_text()))
-
-            # ---- iterate item links only ----
-            for link in collection.links:
-                if link.rel != "item":
-                    continue
-
-                item_href = link.target
-                item_path = self.resolver.resolve(item_href)
-
-                if not item_path or not Path(item_path).exists():
-                    continue
-
-                item = pystac.Item.from_dict(json.loads(Path(item_path).read_text()))
-
-                # ---- geometry filter ----
-                if geom_filter is not None and item.geometry is not None:
-                    item_geom = shapely.geometry.shape(item.geometry)
-                    if not geom_filter.intersects(item_geom):
-                        continue
-
-                # ---- temporal filter ----
-                item_start = item.datetime
-                item_end = None
-                if item.properties:
-                    item_end = item.properties.get("end_datetime")
-                    if isinstance(item_end, str):
-                        item_end = self._get_datetime(item_end)
-
-                if start_time and item_end and item_end < start_time:
-                    continue
-                if stop_time and item_start and item_start > stop_time:
-                    continue
-
-                if asset_state and asset_state != item.assets["data"].extra_fields["scrappi:asset_state"]:
-                    continue
-
-                # ---- convert to ProductItem ----
-                try:
-                    pi = product_item_from_stac(item, self.context)
-                    matches.append(pi)
-                except Exception:
-                    continue
 
         return ProductItemSet(matches)
 
@@ -174,44 +179,65 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         if isinstance(product, ProductItemSet):
             return [self.download_product(p) for p in product]
 
-        if not isinstance(product, ProductItem):
+        # next perform download based on type of product provided
+        if product is None:
+            warnings.warn("no product was provided to download")
+            return None
+
+        elif isinstance(product, ProductItem):
+            path, exists = product.filesystem.return_path(product, check_exists=True)
+            product_title = product.id
+
+            if exists:
+                print(f"{path} exists")
+                valid_download = validate_product_download(Path(path))
+                if not valid_download:
+                    warnings.warn(
+                        f"Existing file {path} is not a valid download. Removing the partial download and redownloading product."
+                    )
+                    try:
+                        if Path(path).is_dir():
+                            shutil.rmtree(path)
+                        else:
+                            Path(path).unlink()
+                    except Exception as e:
+                        print(f"Error removing invalid download {path}: {e}")
+                        raise e
+                else:
+                    return path
+
+            paths = self.download_flex(product, Path(path))
+
+            if len(paths) == 1:
+                return str(paths[0])
+            else:
+                return [str(p) for p in paths]
+
+        else:
             raise NotImplementedError
 
-        # ---- extract asset href from stored STAC dict ----
-        api_prod = product.api_product or product.prod_dict
-        if not api_prod:
-            return None
 
-        assets = api_prod.get("assets", {})
-        if not assets:
-            return None
+    def download_flex(self, product, download_dir):
+        # Get download URL
+        self.authenticate()  # Ensure we have a valid token
 
-        # Prefer "data" asset
-        if "data" in assets:
-            href = assets["data"].get("href")
-        else:
-            href = next(iter(assets.values())).get("href")
+        aux_id = product.id
+        item_url = f"{self.cp_stac_endpoint}/collections/{COLLECTIONS[product.collection]}/items/{aux_id}"
+        aux_item = self.getItem(item_url)
+        url = self.getDownloadURL(item_url)
+        print('Download URL:', url, item_url) 
 
-        if not href:
-            return None
+        # Download asset
+        
+        os.makedirs(download_dir, exist_ok=True)
+        return self.downloadSignedItem_FLEX(aux_item, download_dir, url, self.headers)
 
-        # ---- HTTP asset ----
-        if href.startswith("http://") or href.startswith("https://"):
-            return href
-
-        # ---- logical asset ----
-        try:
-            resolved = self.resolver.resolve(href)
-            return str(resolved) if resolved else None
-        except Exception:
-            return None
-
-    def getUserCode(self, my_keycloak_base_url, client_id, default_realm):
-        with Client(base_url=my_keycloak_base_url) as keykoack_client:
+    def getUserCode(self):
+        with Client(base_url=self.keycloak_base_url) as keykoack_client:
             user_code_response: UserCodeResponse | Error | None = generate_user_code(
-                realm=default_realm,
+                realm=self.default_realm,
                 client=keykoack_client,
-                body=UserCodeRequest(client_id=client_id, scope="openid profile email"),
+                body=UserCodeRequest(client_id=self.client_id, scope="openid profile email"),
             )
         
             if isinstance(user_code_response, UserCodeResponse):
@@ -222,20 +248,20 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
                 print("Error generating user code:", user_code_response)
         return user_code_response
 
-    def getToken(self, my_keycloak_base_url, client_id, default_realm, user_code_response):
+    def getToken(self, user_code_response):
         
         request_token_response: RequestTokenResponse | Error | None = None
         
         if not request_token_response and isinstance(user_code_response, UserCodeResponse):
             start_time = time.time()
         
-            with Client(base_url=my_keycloak_base_url) as keykoack_client:
+            with Client(base_url=self.keycloak_base_url) as keykoack_client:
                 while time.time() - start_time < user_code_response.expires_in:
                     request_token_response = request_token(
-                        realm=default_realm,
+                        realm=self.default_realm,
                         client=keykoack_client,
                         body=RequestToken(
-                            client_id=client_id,
+                            client_id=self.client_id,
                             grant_type="urn:ietf:params:oauth:grant-type:device_code",
                             device_code=user_code_response.device_code,
                         ),
@@ -286,7 +312,7 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         print('Product saved successfully')
 
 
-    def getDownloadURL(string, collection_id=None, download_base_url=None):
+    def getDownloadURL(self, string, collection_id=None, download_base_url=None):
         """
         Extracts download URL from a product ID or product URL.
         
@@ -369,7 +395,7 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
             if r.status_code in (302, 303, 307, 308):
                 signed_asset_url = r.headers.get("Location") or r.headers.get("location")
-                print("  - SIGNED URL:", signed_asset_url)
+                print("Starting download  - SIGNED URL:", signed_asset_url)
                 
                 # Download asset
                 r = httpx.get(signed_asset_url, headers=headers, follow_redirects=True)

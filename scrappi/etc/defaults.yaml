@@ -71,3 +71,9 @@ earthaccess:
   credentials:
     username: 
     password: 
+
+flex_stac:
+  max_query_results: 50
+  keycloak_base_url: https://iam.flex.pal.maap.eo.esa.int/
+  realm: 'Collaborative-Platform'
+  cp_stac_endpoint: https://discover.flex.pal.maap.eo.esa.int/

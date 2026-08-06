@@ -311,7 +311,8 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
         if self.get_constellation(prod_dict) == "ECMWF":
             variable_str = "_".join(query["variable"])
-            return query["collection"] + "_" + prod_dict["properties"]["start_datetime"][0:10] + "_" + prod_dict["properties"]["end_datetime"][0:10] + "_" + variable_str
+            location_str = "%.2f_%.2f_%.2f_%.2f" % (query["geom"]["latitude_minimum"], query["geom"]["longitude_minimum"], query["geom"]["latitude_maximum"], query["geom"]["longitude_maximum"])
+            return query["collection"] + "_" + prod_dict["properties"]["start_datetime"][0:10] + "_" + prod_dict["properties"]["end_datetime"][0:10] + "_" + location_str + "_" + variable_str + "_" + location_str
         return prod_dict["id"]
 
     def get_platform(self, prod_dict: dict) -> str:

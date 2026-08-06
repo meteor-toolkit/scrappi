@@ -281,7 +281,6 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 products.append_ProductItemSet(perform_query(query, context))
             return products
 
-
     api = get_api_name(query["collection"], context=context)
     api_handler = make_api(api, context)
     products = api_handler.perform_query(query)

@@ -23,8 +23,9 @@ from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 from scrappi.api.eumdac import EUMDACCallHandler
 from scrappi.api.aws import AWSCallHandler
+from scrappi.api.flex_stac_api import FLEXSTACAPICallHandler
 
-all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac", "aws"]
+all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "eumdac", "aws", "flex_stac", "stac"]
 
 # API call handlers by name
 API_CALL_HANDLERS = {
@@ -35,6 +36,7 @@ API_CALL_HANDLERS = {
     "radcalnet": RadcalnetCallHandler,
     "stac": STACAPICallHandler,
     "aws": AWSCallHandler,
+    "flex_stac": FLEXSTACAPICallHandler,
 }
 
 

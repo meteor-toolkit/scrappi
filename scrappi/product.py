@@ -1173,16 +1173,27 @@ def product_item_from_stac(
     if isinstance(item_or_path, str):
         # assume path to item json
         item = pystac.Item.from_file(item_or_path)
-    else:
+    elif isinstance(item_or_path, pystac.Item):
         item = item_or_path
-
+    elif isinstance(item_or_path, dict):
+        # assume dict representation of item
+        item = pystac.Item.from_dict(item_or_path)
+    else:
+        raise ValueError("item_or_path must be a str, pystac.Item, or dict")
+    
     # id
     pid = item.id
 
     # collection
     collection_id: Optional[str] = None
     try:
-        _coll: Any = item.collection
+        if hasattr(item, "collection"):
+            _coll: Any = item.collection
+        elif hasattr(item, "collection_id"):
+            _coll: Any = item.collection_id
+        else:
+            _coll: Any = item.properties.get("collection") if item.properties else None
+            
         if _coll is None:
             collection_id = None
         elif hasattr(_coll, "id"):
