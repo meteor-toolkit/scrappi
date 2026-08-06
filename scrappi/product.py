@@ -56,8 +56,11 @@ class ProductItem:
     :param geometry: spatial extent covered by product, as a :py:class:`shapely.Polygon`, WKT string, or value to instantiate a :py:class:`shapely.Polygon`
     :param start_time: initial time-bound of product
     :param stop_time: final time-bound of product
-    :param prod_dict: all information returned by query, will not be saved to JSON
-    :param filter_dict: dictionary with attributes that can be used to filter the data
+    :param prod_dict: all information returned by query; only saved to/restored from a
+        STAC item's JSON when ``context["fs"]["store_prod_dict_in_stac"]`` is enabled
+    :param filter_dict: dictionary with attributes that can be used to filter the data;
+        only saved to/restored from a STAC item's JSON when
+        ``context["fs"]["store_filter_dict_in_stac"]`` is enabled
     :param url: optional keyword to provide download url
     :param quicklook: optional keyword to provide quickook url
     :param filesystem: optional keyword to set filesystem, defaults to t-drive filesystem
@@ -187,9 +190,15 @@ class ProductItem:
         Build a new pystac.Item for this product, ready to be written to disk.
 
         Always includes ``constellation`` and ``platform`` in ``properties``,
-        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set (read
-        back by :py:func:`product_item_from_stac`). ``prod_dict``/``filter_dict``
-        are included only when explicitly enabled via
+        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set and
+        ``version`` when :py:attr:`version` is set (both read back by
+        :py:func:`product_item_from_stac`). ``collection`` is set directly on
+        the item (``pystac.Item``'s own ``collection`` constructor argument,
+        stored as ``collection_id``) rather than as a plain property, so it
+        round-trips via :py:func:`product_item_from_stac` reading
+        ``item.collection_id`` -- this does not require the item to actually
+        be linked into a resolvable ``pystac.Collection``. ``prod_dict``/
+        ``filter_dict`` are included only when explicitly enabled via
         ``context["fs"]["store_prod_dict_in_stac"]``/``store_filter_dict_in_stac``.
 
         :param fs: filesystem used to resolve asset paths for this product.
@@ -203,7 +212,8 @@ class ProductItem:
         properties = {}
         properties["constellation"] = self.constellation
         properties["platform"] = self.platform
-        # properties["collection"] = self.collection
+        if self.version is not None:
+            properties["version"] = self.version
         if self.cloud_fraction is not None:
             properties["eo:cloud_cover"] = self.cloud_fraction
         if self.context["fs"].get("store_prod_dict_in_stac", False):
@@ -218,6 +228,7 @@ class ProductItem:
             bbox=bbox,
             datetime=self.start_time,
             properties=properties,
+            collection=self.collection or None,
         )
 
         # add end time as property when available
@@ -1161,18 +1172,16 @@ def product_item_from_stac(
     # id
     pid = item.id
 
-    # collection
-    collection_id: Optional[str] = None
-    try:
-        _coll: Any = item.collection
-        if _coll is None:
-            collection_id = None
-        elif hasattr(_coll, "id"):
-            collection_id = _coll.id
-        else:
-            collection_id = str(_coll)
-    except Exception:
-        collection_id = item.properties.get("collection") if item.properties else None
+    # collection -- pystac.Item has no `.collection` attribute (only
+    # `.collection_id`/`.get_collection()`); reading `item.collection` always
+    # raised AttributeError here, so this previously fell through to the
+    # `except` branch every time, and to_new_stac_item() never wrote a
+    # "collection" property either, so collection was always lost on
+    # round-trip. `collection_id` doesn't require the item to be linked into
+    # a resolvable Collection (see to_new_stac_item's docstring).
+    collection_id: Optional[str] = item.collection_id
+    if collection_id is None and item.properties:
+        collection_id = item.properties.get("collection")
 
     # platform from properties if present
     platform = item.properties.get("platform") if item.properties else None
@@ -1180,6 +1189,7 @@ def product_item_from_stac(
         platform = item.properties.get("platform_name") if item.properties else None
 
     constellation = item.properties.get("constellation") if item.properties else None
+    version = item.properties.get("version") if item.properties else None
 
     # geometry as shapely object
     try:
@@ -1238,7 +1248,15 @@ def product_item_from_stac(
     if item.properties:
         cloud_fraction = item.properties.get("cloud_fraction") or item.properties.get("eo:cloud_cover")
 
-    prod_dict = item.to_dict() if hasattr(item, "to_dict") else item.properties
+    # prod_dict/filter_dict only round-trip if to_new_stac_item() actually wrote
+    # them (gated by store_prod_dict_in_stac/store_filter_dict_in_stac) -- read
+    # back exactly what was stored rather than substituting something else, so
+    # a reconstructed ProductItem faithfully reflects what's on disk instead of
+    # silently corrupting these fields with unrelated data (this previously set
+    # prod_dict to the *entire serialized STAC item*, `item.to_dict()`, even
+    # when no prod_dict had ever been stored).
+    prod_dict = item.properties.get("prod_dict") if item.properties else None
+    filter_dict = (item.properties.get("filter_dict") if item.properties else None) or {}
 
     stop_time_str: Union[dt.datetime, str] = (
         stop_time if isinstance(stop_time, (dt.datetime, str)) else (str(stop_time) if stop_time is not None else "")
@@ -1252,11 +1270,18 @@ def product_item_from_stac(
         start_time=start_time,
         stop_time=stop_time_str,
         prod_dict=prod_dict,
-        filter_dict={},
+        filter_dict=filter_dict,
+        version=version,
         url=url,
         quicklook=quicklook,
         cloud_fraction=cloud_fraction,
-        api_product=prod_dict,
+        # api_product is meant to hold a *live* provider-native object (e.g. an
+        # eodag EOProduct) used to actually perform a download -- see
+        # eodag.py/earthaccess_api.py/eumdac.py's `isinstance(product.api_product, ...)`
+        # checks. A reconstructed ProductItem has no such live session object,
+        # so this is intentionally left unset rather than set to prod_dict (a
+        # plain dict, never an instance of those provider classes, so it was
+        # never actually usable as an api_product anyway).
         context=context,
     )
 
