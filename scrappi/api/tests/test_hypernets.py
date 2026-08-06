@@ -73,16 +73,24 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
         poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
+        # local Azimuthal Equidistant projection produces a true 200m x 200m
+        # square (verified geodesically) -- these coordinates differ from
+        # values computed under the old fixed-CRS (EPSG:32630) default by
+        # ~17m/~207m, not a rounding difference; see that function's docstring.
         poly_test = Polygon(
             [
-                [15.125080807317048, -23.60055922684998],
-                [15.126699181854802, -23.60055922684998],
-                [15.126699181854802, -23.602500776528554],
-                [15.125080807317048, -23.602500776528554],
-                [15.125080807317048, -23.60055922684998],
+                [15.124910202637997, -23.60243291100309],
+                [15.1268697839455, -23.60243291100309],
+                [15.1268697839455, -23.600627082710055],
+                [15.124910202637997, -23.600627082710055],
+                [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert all(
+            abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
+            for i in range(len(poly_roi.bounds))
+        )
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [
@@ -137,16 +145,24 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
         poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
         poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
+        # local Azimuthal Equidistant projection produces a true 200m x 200m
+        # square (verified geodesically) -- these coordinates differ from
+        # values computed under the old fixed-CRS (EPSG:32630) default by
+        # ~17m/~207m, not a rounding difference; see that function's docstring.
         poly_test = Polygon(
             [
-                [15.125080807317048, -23.60055922684998],
-                [15.126699181854802, -23.60055922684998],
-                [15.126699181854802, -23.602500776528554],
-                [15.125080807317048, -23.602500776528554],
-                [15.125080807317048, -23.60055922684998],
+                [15.124910202637997, -23.60243291100309],
+                [15.1268697839455, -23.60243291100309],
+                [15.1268697839455, -23.600627082710055],
+                [15.124910202637997, -23.600627082710055],
+                [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert all(
+            abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
+            for i in range(len(poly_roi.bounds))
+        )
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [

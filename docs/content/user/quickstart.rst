@@ -48,6 +48,15 @@ Then install the module with pip. For development it is recommended to install i
 
     $ pip install -e ".[dev]"
 
+Additional optional dependency groups are available for specific integrations and documentation work::
+
+    $ pip install -e ".[docs]"           # Sphinx and documentation tooling
+    $ pip install -e ".[earthaccess]"   # Earthaccess-based API support
+    $ pip install -e ".[hypernets_api]" # Hypernets API client support
+    $ pip install -e ".[all]"            # All optional extras combined
+
+Choose the extras that match the functionality you want to use. The base install provides the core runtime dependencies, while the optional groups add development tools, documentation tooling, or support for specific API integrations.
+
 Interface
 +++++++++
 

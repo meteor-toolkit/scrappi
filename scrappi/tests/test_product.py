@@ -20,6 +20,7 @@ from scrappi.product import (
     open_product_item,
     open_product_item_set,
     product_item_from_dict,
+    product_item_from_stac,
     product_item_set_from_dict,
 )
 from scrappi.api.eodag import EODAGCallHandler
@@ -370,7 +371,12 @@ class TestProductItem(unittest.TestCase):
                 p.get_path()
                 == r"T:\ECO\EOServer\data\product_archive\data\Sentinel-3\S3B\S3_EFR\2022\05\17\S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
             )
-        elif socket.gethostname() == "eoserver.npl.co.uk":
+        if socket.gethostname().split(".")[0].lower() in [
+                    "eoserver",
+                    "leiden",
+                    "leipzig",
+                    "lyon",
+                ]:
             assert (
                 p.get_path()
                 == r"/mnt/t/data/product_archive/data/Sentinel-3/S3B/S3_EFR/2022/05/17/S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
@@ -438,21 +444,41 @@ class TestProductItem(unittest.TestCase):
         p.move_product(example_path)
 
         assert isinstance(p.filesystem, LocalFileSystem)
-        assert mock_shutil.call_args[0][0] == os.path.join(
-            "T:\\",
-            "ECO",
-            "EOServer",
-            "data",
-            "product_archive",
-            "data",
-            "Sentinel-3",
-            "S3B",
-            "S3_EFR",
-            "2022",
-            "05",
-            "17",
-            "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
-        )
+        if socket.gethostname().split(".")[0].lower() in [
+                    "eoserver",
+                    "leiden",
+                    "leipzig",
+                    "lyon",
+                ]:
+            assert mock_shutil.call_args[0][0] == os.path.join(
+                        "/mnt/t/",
+                        "data",
+                        "product_archive",
+                        "data",
+                        "Sentinel-3",
+                        "S3B",
+                        "S3_EFR",
+                        "2022",
+                        "05",
+                        "17",
+                        "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
+                    )
+        else:
+            assert mock_shutil.call_args[0][0] == os.path.join(
+                "T:\\",
+                "ECO",
+                "EOServer",
+                "data",
+                "product_archive",
+                "data",
+                "Sentinel-3",
+                "S3B",
+                "S3_EFR",
+                "2022",
+                "05",
+                "17",
+                "S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002",
+            )
 
 
 class TestProductItemSet(unittest.TestCase):
@@ -907,7 +933,12 @@ class TestProductItemSet(unittest.TestCase):
                 ps.get_path()[0]
                 == r"T:\ECO\EOServer\data\product_archive\data\Sentinel-3\S3B\S3_EFR\2022\05\17\S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
             )
-        if socket.gethostname() == "eoserver.npl.co.uk":
+        if socket.gethostname().split(".")[0].lower() in [
+                            "eoserver",
+                            "leiden",
+                            "leipzig",
+                            "lyon",
+                        ]:
             assert (
                 ps.get_path()[0]
                 == r"/mnt/t/data/product_archive/data/Sentinel-3/S3B/S3_EFR/2022/05/17/S3B_OL_1_EFR____20220517T083238_20220517T083538_20220517T205009_0179_066_078_3420_PS2_O_NT_002"
@@ -973,6 +1004,7 @@ class BaseStacTest(unittest.TestCase):
         start_time,
         stop_time=None,
         collection="TEST_COLLECTION",
+        cloud_fraction=None,
     ):
         geom = box(*bounds)
 
@@ -986,6 +1018,7 @@ class BaseStacTest(unittest.TestCase):
             stop_time=stop_time or start_time,
             filesystem=self.fs,
             url="asset://",
+            cloud_fraction=cloud_fraction,
         )
 
 
@@ -1117,6 +1150,52 @@ class TestStacCatalog(BaseStacTest):
             self.assertNotIn("C:\\", text)
             self.assertNotIn("/home/", text)
             self.assertTrue(("stac://" in text) or ("asset://" in text) or ("http://"))
+
+    # -----------------------------------------------------------------
+
+    def test_cloud_cover_written_to_properties_when_set(self):
+        """cloud_fraction is persisted as the STAC eo extension's
+        eo:cloud_cover property, so it survives a save/reload cycle instead
+        of being silently dropped."""
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            cloud_fraction=23.5,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertEqual(data["properties"]["eo:cloud_cover"], 23.5)
+
+    def test_cloud_cover_omitted_from_properties_when_not_set(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertNotIn("eo:cloud_cover", data["properties"])
+
+    def test_cloud_fraction_round_trips_through_product_item_from_stac(self):
+        """End-to-end: a product saved with cloud_fraction set, then read
+        back via product_item_from_stac (as MatchupCatalogue.get_events does
+        for existing catalogues), recovers the same value."""
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            cloud_fraction=12.3,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertEqual(reloaded.cloud_fraction, 12.3)
 
 
 if __name__ == "__main__":

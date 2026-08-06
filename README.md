@@ -40,9 +40,14 @@ pip install -e .
 Optional extras are available depending on your use case:
 
 ```bash
-pip install -e ".[dev]"    # Development tools (ruff, mypy, pytest, …)
-pip install -e ".[docs]"   # Documentation build (sphinx, …)
+pip install -e ".[dev]"            # Development tools (ruff, mypy, pytest, pre-commit, …)
+pip install -e ".[docs]"           # Documentation build tools (Sphinx, MyST, themes, …)
+pip install -e ".[earthaccess]"   # Optional Earthaccess support for the Earthaccess API handler
+pip install -e ".[hypernets_api]" # Optional Hypernets API client support
+pip install -e ".[all]"            # All optional extras combined
 ```
+
+Use the extras that match the integrations you need. The core installation already includes the main runtime dependencies, while the optional groups add tools or integrations for development, documentation, Earthaccess, and Hypernets.
 
 ### Development
 

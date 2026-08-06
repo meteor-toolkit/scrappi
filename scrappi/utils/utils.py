@@ -11,7 +11,11 @@ import shapely.wkt
 import shapely.errors
 import shapely.geometry
 from shapely.geometry import Polygon
-from pyproj import Transformer
+from pyproj import (
+    Transformer,
+    aoi,
+    database,
+)
 from pathlib import Path
 from processor_tools.utils.formatters import convert_datetime
 
@@ -21,6 +25,7 @@ __author__ = [
     "Sam Hunt <sam.hunt@npl.co.uk>",
     "Matthew Scholes <matthew.scholes@npl.co.uk>",
     "Mattea Goalen <mattea.goalen@npl.co.uk>",
+    "Astrid Zimmermann <astrid.zimmermann@npl.co.uk>",
 ]
 
 
@@ -37,33 +42,76 @@ def add_seconds_to_datetime(dt, seconds):
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def generate_bounding_lat_lon(latitude, longitude, distance, crs="EPSG:32630") -> list:
+def retrieve_UTM_crs_from_lat_lon(latitude, longitude) -> str:
+    """
+    retrieve the UTM (WGS85 base) zone applicable for the given point coordinates and return the coresponding epsg string.
+
+    :param latitude: latitude of point in WGS84 ("EPSG:4326")
+    :param longitude: longitude of point in WGS84 ("EPSG:4326")
+    :return: epsg code of CRS
+    """
+    # look up UTM Zone Information for given point 
+    utm_crs_list = database.query_utm_crs_info(
+        datum_name = "WGS 84",
+        area_of_interest = aoi.AreaOfInterest(
+            west_lon_degree = longitude,
+            south_lat_degree = latitude,
+            east_lon_degree = longitude,
+            north_lat_degree = latitude,
+        ),
+    )
+    # retrieve UTM Zone code
+    iCRS = int(utm_crs_list[0].code)
+    # return epsg string of crs
+    return "EPSG:" + str(iCRS)
+
+
+def generate_bounding_lat_lon(latitude, longitude, distance, crs=None) -> list:
     """
     Return list of coordinates of a square box around a point
 
-    :param latitude: latitude of point
-    :param longitude: longitude of point
+    :param latitude: latitude of point in WGS84 ("EPSG:4326")
+    :param longitude: longitude of point in WGS84 ("EPSG:4326")
     :param distance: distance in m of point from each side of the box
-    :param crs: Universal Transverse Mercator coordinate reference system of point. Defaults to "EPSG:32630" (standard lat/lon sytem)
+    :param crs: optional projected CRS to buffer in (e.g. a UTM zone EPSG
+        code). Defaults to ``None``, which uses a local Azimuthal Equidistant
+        projection centred on (longitude, latitude) -- this preserves true
+        ground distance from the centre point in every direction regardless
+        of where on Earth the point is, unlike a single fixed CRS (e.g. the
+        previous hardcoded default of "EPSG:32630", UTM zone 30N), which is
+        only accurate for metre-based buffering near its own zone and
+        introduces large, asymmetric distortion far from it -- e.g. a nominal
+        1000m square previously came out ~960m x ~190m for a site ~118
+        degrees of longitude from zone 30N. Pass an explicit ``crs`` to force
+        a different projection.
     :return: list of coordinates of box
     """
-    transformer = Transformer.from_crs(
-        "EPSG:4326", str(crs), always_xy=True
-    )  # convert from World Geodetic System 1984 to current image crs
-    reverse_transformer = Transformer.from_crs(
-        str(crs), "EPSG:4326", always_xy=True
-    )  # convert from World Geodetic System 1984 to current image crs
+    if crs is None:
+        crs = f"+proj=aeqd +lat_0={latitude} +lon_0={longitude} +datum=WGS84 +units=m +no_defs"
+
+    if not isinstance(crs, str):
+        # convert crs to string
+        crs = str(crs)
+
+    # define converter for World Geodetic System 1984 -> projected coordinate reference system
+    transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    # define reverse converter for projected coordinate reference system -> World Geodetic System 1984
+    reverse_transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+
+    # project given coordinates to crs using meters
     xx, yy = transformer.transform(longitude, latitude)
 
-    minx = xx - distance
-    miny = yy - distance
-    maxx = xx + distance
-    maxy = yy + distance
+    # calculate min-max extent of squared box
+    min_x = xx - distance
+    min_y = yy - distance
+    max_x = xx + distance
+    max_y = yy + distance
 
-    minx_wgs84, miny_wgs84 = reverse_transformer.transform(minx, miny)
-    maxx_wgs84, maxy_wgs84 = reverse_transformer.transform(maxx, maxy)
+    # project min-max coordinates back to WGS84 
+    min_lon, min_lat = reverse_transformer.transform(min_x, min_y)
+    max_lon, max_lat = reverse_transformer.transform(max_x, max_y)
 
-    return [miny_wgs84, minx_wgs84, maxy_wgs84, maxx_wgs84]
+    return [min_lat, min_lon, max_lat, max_lon]
 
 
 def convert_geom(geom: Any) -> Any:
