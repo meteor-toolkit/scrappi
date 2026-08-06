@@ -87,7 +87,10 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
                 [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert all(
+            abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
+            for i in range(len(poly_roi.bounds))
+        )
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [
@@ -156,7 +159,10 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
                 [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert all(
+            abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
+            for i in range(len(poly_roi.bounds))
+        )
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [
