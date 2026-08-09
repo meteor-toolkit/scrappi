@@ -507,7 +507,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
                 if not (
                     os.path.basename(path_out) == product_title
-                    or os.path.basename(path_out.split(".")[::-1]) == product_title
+                    or os.path.basename(path_out.split(".")[0]) == product_title
                 ):
                     
                     warnings.warn(
