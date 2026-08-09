@@ -301,6 +301,20 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return ProductItemSet(product_list)
 
+    @staticmethod
+    def _abbreviate_variable_name(variable_name: str) -> str:
+        """Return a compact abbreviation for an ECMWF-style variable name."""
+        abbreviations = {
+            "total_column_water_vapour": "tcwv",
+            "2m_temperature": "t2m",
+            "10m_u_component_of_wind": "u10",
+            "10m_v_component_of_wind": "v10",
+            "surface_pressure": "sp",
+            "total_column_ozone": "tco3",
+            "total_aerosol_optical_depth_550nm": "aod550",
+        }
+        return abbreviations.get(variable_name, variable_name)
+
     def get_id(self, prod_dict: dict, query: dict) -> str:
         """
         Function to extract the product id
@@ -310,8 +324,28 @@ class EODAGCallHandler(BaseAPICallHandler):
         :return: product id
         """
         if self.get_constellation(prod_dict) == "ECMWF":
-            variable_str = "_".join(query["variable"])
-            return query["collection"] + "_" + prod_dict["properties"]["start_datetime"][0:10] + "_" + prod_dict["properties"]["end_datetime"][0:10] + "_" + variable_str
+            variables = query.get("variable", [])
+            if isinstance(variables, str):
+                variables = [variables]
+            variable_str = "_".join(self._abbreviate_variable_name(v) for v in variables)
+            geom = self._get_geom(query["geom"])
+            location_str = "%.2f_%.2f_%.2f_%.2f" % (
+                geom["latitude_minimum"],
+                geom["longitude_minimum"],
+                geom["latitude_maximum"],
+                geom["longitude_maximum"],
+            )
+            return (
+                query["collection"]
+                + "_"
+                + prod_dict["properties"]["start_datetime"][0:10]
+                + "_"
+                + prod_dict["properties"]["end_datetime"][0:10]
+                + "_"
+                + location_str
+                + "_"
+                + variable_str
+            )
         return prod_dict["id"]
 
     def get_platform(self, prod_dict: dict) -> str:
@@ -473,7 +507,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
                 if not (
                     os.path.basename(path_out) == product_title
-                    or os.path.basename(path_out.split(".")[0]) == product_title
+                    or os.path.basename(path_out.split(".")[::-1]) == product_title
                 ):
                     
                     warnings.warn(
@@ -494,7 +528,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                     if os.path.isdir(path_out):
                         shutil.move(path_out, os.path.join(path, product_title))
                     else:
-                        os.rename(path_out, os.path.join(path, product_title))
+                        os.rename(path_out, os.path.join(path, product_title)+path_out.suffix)
                 if os.path.isdir(os.path.join(path, product_title)):
                     # List only files
                     files = [

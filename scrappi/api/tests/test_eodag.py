@@ -45,6 +45,16 @@ class TestEODAGCallHandler(unittest.TestCase):
         EODAGCallHandler()
         mock_api.assert_called()
 
+    def test_abbreviate_variable_name(self):
+        self.assertEqual(
+            self.eodag_call_handler._abbreviate_variable_name("total_column_water_vapour"),
+            "tcwv",
+        )
+        self.assertEqual(
+            self.eodag_call_handler._abbreviate_variable_name("unknown_variable"),
+            "unknown_variable",
+        )
+
     def test_init_invalid_credentials(
         self,
     ):
