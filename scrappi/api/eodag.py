@@ -335,6 +335,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 geom["latitude_maximum"],
                 geom["longitude_maximum"],
             )
+            location_str = location_str.replace(".", "p")
             return (
                 query["collection"]
                 + "_"
@@ -505,18 +506,18 @@ class EODAGCallHandler(BaseAPICallHandler):
                             print(f"Max download attempts reached. Download failed for product {product_title}.")
                             raise e
 
-                if not (
-                    os.path.basename(path_out) == product_title
-                    or os.path.basename(path_out.split(".")[0]) == product_title
-                ):
+                # if not (
+                #     os.path.basename(path_out) == product_title
+                #     or os.path.basename(path_out.split(".")[0]) == product_title
+                # ):
                     
-                    warnings.warn(
-                        f"Filename of the downloaded file ({os.path.basename(path_out)}) does not match the product title ({product_title})."
-                    )
-                    if path_out.split(".")[-1] == "zip":
-                        if not product_title.split(".")[-1] == "zip":
-                            warnings.warn("Adding .zip to the product title (returned downloaded file has .zip)")
-                            product_title += ".zip"
+                #     warnings.warn(
+                #         f"Filename of the downloaded file ({os.path.basename(path_out)}) does not match the product title ({product_title})."
+                #     )
+                #     if path_out.split(".")[-1] == "zip":
+                #         if not product_title.split(".")[-1] == "zip":
+                #             warnings.warn("Adding .zip to the product title (returned downloaded file has .zip)")
+                #             product_title += ".zip"
 
                 path_out = Path(path_out)
                 expected = Path(path) / product_title
