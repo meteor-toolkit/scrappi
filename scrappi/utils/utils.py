@@ -37,16 +37,29 @@ def add_seconds_to_datetime(dt, seconds):
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def generate_bounding_lat_lon(latitude, longitude, distance, crs="EPSG:32630") -> list:
+def generate_bounding_lat_lon(latitude, longitude, distance, crs=None) -> list:
     """
     Return list of coordinates of a square box around a point
 
     :param latitude: latitude of point
     :param longitude: longitude of point
     :param distance: distance in m of point from each side of the box
-    :param crs: Universal Transverse Mercator coordinate reference system of point. Defaults to "EPSG:32630" (standard lat/lon sytem)
+    :param crs: optional projected CRS to buffer in (e.g. a UTM zone EPSG
+        code). Defaults to ``None``, which uses a local Azimuthal Equidistant
+        projection centred on (longitude, latitude) -- this preserves true
+        ground distance from the centre point in every direction regardless
+        of where on Earth the point is, unlike a single fixed CRS (e.g. the
+        previous hardcoded default of "EPSG:32630", UTM zone 30N), which is
+        only accurate for metre-based buffering near its own zone and
+        introduces large, asymmetric distortion far from it -- e.g. a nominal
+        1000m square previously came out ~960m x ~190m for a site ~118
+        degrees of longitude from zone 30N. Pass an explicit ``crs`` to force
+        a different projection.
     :return: list of coordinates of box
     """
+    if crs is None:
+        crs = f"+proj=aeqd +lat_0={latitude} +lon_0={longitude} +datum=WGS84 +units=m +no_defs"
+
     transformer = Transformer.from_crs(
         "EPSG:4326", str(crs), always_xy=True
     )  # convert from World Geodetic System 1984 to current image crs

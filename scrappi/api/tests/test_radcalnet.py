@@ -4,7 +4,7 @@ import requests
 from requests.exceptions import SSLError
 import unittest
 import unittest.mock as mock
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta, timezone
 import shutil
 import pytest
 
@@ -142,6 +142,56 @@ class TestRCNCallHandler(unittest.TestCase):
         self.assertEqual(doy, 200)
         self.assertTrue(re.search(version_pattern, version))
 
+    def test_daylight_window_hours_matches_original_hardcoded_window_for_gona(self):
+        """Regression/consistency check: the per-site window this replaces a
+        hardcoded 08:00-14:00 UTC window that was only ever really correct
+        for GONA (its local solar noon happens to fall in the middle of that
+        range) -- confirms the longitude-based computation reproduces it."""
+        self.rcnHandler = RadcalnetCallHandler()
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("GONA")
+        self.assertAlmostEqual(start_hour, 8.0, delta=0.1)
+        self.assertAlmostEqual(stop_hour, 14.0, delta=0.1)
+
+    def test_daylight_window_hours_shifts_for_a_western_site(self):
+        """RVUS (115.69 degW) is far enough west of GONA (15.12 degE) that
+        its real daylight window falls many hours later in UTC -- this is
+        the site/scenario the hardcoded 08:00-14:00 window was silently
+        wrong for (see also eomatch's Sat2InSituMUFinder.to_matchup_set,
+        which rejects candidate matchups whose products fall outside this
+        window plus a tolerance)."""
+        self.rcnHandler = RadcalnetCallHandler()
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
+        self.assertAlmostEqual(start_hour, 16.71, delta=0.1)
+        self.assertAlmostEqual(stop_hour, 22.71, delta=0.1)
+
+    def test_daylight_window_hours_is_six_hours_wide_for_every_site(self):
+        self.rcnHandler = RadcalnetCallHandler()
+        for site in self.rcnHandler.DEFAULT_SITE_DEFINITIONS:
+            start_hour, stop_hour = self.rcnHandler._daylight_window_hours(site)
+            self.assertAlmostEqual(stop_hour - start_hour, 6.0, delta=1e-9)
+
+    def test_perform_query_products_use_per_site_daylight_window(self):
+        """End-to-end: perform_query()'s constructed ProductItems carry each
+        product's site-appropriate window, not the old universal 08:00-14:00."""
+        self.rcnHandler = RadcalnetCallHandler()
+        with mock.patch.object(self.rcnHandler, "get_files_list", return_value=["RVUS01_2025_334_v04.09.output"]):
+            products = self.rcnHandler.perform_query(
+                {
+                    "collection": "RCN_TOA",
+                    "site": "RVUS",
+                    "start_time": dt(2025, 11, 30),
+                    "stop_time": dt(2025, 12, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 1)
+        product = list(products)[0]
+        start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
+        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=timezone.utc)
+        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=timezone.utc)
+        self.assertEqual(product.start_time, expected_start)
+        self.assertEqual(product.stop_time, expected_stop)
+
     @pytest.mark.slow
     def test_download_product(self):
         self.rcnHandler = RadcalnetCallHandler()
@@ -215,45 +265,54 @@ class TestRCNCallHandler(unittest.TestCase):
 
     def test_site_size(self):
         # make shapely files to compare with
+        #
+        # These bounds are generated with generate_bounding_lat_lon's local
+        # Azimuthal Equidistant projection (its default), which preserves true
+        # ground distance from the site's centre point in every direction --
+        # each site's box is a true default_roi*2 metre square (verified
+        # geodesically), unlike the previous fixed-CRS (EPSG:32630, UTM zone
+        # 30N) default, which was only accurate near that zone's own meridian
+        # and produced a badly non-square box far from it (e.g. RVUS's
+        # nominal 1000m x 1000m square previously came out ~960m x ~190m).
         shapes = {
             "BSCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.6151061872157,
-                    "latitude_minimum": 40.86446369669309,
-                    "longitude_maximum": 109.61589376182471,
-                    "latitude_maximum": 40.867136318760544,
+                    "longitude_minimum": 109.6137207949809,
+                    "latitude_minimum": 40.86444925920302,
+                    "longitude_maximum": 109.61727927732053,
+                    "latitude_maximum": 40.86715071303549,
                 }
             ),
             "BTCN": convert_geom_shapely(
                 {
-                    "longitude_minimum": 109.62920690365492,
-                    "latitude_minimum": 40.8512624569282,
-                    "longitude_maximum": 109.62923309628796,
-                    "latitude_maximum": 40.851351543088896,
+                    "longitude_minimum": 109.62916070492611,
+                    "latitude_minimum": 40.85126197564054,
+                    "longitude_maximum": 109.62927929515419,
+                    "latitude_maximum": 40.851352024328634,
                 }
             ),
             "GONA": convert_geom_shapely(
                 {
-                    "longitude_minimum": 15.117532788744471,
-                    "latitude_minimum": -23.602627898833834,
-                    "longitude_maximum": 15.121579092331926,
-                    "latitude_maximum": -23.59777408779308,
+                    "longitude_minimum": 15.11710650612445,
+                    "latitude_minimum": -23.602458266106517,
+                    "longitude_maximum": 15.12200541002855,
+                    "latitude_maximum": -23.597943694603075,
                 }
             ),
             "LCFR": convert_geom_shapely(
                 {
-                    "longitude_minimum": 4.863764033960914,
-                    "latitude_minimum": 43.55864688771256,
-                    "longitude_maximum": 4.864569969233603,
-                    "latitude_maximum": 43.559131110606714,
+                    "longitude_minimum": 4.863795705480817,
+                    "latitude_minimum": 43.558618981217094,
+                    "longitude_maximum": 4.864538297835298,
+                    "latitude_maximum": 43.55915901756431,
                 }
             ),
             "RVUS": convert_geom_shapely(
                 {
-                    "longitude_minimum": -115.695507468333,
-                    "latitude_minimum": 38.49614047027827,
-                    "longitude_maximum": -115.68449303343614,
-                    "latitude_maximum": 38.49785907324905,
+                    "longitude_minimum": -115.69573119658749,
+                    "latitude_minimum": 38.49249559303247,
+                    "longitude_maximum": -115.6842680896183,
+                    "latitude_maximum": 38.50150412301871,
                 }
             ),
         }

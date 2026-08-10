@@ -14,6 +14,7 @@ from scrappi.utils.utils import (
     get_dict_path,
     convert_geom,
     convert_geom_shapely,
+    generate_bounding_lat_lon,
 )
 
 __author__ = [
@@ -287,6 +288,73 @@ class TestPlotUtils(unittest.TestCase):
         input_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
         output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
         self.assertEqual(convert_geom_shapely(input_geom), output_geom)
+
+
+class TestGenerateBoundingLatLon(unittest.TestCase):
+    """Tests for generate_bounding_lat_lon's default local-projection behaviour.
+
+    Regression coverage for a bug where the function defaulted to a single
+    fixed CRS (EPSG:32630, UTM zone 30N) for buffering *any* point by a
+    metre distance -- accurate only near that zone's own meridian, and badly
+    distorted far from it (a RadCalNet site ~118 degrees of longitude away
+    had its nominal 1000m x 1000m ROI come out ~960m x ~190m). The fix uses a
+    local Azimuthal Equidistant projection centred on the point itself, which
+    preserves true ground distance from the centre in every direction
+    regardless of location.
+    """
+
+    @staticmethod
+    def _box_dimensions_m(bounds):
+        """Return (width_m, height_m) of a [miny, minx, maxy, maxx] box, measured geodesically."""
+        from pyproj import Geod
+
+        geod = Geod(ellps="WGS84")
+        miny, minx, maxy, maxx = bounds
+        _, _, width_m = geod.inv(minx, (miny + maxy) / 2, maxx, (miny + maxy) / 2)
+        _, _, height_m = geod.inv((minx + maxx) / 2, miny, (minx + maxx) / 2, maxy)
+        return width_m, height_m
+
+    def test_produces_a_true_square_far_from_greenwich(self):
+        """Regression test for the exact RVUS-shaped bug: a site ~118 degrees
+        of longitude from UTM zone 30N must still get an accurate square."""
+        bounds = generate_bounding_lat_lon(38.497, -115.690, 500)  # RVUS, half-side 500m
+        width_m, height_m = self._box_dimensions_m(bounds)
+        self.assertAlmostEqual(width_m, 1000.0, delta=1.0)
+        self.assertAlmostEqual(height_m, 1000.0, delta=1.0)
+
+    def test_produces_a_true_square_in_the_southern_hemisphere(self):
+        bounds = generate_bounding_lat_lon(-23.600201, 15.119556, 250)  # GONA, half-side 250m
+        width_m, height_m = self._box_dimensions_m(bounds)
+        self.assertAlmostEqual(width_m, 500.0, delta=1.0)
+        self.assertAlmostEqual(height_m, 500.0, delta=1.0)
+
+    def test_produces_a_true_square_near_equator_and_prime_meridian(self):
+        bounds = generate_bounding_lat_lon(0, 0, 100)
+        width_m, height_m = self._box_dimensions_m(bounds)
+        self.assertAlmostEqual(width_m, 200.0, delta=1.0)
+        self.assertAlmostEqual(height_m, 200.0, delta=1.0)
+
+    def test_explicit_crs_override_is_still_honoured(self):
+        """Passing an explicit crs must still use that CRS rather than the
+        local-projection default -- reproducing the old (distorted, for a
+        point far from the zone) behaviour on request."""
+        bounds = generate_bounding_lat_lon(38.497, -115.690, 500, crs="EPSG:32630")
+        width_m, height_m = self._box_dimensions_m(bounds)
+        # Same distortion as the pre-fix default (960.9m x 190.8m, not 1000m x
+        # 1000m) -- proves the override path still reaches the requested CRS
+        # rather than being ignored.
+        self.assertAlmostEqual(width_m, 960.9, delta=1.0)
+        self.assertAlmostEqual(height_m, 190.8, delta=1.0)
+
+    def test_return_value_order(self):
+        """Return order is [miny_wgs84, minx_wgs84, maxy_wgs84, maxx_wgs84]."""
+        miny, minx, maxy, maxx = generate_bounding_lat_lon(10.0, 20.0, 100)
+        self.assertLess(miny, maxy)
+        self.assertLess(minx, maxx)
+        self.assertLess(miny, 10.0)
+        self.assertGreater(maxy, 10.0)
+        self.assertLess(minx, 20.0)
+        self.assertGreater(maxx, 20.0)
 
 
 if __name__ == "__main__":
