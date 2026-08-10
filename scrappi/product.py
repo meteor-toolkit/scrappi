@@ -1260,7 +1260,7 @@ def product_item_from_stac(
         cloud_fraction=cloud_fraction,
         api_product=prod_dict,
         context=context,
-        api=api
+        api=api,
     )
 
 

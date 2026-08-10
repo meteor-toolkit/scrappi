@@ -28,5 +28,5 @@ class TdriveTempFileSystem(LocalFileSystem):
             path = os.path.join("/mnt/t/data/product_archive_temp")
         else:
             path = os.path.join("T:", "ECO", "EOServer", "data", "product_archive_temp")
-            
+
         super().__init__(path=path, context=context, organise_data=True, read_only=False)

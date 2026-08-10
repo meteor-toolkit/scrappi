@@ -64,7 +64,7 @@ class ScrappiContext(Context):
 
     def set_fs(self, filesystem):
         self["fs"]["path"] = filesystem.directory
-        
+
 
 from scrappi.interface import (
     make_api,

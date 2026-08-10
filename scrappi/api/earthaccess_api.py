@@ -58,9 +58,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         """
         return self._get_datetime(date_time).strftime("%Y-%m-%dT%H:%M:%S")
 
-    def _set_geom(
-        self, query: dict
-    ) -> dict:
+    def _set_geom(self, query: dict) -> dict:
         """
         Convert input geometries to ones suited to the apis query format
         All accepted geometries work for earthaccess api
@@ -69,14 +67,14 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :return: geometry in accepted earthaccess format
         """
         if "geom" in query.keys():
-            geom = self._get_geom(query.get('geom'))
+            geom = self._get_geom(query.get("geom"))
             if isinstance(geom, dict):
                 query["bounding_box"] = (
                     geom["longitude_minimum"],
                     geom["latitude_minimum"],
-                geom["longitude_maximum"],
-                geom["latitude_maximum"],
-            )
+                    geom["longitude_maximum"],
+                    geom["latitude_maximum"],
+                )
             else:
                 if isinstance(
                     geom,
@@ -103,7 +101,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 self._set_datetime(query["start_time"]),
                 self._set_datetime(query["stop_time"]),
             )
-        
+
         for k in ["start_time", "stop_time", "collections", "collection", "geom"]:
             earthaccess_query.pop(k, None)
 
@@ -396,20 +394,24 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
-            
-            
+
             if self.context["earthaccess"].get("auxiliary_collections", None):
                 aux_cols = self.context["earthaccess"].get("auxiliary_collections", None).get(product.collection, None)
                 if aux_cols is not None:
                     for c in aux_cols:
                         try:
-                            aux_query = {"granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3]) + "*", "short_name": c, "version": "7"}
+                            aux_query = {
+                                "granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3])
+                                + "*",
+                                "short_name": c,
+                                "version": "7",
+                            }
                             aux_prod = self.perform_query(aux_query, format_query=False)
                             self.download_product(aux_prod)
                         except Exception as e:
                             warnings.warn(f"Failed to download auxiliary product for {product.id}: {e}")
                             continue
-                    
+
             if exists:
                 print(f"{path} exists")
                 return path
@@ -418,10 +420,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 eoprod = product.api_product
 
                 return self._download_product_DataGranule(eoprod, os.path.dirname(path), product.id)
-            
+
             elif product.url is not None and isinstance(product.url, str):
                 return self._download_product_DataGranule(product.url, os.path.dirname(path), product.id)
-            
+
             else:
                 if product.prod_dict is not None and "RelatedUrls" in product.prod_dict.keys():
                     url = product.prod_dict["RelatedUrls"][
