@@ -527,6 +527,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         f"Downloaded product to {path_out} instead of expected {os.path.join(path, product_title)}. Moving to expected location."
                     )
                     if os.path.isdir(path_out):
+                        time.sleep(0.1)
                         shutil.move(path_out, os.path.join(path, product_title))
                     else:
                         os.rename(path_out, os.path.join(path, product_title)+path_out.suffix)
