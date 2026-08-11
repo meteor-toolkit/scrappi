@@ -3,8 +3,11 @@
 import unittest
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.stacfilesystem import STACFileSystem
+from scrappi.fs.tdrive import TdriveFileSystem
+from scrappi.fs.tdrive_temp import TdriveTempFileSystem
 from datetime import datetime
 from scrappi.product import ProductItem
+from scrappi import ScrappiContext
 from shapely.geometry import Polygon
 import os
 
@@ -153,6 +156,38 @@ class TestSTACFileSystem(unittest.TestCase):
                 "LC08_L1TP_172030_20220120_20220127_02_T2B.json",
             ),
         )
+
+
+class TestTdriveTempMatchesTdriveLayout(unittest.TestCase):
+    """TdriveTempFileSystem is documented as a "temporary" variant of
+    TdriveFileSystem, so a product moved between the two (see
+    ProductItem.move_product) must land at the same path relative to each
+    filesystem's own root -- otherwise "temporary" storage isn't structurally
+    interchangeable with the main archive it's meant to mirror.
+    """
+
+    def test_organised_path_has_same_relative_structure(self):
+        test_prod = ProductItem(
+            constellation=L8_PRODUCT_EXAMPLE_1["constellation"],
+            platform=L8_PRODUCT_EXAMPLE_1["platform"],
+            collection=L8_PRODUCT_EXAMPLE_1["collection"],
+            id=L8_PRODUCT_EXAMPLE_1["id"],
+            geometry=L8_PRODUCT_EXAMPLE_1["geometry"],
+            start_time=L8_PRODUCT_EXAMPLE_1["start_time"],
+            stop_time=L8_PRODUCT_EXAMPLE_1["stop_time"],
+            prod_dict=L8_PRODUCT_EXAMPLE_1["prod_dict"],
+            url="",
+        )
+
+        tdrive = TdriveFileSystem(context=ScrappiContext())
+        tdrive_temp = TdriveTempFileSystem(context=ScrappiContext())
+
+        self.assertIsInstance(tdrive_temp, STACFileSystem)
+
+        rel_tdrive = os.path.relpath(tdrive.return_organised_product_path(test_prod), tdrive.directory)
+        rel_tdrive_temp = os.path.relpath(tdrive_temp.return_organised_product_path(test_prod), tdrive_temp.directory)
+        self.assertEqual(rel_tdrive, rel_tdrive_temp)
+        self.assertEqual(rel_tdrive.split(os.sep)[0], "data")
 
 
 if __name__ == "__main__":
