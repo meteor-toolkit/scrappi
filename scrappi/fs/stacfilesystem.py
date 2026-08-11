@@ -75,7 +75,15 @@ class STACFileSystem(LocalFileSystem):
         month = start_time.strftime("%m")
         year = start_time.strftime("%Y")
 
-        rel_path = os.path.join("data", constellation, platform, collection, year, month, day)
+        # Reuse LocalFileSystem's own constellation/platform/collection/year/month/day
+        # join rather than duplicating it here, so the two organised layouts can't
+        # silently drift apart if that ordering ever changes.
+        rel_path = os.path.join(
+            "data",
+            self.return_path_constellation_platform_collection_year_month_day(
+                constellation, platform, collection, year, month, day
+            ),
+        )
 
         # Resolve to full directory under this filesystem, then check for
         # product file/folder with known extensions (zip, SAFE, nc, etc.).
