@@ -444,24 +444,24 @@ def _register_product_in_catalog(product: ProductItem, context: ScrappiContext):
         except Exception:
             register_flag = False
 
-                if register_flag and isinstance(product, ProductItem):
-                    # prefer product.filesystem; make_fs will handle strings
-                    try:
-                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                    except Exception:
-                        # fallback: try using make_fs with product.filesystem attribute
-                        try:
-                            fs = make_fs(product.filesystem)
-                            product.register_in_filesystem_catalog(
-                                filesystem=fs,
-                                overwrite=context["fs"]["overwrite_stac_items"],
-                            )
-                        except Exception as e:
-                            logger.debug("Failed to register product in STAC catalog: %s", e)
-                # for ProductItemSet we assume individual downloads will have registered themselves
+        if register_flag and isinstance(product, ProductItem):
+            # prefer product.filesystem; make_fs will handle strings
+            try:
+                product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
             except Exception:
-                # Do not let registration errors prevent returning the download path
-                pass
+                # fallback: try using make_fs with product.filesystem attribute
+                try:
+                    fs = make_fs(product.filesystem)
+                    product.register_in_filesystem_catalog(
+                        filesystem=fs,
+                        overwrite=context["fs"]["overwrite_stac_items"],
+                    )
+                except Exception as e:
+                    logger.debug("Failed to register product in STAC catalog: %s", e)
+        # for ProductItemSet we assume individual downloads will have registered themselves
+    except Exception:
+        # Do not let registration errors prevent returning the download path
+        pass
 
 def download_product_filename(
     product: Union[str, List],
