@@ -689,6 +689,59 @@ class TestEODAGCallHandler(unittest.TestCase):
                 self.assertEqual(called_kwargs.get("outputs_prefix"), example_path)
                 self.assertEqual(called_kwargs.get("extract"), False)
 
+    def test_init_does_not_check_usgs_tmp_file(self):
+        # Regression test: check_usgs_tmp_file() used to run unconditionally on every
+        # EODAGCallHandler construction (even for providers that never touch USGS, e.g.
+        # cop_dataspace-only Sentinel-2 queries), risking one script's handler removing
+        # ~/.usgs out from under an unrelated, concurrently-running USGS download. It's
+        # now only checked immediately before an actual USGS download -- see
+        # test_download_product_EOProduct_checks_usgs_tmp_file_for_usgs_provider below.
+        with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+            EODAGCallHandler(ScrappiContext())
+            mock_check.assert_not_called()
+
+    def test_download_product_EOProduct_checks_usgs_tmp_file_for_usgs_provider(self):
+        input_product = EOProduct(
+            provider="usgs",
+            properties={
+                "productType": "landsat_ot_c2_l1",
+                "title": "LC08_L1TP_089085_20220607_20220616_02_T1",
+                "id": "LC08_L1TP_089085_20220607_20220616_02_T1",
+                "startTimeFromAscendingNode": "2022-06-07 00:00:00",
+                "completionTimeFromAscendingNode": "2022-06-07 00:00:00",
+            },
+            productType="LANDSAT_C2L1",
+        )
+
+        with mock.patch.object(EOProduct, "download") as mock_download:
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
+                with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+                    path = example_path
+                    mock_download.return_value = os.path.join(path, input_product.properties["id"])
+                    self.eodag_call_handler._download_product_EOProduct(input_product, path)
+                    mock_check.assert_called_once()
+
+    def test_download_product_EOProduct_skips_usgs_tmp_file_check_for_non_usgs_provider(self):
+        input_product = EOProduct(
+            provider="cop_dataspace",
+            properties={
+                "productType": "S2_MSI_L1C",
+                "title": "S2A_MSIL1C_20220607T085601_N0400_R007_T35NKA_20220607T104858",
+                "id": "S2A_MSIL1C_20220607T085601_N0400_R007_T35NKA_20220607T104858",
+                "startTimeFromAscendingNode": "2022-06-07 00:00:00",
+                "completionTimeFromAscendingNode": "2022-06-07 00:00:00",
+            },
+            productType="S2_MSI_L1C",
+        )
+
+        with mock.patch.object(EOProduct, "download") as mock_download:
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
+                with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+                    path = example_path
+                    mock_download.return_value = os.path.join(path, input_product.properties["id"])
+                    self.eodag_call_handler._download_product_EOProduct(input_product, path)
+                    mock_check.assert_not_called()
+
     def test_download_product_None(self):
         input_product = ProductItem(
             constellation="Sentinel-2",
