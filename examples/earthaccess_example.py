@@ -24,10 +24,11 @@ site_def = {
     # "RVUS": [38.48687306, -115.7028871, 38.50712799, -115.6771133],
 }
 example_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "examples", "downloaded_data")
-file_system = make_fs(example_path)
+file_system = make_fs('tdrive')
 
 context = ScrappiContext()
 context.set_preferred_api("earthaccess")
+context.set_fs(file_system)
 
 if __name__ == "__main__":
     start = "2025-05-01T00:00:00"
@@ -36,16 +37,15 @@ if __name__ == "__main__":
     for site in site_def.keys():
         query = {
             "collections": [
-                "MOD02HKM",
+                "MCD43A1",
             ],
             "geom": site_def[site],
             "start_time": start,
             "stop_time": end,
-            "version": "7",
+            #"version": "7",
         }
 
         products = perform_query(query, context)
         print(products)
-        products.set_fs(file_system)
         path = download_product(products, context)
         print(path)

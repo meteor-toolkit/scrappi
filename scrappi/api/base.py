@@ -76,6 +76,8 @@ class BaseAPICallHandler(ABC):
             return "Terra"
         elif name[0:3] in ["MYD"]:
             return "Aqua"
+        elif name[0:3] in ["MCD"]:
+            return "Combined"
         else:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -88,7 +90,7 @@ class BaseAPICallHandler(ABC):
             return "Sentinel-2"
         elif name[0:3] in ["S3A", "S3B"]:
             return "Sentinel-3"
-        elif name[0:3] in ["MOD", "MYD"]:
+        elif name[0:3] in ["MOD", "MYD", "MCD"]:
             return "MODIS"
         elif name in ["Metop-A", "Metop-B", "Metop-C"]:
             return "Metop"

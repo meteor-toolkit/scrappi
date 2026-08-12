@@ -58,9 +58,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         """
         return self._get_datetime(date_time).strftime("%Y-%m-%dT%H:%M:%S")
 
-    def _set_geom(
-        self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+    def _set_geom(self, query: dict) -> dict:
         """
         Convert input geometries to ones suited to the apis query format
         All accepted geometries work for earthaccess api
@@ -68,24 +66,25 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :param geom: geometry to convert
         :return: geometry in accepted earthaccess format
         """
-        geom = self._get_geom(geom)
-        if isinstance(geom, dict):
-            return (
-                geom["longitude_minimum"],
-                geom["latitude_minimum"],
-                geom["longitude_maximum"],
-                geom["latitude_maximum"],
-            )
-        else:
-            if not isinstance(
-                geom,
-                (
-                    shapely.geometry.base.BaseGeometry,
-                    shapely.geometry.base.BaseMultipartGeometry,
-                ),
-            ):
-                geom = shapely.wkt.loads(geom)
-            return geom
+        if "geom" in query.keys():
+            geom = self._get_geom(query.get("geom"))
+            if isinstance(geom, dict):
+                query["bounding_box"] = (
+                    geom["longitude_minimum"],
+                    geom["latitude_minimum"],
+                    geom["longitude_maximum"],
+                    geom["latitude_maximum"],
+                )
+            else:
+                if isinstance(
+                    geom,
+                    (
+                        shapely.geometry.base.BaseGeometry,
+                        shapely.geometry.base.BaseMultipartGeometry,
+                    ),
+                ):
+                    query["polygon"] = list(geom.exterior.coords)
+        return query
 
     def _format_query(self, query: dict) -> dict:
         """
@@ -95,12 +94,13 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         :return: formatted query dict
         """
         earthaccess_query = query.copy()
+        earthaccess_query = self._set_geom(earthaccess_query)
         earthaccess_query["short_name"] = self._set_product_type(query["collection"])
-        earthaccess_query["temporal"] = (
-            self._set_datetime(query["start_time"]),
-            self._set_datetime(query["stop_time"]),
-        )
-        earthaccess_query["bounding_box"] = self._set_geom(query["geom"])
+        if "temporal" not in earthaccess_query.keys():
+            earthaccess_query["temporal"] = (
+                self._set_datetime(query["start_time"]),
+                self._set_datetime(query["stop_time"]),
+            )
 
         for k in ["start_time", "stop_time", "collections", "collection", "geom"]:
             earthaccess_query.pop(k, None)
@@ -124,7 +124,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
             )
         return collections
 
-    def _perform_query(self, query: dict) -> list:
+    def _perform_query(self, query: dict, format_query: bool = True) -> list:
         """
         Return catalogue product DataGranules that satisfy query
 
@@ -133,7 +133,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         """
 
         # reformat query into style suitable for earthaccess searching
-        earthaccess_query = self._format_query(query)
+        if format_query:
+            earthaccess_query = self._format_query(query)
+        else:
+            earthaccess_query = query
 
         # search catalogue with query
         products = earthaccess.search_data(**earthaccess_query)
@@ -156,7 +159,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
         return products
 
-    def perform_query(self, query: dict) -> ProductItemSet:
+    def perform_query(self, query: dict, format_query: bool = True) -> ProductItemSet:
         """
         Return ProductItemSet containing ProductItems that satisfy query
 
@@ -177,7 +180,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                     products.append_ProductItemSet(self.perform_query(query))
                 return products
 
-        granule_list = self._perform_query(query)
+        granule_list = self._perform_query(query, format_query=format_query)
 
         if len(granule_list) == 0:
             return ProductItemSet()
@@ -392,6 +395,23 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
 
+            if self.context["earthaccess"].get("auxiliary_collections", None):
+                aux_cols = self.context["earthaccess"].get("auxiliary_collections", None).get(product.collection, None)
+                if aux_cols is not None:
+                    for c in aux_cols:
+                        try:
+                            aux_query = {
+                                "granule_name": ".".join(product.id.replace(product.collection, c).split(".")[:3])
+                                + "*",
+                                "short_name": c,
+                                "version": "7",
+                            }
+                            aux_prod = self.perform_query(aux_query, format_query=False)
+                            self.download_product(aux_prod)
+                        except Exception as e:
+                            warnings.warn(f"Failed to download auxiliary product for {product.id}: {e}")
+                            continue
+
             if exists:
                 print(f"{path} exists")
                 return path
@@ -400,6 +420,9 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 eoprod = product.api_product
 
                 return self._download_product_DataGranule(eoprod, os.path.dirname(path), product.id)
+
+            elif product.url is not None and isinstance(product.url, str):
+                return self._download_product_DataGranule(product.url, os.path.dirname(path), product.id)
 
             else:
                 if product.prod_dict is not None and "RelatedUrls" in product.prod_dict.keys():
