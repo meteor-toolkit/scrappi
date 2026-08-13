@@ -606,11 +606,13 @@ def make_query_start_stop(
     return query
 
 
-def generate_bounding_box(latitude, longitude, distance, crs="EPSG:32630") -> list:
+def generate_bounding_box(latitude, longitude, distance, crs=None) -> list:
     """
     Return list of coordinates of a square box around a point
 
-    :param crs: Universal Transverse Mercator coordinate reference system of point
+    :param crs: optional projected CRS to buffer in; defaults to a local
+        Azimuthal Equidistant projection centred on the point -- see
+        :py:func:`~scrappi.utils.utils.generate_bounding_lat_lon` for why.
     :param latitude: latitude of point
     :param longitude: longitude of point
     :param distance: distance of point from each side of the box

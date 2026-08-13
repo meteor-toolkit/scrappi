@@ -53,8 +53,18 @@ class InSituCallHandler(BaseAPICallHandler):
         lat: float,
         lon: float,
         distance: float,
-        crs: str = "EPSG:32630",
+        crs: Optional[str] = None,
     ):
+        """Set *site*'s ROI to a square box of *distance* metres either side of (*lat*, *lon*).
+
+        :param site: site identifier to set the ROI for.
+        :param lat: centre latitude of the box.
+        :param lon: centre longitude of the box.
+        :param distance: distance in metres from the centre to each side of the box.
+        :param crs: optional projected CRS to buffer in; defaults to a local
+            Azimuthal Equidistant projection centred on the point -- see
+            :py:func:`~scrappi.utils.utils.generate_bounding_lat_lon` for why.
+        """
         self.roi_dict[site] = generate_bounding_lat_lon(lat, lon, distance, crs=crs)
 
     @abstractmethod
