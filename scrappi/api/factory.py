@@ -21,6 +21,7 @@ from scrappi.api.eodag import EODAGCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
+from scrappi.api.aws import AWSCallHandler
 
 all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac", "aws"]
 
