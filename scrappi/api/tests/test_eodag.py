@@ -344,6 +344,183 @@ class TestEODAGCallHandler(unittest.TestCase):
     )
     @mock.patch(
         "scrappi.api.eodag.EODAGCallHandler._set_geom",
+        return_value={
+            "latitude_minimum": -38,
+            "longitude_minimum": 145,
+            "latitude_maximum": -36,
+            "longitude_maximum": 150,
+        },
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_product_type",
+        return_value="LANDSAT_C2L1",
+    )
+    def test_perform_query_skips_product_missing_start_time(self, mock_product, mock_geom, mock_datetime, mock_poly):
+        """Regression test: a single malformed product (missing both beginPosition and
+        start_datetime, as seen for some real USGS Landsat-9 records) used to raise and
+        abort the whole query, discarding every other product it would otherwise have
+        returned. It should now be skipped, with a warning, leaving the good product(s)
+        intact."""
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
+        input_query = {
+            "collection": "LANDSAT_C2L1",
+            "start_time": dt.datetime(2022, 6, 7, 23, 30),
+            "stop_time": dt.datetime(2022, 6, 7, 23, 50),
+            "geom": {
+                "latitude_minimum": -38,
+                "longitude_minimum": 145,
+                "latitude_maximum": -36,
+                "longitude_maximum": 150,
+            },
+        }
+        geometry = Polygon(
+            [
+                (149.64227, -37.10008),
+                (149.64227, -34.98604),
+                (152.22995, -34.98604),
+                (152.22995, -37.10008),
+                (149.64227, -37.10008),
+            ]
+        )
+        geometry_dict = {"type": "Polygon", "coordinates": [list(geometry.exterior.coords)]}
+
+        def _fake_prod(product_id, include_start_time):
+            properties = {
+                "productType": "landsat_ot_c2_l1",
+                "title": product_id,
+                "cloudCover": 18,
+                "providers": [{"name": "usgs"}],
+                "id": product_id,
+                "entityId": product_id,
+            }
+            if include_start_time:
+                properties["start_datetime"] = "2022-06-07T00:00:00"
+                properties["end_datetime"] = "2022-06-07T23:59:59"
+            obj = type("FakeProd", (), {})()
+            obj.as_dict = lambda: {
+                "properties": {**properties},
+                "geometry": geometry_dict,
+                "id": product_id,
+                "collection": "LANDSAT_C2L1",
+            }
+            obj.geometry = geometry
+            obj.search_intersection = geometry
+            return obj
+
+        good_product = _fake_prod("LC08_GOOD", include_start_time=True)
+        bad_product = _fake_prod("LC09_MISSING_START_TIME", include_start_time=False)
+
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
+            mock_search.return_value = [good_product, bad_product]
+
+            with self.assertWarns(UserWarning):
+                products = self.eodag_call_handler.perform_query(input_query)
+
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].id, "LC08_GOOD")
+
+    @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_datetime",
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_geom",
+        return_value={
+            "latitude_minimum": -38,
+            "longitude_minimum": 145,
+            "latitude_maximum": -36,
+            "longitude_maximum": 150,
+        },
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_product_type",
+        return_value="LANDSAT_C2L1",
+    )
+    def test_perform_query_skips_landsat_product_missing_end_datetime(
+        self, mock_product, mock_geom, mock_datetime, mock_poly
+    ):
+        """Regression test: find_stop_time's LANDSAT_C2L1 branch subscripts
+        properties["end_datetime"] directly with no existence check, raising KeyError
+        (not the ValueError find_start_time raises) for a product that has
+        start_datetime but is missing end_datetime -- a second, distinct way a
+        malformed record could previously abort the whole query."""
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
+        input_query = {
+            "collection": "LANDSAT_C2L1",
+            "start_time": dt.datetime(2022, 6, 7, 23, 30),
+            "stop_time": dt.datetime(2022, 6, 7, 23, 50),
+            "geom": {
+                "latitude_minimum": -38,
+                "longitude_minimum": 145,
+                "latitude_maximum": -36,
+                "longitude_maximum": 150,
+            },
+        }
+        geometry = Polygon(
+            [
+                (149.64227, -37.10008),
+                (149.64227, -34.98604),
+                (152.22995, -34.98604),
+                (152.22995, -37.10008),
+                (149.64227, -37.10008),
+            ]
+        )
+        geometry_dict = {"type": "Polygon", "coordinates": [list(geometry.exterior.coords)]}
+
+        def _fake_prod(product_id, properties):
+            obj = type("FakeProd", (), {})()
+            obj.as_dict = lambda: {
+                "properties": {**properties},
+                "geometry": geometry_dict,
+                "id": product_id,
+                "collection": "LANDSAT_C2L1",
+            }
+            obj.geometry = geometry
+            obj.search_intersection = geometry
+            return obj
+
+        good_product = _fake_prod(
+            "LC08_GOOD",
+            {
+                "productType": "landsat_ot_c2_l1",
+                "title": "LC08_GOOD",
+                "cloudCover": 18,
+                "providers": [{"name": "usgs"}],
+                "id": "LC08_GOOD",
+                "entityId": "LC08_GOOD",
+                "start_datetime": "2022-06-07T00:00:00",
+                "end_datetime": "2022-06-07T23:59:59",
+            },
+        )
+        bad_product = _fake_prod(
+            "LC09_MISSING_END_TIME",
+            {
+                "productType": "landsat_ot_c2_l1",
+                "title": "LC09_MISSING_END_TIME",
+                "cloudCover": 18,
+                "providers": [{"name": "usgs"}],
+                "id": "LC09_MISSING_END_TIME",
+                "entityId": "LC09_MISSING_END_TIME",
+                "start_datetime": "2022-06-07T00:00:00",
+                # end_datetime deliberately omitted
+            },
+        )
+
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
+            mock_search.return_value = [good_product, bad_product]
+
+            with self.assertWarns(UserWarning):
+                products = self.eodag_call_handler.perform_query(input_query)
+
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0].id, "LC08_GOOD")
+
+    @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_datetime",
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_geom",
         return_value=Polygon(
             [
                 (149.64227, -36.0),
