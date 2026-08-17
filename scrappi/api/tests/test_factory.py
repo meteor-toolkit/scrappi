@@ -53,6 +53,40 @@ class TestAPICallHandlerFactory(unittest.TestCase):
 
         self.assertIsInstance(eumdac_api, EUMDACCallHandler)
 
+    def test_get_api_call_handler_caches_by_default(self):
+        """Repeated calls for the same name return the *same* instance -- this is
+        what avoids rebuilding e.g. eodag's EODataAccessGateway (a few hundred ms)
+        on every call."""
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIs(first, second)
+
+    def test_get_api_call_handler_use_cache_false_builds_fresh(self):
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", use_cache=False)
+        self.assertIsNot(first, second)
+
+    def test_get_api_call_handler_use_cache_false_does_not_disturb_cache(self):
+        """A use_cache=False call builds a throwaway handler without touching
+        (overwriting or populating) the cache for subsequent use_cache=True calls."""
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.api_call_handler_factory.get_api_call_handler("radcalnet", use_cache=False)
+        third = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIs(first, third)
+
+    def test_clear_cache_forces_rebuild(self):
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.api_call_handler_factory.clear_cache()
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIsNot(first, second)
+
+    def test_different_names_cached_independently(self):
+        radcalnet_api = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        eodag_api = self.api_call_handler_factory.get_api_call_handler("eodag")
+        self.assertIsInstance(radcalnet_api, RadcalnetCallHandler)
+        self.assertIsInstance(eodag_api, EODAGCallHandler)
+        self.assertIsNot(radcalnet_api, eodag_api)
+
 
 if __name__ == "__main__":
     unittest.main()
