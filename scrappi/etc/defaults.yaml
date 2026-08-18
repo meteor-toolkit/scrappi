@@ -61,11 +61,7 @@ RadCalNet:
 
 hypernets:
   credentials:
-    apikey: 
-
-hypernets:
-  credentials:
-    apikey: 
+    apikey:
 
 earthaccess:
   credentials:

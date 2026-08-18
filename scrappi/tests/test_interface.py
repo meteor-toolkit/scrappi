@@ -13,6 +13,7 @@ from unittest import mock
 from shapely.geometry import Point, Polygon
 from scrappi.product import ProductItem
 from scrappi.interface import (
+    Factory,
     download_product,
     download_product_filename,
     download_product_scene,
@@ -108,6 +109,15 @@ class TestInterface(unittest.TestCase):
             url="",
             filesystem=self.tmp_dir_path,
         )
+
+        # Cleared *after* the ProductItem above, whose __init__ calls set_api()
+        # (and so, eventually, Factory.get_api_call_handler("eodag")) unconditionally
+        # -- clearing before it would still leave a real, unmocked "eodag" handler
+        # cached from here by the time a test's own mock.patch.dict(Factory.
+        # api_call_handlers, ...) takes effect. Several tests below also reuse the
+        # same mock name (e.g. "handle1") across different test methods, which
+        # would otherwise resolve to a previous test's stale cached mock instance.
+        Factory.clear_cache()
 
     def tearDown(self):
         shutil.rmtree(self.tmp_dir_path)

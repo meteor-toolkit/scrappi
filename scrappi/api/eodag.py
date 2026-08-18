@@ -249,9 +249,14 @@ class EODAGCallHandler(BaseAPICallHandler):
             ):
                 prod_dict["properties"]["eodag:quicklook"] = ""
 
-            if ("eo:cloud_cover" not in prod_dict["properties"].keys()) or (
-                prod_dict["properties"]["eo:cloud_cover"] is None
+            if (
+                ("eo:cloud_cover" not in prod_dict["properties"].keys())
+                or (prod_dict["properties"]["eo:cloud_cover"] is None)
+                or (prod_dict["properties"]["eo:cloud_cover"] == -1)
             ):
+                # -1 is USGS/Landsat's convention for "cloud cover not calculated" for a scene;
+                # normalise it to NaN like other missing values, since cloud cover cannot be
+                # negative and a literal -1 would otherwise look like the clearest scene available.
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set

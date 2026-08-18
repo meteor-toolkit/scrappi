@@ -6,6 +6,7 @@ import datetime as dt
 from unittest import mock
 
 import numpy as np
+import shapely
 from shapely.geometry import Polygon
 
 from scrappi.api.earthaccess_api import EarthaccessCallHandler
@@ -80,24 +81,26 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
             input_geom = {
-                "latitude_minimum": 40,
-                "longitude_minimum": 120,
-                "latitude_maximum": 60,
-                "longitude_maximum": 160,
+                "geom": {
+                    "latitude_minimum": 40,
+                    "longitude_minimum": 120,
+                    "latitude_maximum": 60,
+                    "longitude_maximum": 160,
+                }
             }
             expected_output = (120, 40, 160, 60)
 
-            with mock.patch.object(handler, "_get_geom", return_value=input_geom):
+            with mock.patch.object(handler, "_get_geom", return_value=input_geom.get("geom")):
                 result = handler._set_geom(input_geom)
-                self.assertEqual(result, expected_output)
+                self.assertEqual(result["bounding_box"], expected_output)
 
     def test_set_geom_shapely_polygon(self):
         """Test _set_geom with shapely Polygon geometry"""
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
-            input_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
+            input_geom = {"geom": Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])}
 
-            with mock.patch.object(handler, "_get_geom", return_value=input_geom):
+            with mock.patch.object(handler, "_get_geom", return_value=input_geom.get("geom")):
                 result = handler._set_geom(input_geom)
                 self.assertEqual(result, input_geom)
 
@@ -105,12 +108,12 @@ class TestEarthaccessCallHandler(unittest.TestCase):
         """Test _set_geom with WKT string geometry"""
         with mock.patch("scrappi.api.earthaccess_api.earthaccess.login"):
             handler = EarthaccessCallHandler()
-            input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
+            input_geom = {"geom": "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"}
             _expected_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
 
-            with mock.patch.object(handler, "_get_geom", return_value=input_geom):
+            with mock.patch.object(handler, "_get_geom", return_value=shapely.wkt.loads(input_geom.get("geom"))):
                 result = handler._set_geom(input_geom)
-                self.assertIsInstance(result, Polygon)
+                self.assertEqual(Polygon(result["polygon"]), _expected_geom)
 
     def test_format_query(self):
         """Test _format_query method"""
@@ -135,7 +138,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                     "_set_datetime",
                     side_effect=lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d,
                 ),
-                mock.patch.object(handler, "_set_geom", return_value=(145, -38, 150, -36)),
+                # mock.patch.object(handler, "_set_geom", return_value=(145, -38, 150, -36)),
             ):
                 result = handler._format_query(input_query)
 

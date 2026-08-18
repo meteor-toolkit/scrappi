@@ -1,6 +1,7 @@
 """scrappi.api.tests.test_EODAG - tests for scrappi.api.EODAG"""
 
 import os
+import math
 import unittest
 import unittest.mock as mock
 import datetime as dt
@@ -347,6 +348,82 @@ class TestEODAGCallHandler(unittest.TestCase):
                 for c in mock_datetime.call_args_list
             )
             self.assertTrue(called)
+
+    @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_datetime",
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_geom",
+        return_value={
+            "latitude_minimum": -38,
+            "longitude_minimum": 145,
+            "latitude_maximum": -36,
+            "longitude_maximum": 150,
+        },
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_product_type",
+        return_value="LANDSAT_C2L1",
+    )
+    def test_perform_query_cloud_cover_not_calculated(self, mock_product, mock_geom, mock_datetime, mock_poly):
+        """eo:cloud_cover of -1 (USGS/Landsat's "not calculated" sentinel) should be normalised to NaN,
+        the same as a missing/None value, rather than kept as a literal -1."""
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
+        input_query = {
+            "collection": "LANDSAT_C2L1",
+            "start_time": dt.datetime(1973, 6, 19, 0, 0),
+            "stop_time": dt.datetime(1973, 6, 19, 23, 59),
+            "geom": {
+                "latitude_minimum": -38,
+                "longitude_minimum": 145,
+                "latitude_maximum": -36,
+                "longitude_maximum": 150,
+            },
+        }
+
+        properties = {
+            "productType": "landsat_ot_c2_l1",
+            "title": "LC08_L1TP_089085_20220607_20220616_02_T1",
+            "eo:cloud_cover": -1,
+            "start_datetime": "1973-06-19T00:00:00",
+            "end_datetime": "1973-06-19T23:59:59",
+            "providers": [{"name": "usgs"}],
+            "id": "LC08_L1TP_089085_20220607_20220616_02_T1",
+            "quicklook": "",
+        }
+        geometry = Polygon(
+            [
+                (149.64227, -37.10008),
+                (149.64227, -34.98604),
+                (152.22995, -34.98604),
+                (152.22995, -37.10008),
+                (149.64227, -37.10008),
+            ]
+        )
+
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
+            obj = type("FakeProd", (), {})()
+            obj.as_dict = lambda: {
+                "properties": {**properties},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [list(geometry.exterior.coords)],
+                },
+                "id": properties["id"],
+                "collection": "LANDSAT_C2L1",
+            }
+            obj.search_intersection = geometry
+            obj.geometry = geometry
+
+            mock_search.return_value = [obj]
+
+            products = self.eodag_call_handler.perform_query(input_query)
+            product = products[0]
+
+            self.assertTrue(math.isnan(product.cloud_fraction))
+            self.assertTrue(math.isnan(product.prod_dict["properties"]["eo:cloud_cover"]))
+            self.assertTrue(math.isnan(product.filter_dict["cloud_fraction"]))
 
     @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
     @mock.patch(

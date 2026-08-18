@@ -35,10 +35,9 @@ class AWSCallHandler(BaseAPICallHandler):
     name = "aws"
 
     WORLDCOVER_VERSION_YEAR = {
-            100: 2020,
-            200: 2021,
-        }
-
+        100: 2020,
+        200: 2021,
+    }
 
     def __init__(
         self,
@@ -65,7 +64,6 @@ class AWSCallHandler(BaseAPICallHandler):
             "Copernicus-dem-30m": "copernicus-dem-30m",
             "Copernicus-dem-90m": "copernicus-dem-90m",
         }
-
 
         self.s3_resource = None
 
@@ -147,9 +145,7 @@ class AWSCallHandler(BaseAPICallHandler):
                 geom["longitude_maximum"],
             )
         else:
-            raise TypeError(
-                f"Unsupported geometry type: {type(geom)}"
-            )
+            raise TypeError(f"Unsupported geometry type: {type(geom)}")
 
         tile_size = 3 if "WorldCover" in collection else 1
 
@@ -176,9 +172,7 @@ class AWSCallHandler(BaseAPICallHandler):
             aws_query["version"] = query["version"]
 
             try:
-                aws_query["start_time"] = self.WORLDCOVER_VERSION_YEAR[
-                    query["version"]
-                ]
+                aws_query["start_time"] = self.WORLDCOVER_VERSION_YEAR[query["version"]]
             except KeyError:
                 raise ValueError(
                     f"Version {query['version']} not supported for "
@@ -204,7 +198,7 @@ class AWSCallHandler(BaseAPICallHandler):
         """
         if self.s3_resource is None:
             raise RuntimeError("AWS S3 resource is not available.")
-        
+
         aws_query = self._format_query(query)
         bucket = self.s3_resource.Bucket(aws_query["bucket"])
 
@@ -296,7 +290,7 @@ class AWSCallHandler(BaseAPICallHandler):
                 if year is not None:
                     return dt.datetime(year=year, month=1, day=1)
 
-    def _get_api_product(self, key:str) -> str | None:
+    def _get_api_product(self, key: str) -> str | None:
         if "DEM" in key.upper():
             return key.split("/")[0]
         elif "worldcover" in key.lower():
@@ -321,7 +315,7 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "Copernicus_DEM"
                 elif "worldcover" in prod_dict[0].bucket_name:
                     return "ESA_WorldCover"
-                
+
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -341,15 +335,13 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "ESA_WorldCover"
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
-        
+
     def tile_bbox(self, key: str, tile_size: int = 1) -> shapely.Polygon:
         lat_m = re.search(r"([NS])(\d{2})", key)
         lon_m = re.search(r"([EW])(\d{3})", key)
 
         if not lat_m or not lon_m:
-            raise ValueError(
-                f"Could not extract tile coordinates from {key}"
-            )
+            raise ValueError(f"Could not extract tile coordinates from {key}")
 
         lat = int(lat_m.group(2))
         lon = int(lon_m.group(2))
@@ -366,6 +358,7 @@ class AWSCallHandler(BaseAPICallHandler):
             lon + tile_size,
             lat + tile_size,
         )
+
     def _get_tile_size(self, collection: str) -> int:
         if "WorldCover" in collection:
             return 3
@@ -373,7 +366,7 @@ class AWSCallHandler(BaseAPICallHandler):
             return 1
         else:
             raise ValueError(f"Unknown collection {collection}")
-        
+
     def download_product(
         self,
         product: Union[str, ProductItem, ProductItemSet],

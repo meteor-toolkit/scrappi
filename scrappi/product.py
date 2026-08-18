@@ -1235,11 +1235,13 @@ def product_item_from_stac(
     # assets -> choose data and quicklook if available
     url = ""
     quicklook = ""
+    api = "stac"
     if hasattr(item, "assets"):
         assets = item.assets
         # pick data asset
         if "data" in assets:
             url = assets["data"].href
+            api = assets["data"].extra_fields.get("scrappi:api")
         else:
             # pick first non-image asset
             for a in assets.values():
@@ -1301,6 +1303,7 @@ def product_item_from_stac(
         # plain dict, never an instance of those provider classes, so it was
         # never actually usable as an api_product anyway).
         context=context,
+        api=api,
     )
 
 

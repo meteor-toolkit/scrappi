@@ -41,9 +41,15 @@ class EUMDACCallHandler(BaseAPICallHandler):
             warnings.warn(
                 "No credentials found for eumdac. Please set these in the config file to enable downloading of products."
             )
+            eumdac_key = None
+            eumdac_secret = None
 
-        self.eumdac_token = eumdac.AccessToken([eumdac_key, eumdac_secret])
-        self.api = eumdac.DataStore(self.eumdac_token)
+        if eumdac_key and eumdac_secret:
+            self.eumdac_token = eumdac.AccessToken([eumdac_key, eumdac_secret])
+            self.api = eumdac.DataStore(self.eumdac_token)
+        else:
+            self.eumdac_token = None
+            self.api = None
 
     def _set_product_type(self, collection: str) -> str:
         """
@@ -255,7 +261,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
         try:
             return prod_dict["acquisitionInformation"][0]["platform"]["platformShortName"]
-        except NotImplementedError:
+        except (KeyError, IndexError, NotImplementedError):
             raise NotImplementedError("platform name could not be parsed")
 
     def get_constellation(self, prod_dict: dict) -> str:
@@ -269,7 +275,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
             return self.parse_constellation_from_name(
                 prod_dict["acquisitionInformation"][0]["platform"]["platformShortName"]
             )
-        except NotImplementedError:
+        except (KeyError, IndexError, NotImplementedError):
             raise NotImplementedError("platform name could not be parsed")
 
     def find_version(self, prod_dict: dict) -> str:
@@ -370,7 +376,11 @@ class EUMDACCallHandler(BaseAPICallHandler):
                 elif isinstance(product, str):
                     for attempt in range(self.context.get("max_retrys", 3)):
                         try:
-                            response = requests.get(product, headers={"Authorization": f"Bearer {self.eumdac_token}"})
+                            response = requests.get(
+                                product,
+                                headers={"Authorization": f"Bearer {self.eumdac_token}"},
+                                timeout=self.context.get("request_timeout", 60),
+                            )
                             with open(os.path.join(path, product_title), "wb") as f:
                                 f.write(response.content)
                                 print(f"Download of product {product} finished.")

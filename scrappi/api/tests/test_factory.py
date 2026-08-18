@@ -1,8 +1,9 @@
 """scrappi.api.tests.test_factory - tests for scrappi.api.factory"""
 
 import unittest
+from unittest import mock
 
-from scrappi.api.factory import APICallHandlerFactory
+from scrappi.api.factory import API_CALL_HANDLERS, APICallHandlerFactory
 from scrappi.api.eodag import EODAGCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 
@@ -29,6 +30,62 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         radcalnet_api = self.api_call_handler_factory.get_api_call_handler("radcalnet")
         assert isinstance(radcalnet_api, RadcalnetCallHandler)
         self.assertRaises(IOError, self.api_call_handler_factory.get_api_call_handler, "bad_path")
+
+    def test_eumdac_not_in_static_handler_dict(self):
+        """eumdac must stay out of the static, eagerly-imported API_CALL_HANDLERS
+        dict -- like earthaccess/hypernets, it's meant to be resolved lazily inside
+        get_api_call_handler so importing scrappi.api.factory doesn't pull in
+        eumdac's module (and its shapely/requests imports) unless actually used."""
+        self.assertNotIn("eumdac", API_CALL_HANDLERS)
+
+    def test_get_api_call_handler_eumdac(self):
+        from scrappi import ScrappiContext
+        from scrappi.api.eumdac import EUMDACCallHandler
+
+        context = ScrappiContext()
+        context["eumdac"] = {"credentials": {"key": "key", "secret": "secret"}}
+
+        with (
+            mock.patch("scrappi.api.eumdac.eumdac.AccessToken", return_value=mock.Mock()),
+            mock.patch("scrappi.api.eumdac.eumdac.DataStore", return_value=mock.Mock()),
+        ):
+            eumdac_api = self.api_call_handler_factory.get_api_call_handler("eumdac", context=context)
+
+        self.assertIsInstance(eumdac_api, EUMDACCallHandler)
+
+    def test_get_api_call_handler_caches_by_default(self):
+        """Repeated calls for the same name return the *same* instance -- this is
+        what avoids rebuilding e.g. eodag's EODataAccessGateway (a few hundred ms)
+        on every call."""
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIs(first, second)
+
+    def test_get_api_call_handler_use_cache_false_builds_fresh(self):
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", use_cache=False)
+        self.assertIsNot(first, second)
+
+    def test_get_api_call_handler_use_cache_false_does_not_disturb_cache(self):
+        """A use_cache=False call builds a throwaway handler without touching
+        (overwriting or populating) the cache for subsequent use_cache=True calls."""
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.api_call_handler_factory.get_api_call_handler("radcalnet", use_cache=False)
+        third = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIs(first, third)
+
+    def test_clear_cache_forces_rebuild(self):
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.api_call_handler_factory.clear_cache()
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        self.assertIsNot(first, second)
+
+    def test_different_names_cached_independently(self):
+        radcalnet_api = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        eodag_api = self.api_call_handler_factory.get_api_call_handler("eodag")
+        self.assertIsInstance(radcalnet_api, RadcalnetCallHandler)
+        self.assertIsInstance(eodag_api, EODAGCallHandler)
+        self.assertIsNot(radcalnet_api, eodag_api)
 
 
 if __name__ == "__main__":

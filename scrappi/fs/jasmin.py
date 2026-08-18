@@ -30,9 +30,7 @@ class JasminFileSystem(STACFileSystem):
     def __init__(self, context: ScrappiContext):
         path = os.path.join("")  # TODO: add path to jasmin archive here
         path_stac = os.path.join("")  # TODO: add path to jasmin stac here
-        context["fs"]["organise_data"] = True
-        context["fs"]["read_only"] = True
-        super().__init__(path=path, path_stac=path_stac, context=context)
+        super().__init__(path=path, path_stac=path_stac, context=context, organise_data=True, read_only=True)
 
     def return_organised_product_path(self, product_item: ProductItem):
         """
