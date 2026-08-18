@@ -1207,11 +1207,13 @@ def product_item_from_stac(
     # assets -> choose data and quicklook if available
     url = ""
     quicklook = ""
+    api = "stac"
     if hasattr(item, "assets"):
         assets = item.assets
         # pick data asset
         if "data" in assets:
             url = assets["data"].href
+            api = assets["data"].extra_fields.get("scrappi:api")
         else:
             # pick first non-image asset
             for a in assets.values():
@@ -1258,6 +1260,7 @@ def product_item_from_stac(
         cloud_fraction=cloud_fraction,
         api_product=prod_dict,
         context=context,
+        api=api,
     )
 
 

@@ -34,11 +34,13 @@ class STACFileSystem(LocalFileSystem):
         path: str = "./",
         path_stac: Optional[str] = None,
         context: Optional[ScrappiContext] = None,
+        organise_data: Optional[bool] = None,
+        read_only: Optional[bool] = None,
     ):
         if not context:
             context = ScrappiContext()
 
-        super().__init__(path, context)
+        super().__init__(path, context, organise_data, read_only)
 
         if path_stac is None:
             if "path_stac" in context["fs"].keys():

@@ -6,10 +6,10 @@ download products. The helpers bridge the `ScrappiContext` to concrete
 adapter implementations.
 """
 
+import logging
 import os
 import datetime as dt
 import numpy as np
-import warnings
 
 import shapely
 import shapely.geometry
@@ -53,6 +53,7 @@ platforms = {
 
 Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
+logger = logging.getLogger(__name__)
 
 
 def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
@@ -165,8 +166,11 @@ def get_api_name(
                     else:
                         return api
             except Exception as e:
-                warnings.warn(
-                    f"Error occurred for {api} while identifying available apis for collection {collection}: {e}"
+                logger.debug(
+                    "Error occurred for %s while identifying available apis for collection %s: %s",
+                    api,
+                    collection,
+                    e,
                 )
                 pass
 
@@ -192,7 +196,7 @@ def get_api_name(
             except Exception:
                 pass
 
-        warnings.warn("No api was found for the specified collection. Returning context['api']['preferred_api'].")
+        logger.debug("No api was found for the specified collection. Returning context['api']['preferred_api'].")
         return context["api"]["preferred_api"]
 
 
@@ -210,7 +214,7 @@ def list_collections(guess: Optional[str] = None, context: Optional[ScrappiConte
         try:
             products.extend(list(Factory.get_api_call_handler(k, context).list_collections()))
         except Exception:
-            warnings.warn(f"No collections identified for {k} api")
+            logger.debug("No collections identified for %s api", k)
 
     if guess:
         return sorted([i for i in list(set(products)) if any([guess in i, guess.lower() in i, guess.upper() in i])])
@@ -310,8 +314,9 @@ def is_insitu_collection(collection: str) -> bool:
         except Exception:
             pass
     else:
-        warnings.warn(
-            f"Collection {collection} not found in listed collections for any API (some are missing from list for eodag)."
+        logger.debug(
+            "Collection %s not found in listed collections for any API (some are missing from list for eodag).",
+            collection,
         )
 
         return False
@@ -367,7 +372,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
     :return product paths of downloaded products
     """
     if product is None:
-        warnings.warn("no product was provided to download")
+        logger.debug("No product was provided to download")
         return None
 
     if not isinstance(context, ScrappiContext):
@@ -415,7 +420,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                                 overwrite=context["fs"]["overwrite_stac_items"],
                             )
                         except Exception as e:
-                            warnings.warn(f"Failed to register product in STAC catalog: {e}")
+                            logger.debug("Failed to register product in STAC catalog: %s", e)
                 # for ProductItemSet we assume individual downloads will have registered themselves
             except Exception:
                 # Do not let registration errors prevent returning the download path
