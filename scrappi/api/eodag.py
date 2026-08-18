@@ -178,12 +178,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :returns: product urls satisfying query
         """
         # query_geom = query["geom"]
-        products = self.dag.search(
-            productType="reanalysis-era5-single-levels",
-            start="2024-01-01T00:00:00Z",
-            end="2024-01-01T23:59:59Z",
-        )
-
+        
         # reformat query into style suitable for eodag searching
         eodag_query = query.copy()
         eodag_query["collection"] = self._set_product_type(query["collection"])
