@@ -295,6 +295,10 @@ def is_insitu_collection(collection: str) -> bool:
     """
     Return whether collection is an in situ collection
 
+    Resolves a handler for each candidate API via ``Factory.get_api_call_handler``,
+    which caches by default (see its ``use_cache`` parameter) -- so repeated calls
+    to this function don't repeatedly rebuild e.g. eodag's ``EODataAccessGateway``.
+
     :param collection: name of the satellite collection to search through
     :return: bool indicating whether collection is in situ
     """
