@@ -234,7 +234,6 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
             self.api = OfflineHYPERNETSAPI(archive_path)
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s" % e)
-        self.context["fs"]["organise_data"] = False
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -310,7 +309,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                 ProductItem(
                     constellation="HYPERNETS",
                     platform=prod["site_id"],
-                    collection=query["collection"],
+                    collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
                     geometry=self.get_roi_shapely(prod["site_id"]),
                     start_time=self._get_datetime(prod["datetime_start"]),
@@ -320,6 +319,8 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     filesystem=LocalFileSystem(
                         os.path.join(self.api.archive_path, prod["rel_product_dir"]),
                         self.context,
+                        organise_data=False,
+                        read_only=True,
                     ),
                     url=prod["sequence_name"],
                     quicklook="",

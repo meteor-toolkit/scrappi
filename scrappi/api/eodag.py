@@ -69,7 +69,6 @@ class EODAGCallHandler(BaseAPICallHandler):
             self.dag.set_preferred_provider(self.context["api"]["preferred_provider"])
 
         self.check_eodag_version()
-        self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
         # this bit is meant to be used for one time passwords (authenticator apps), but does not seem to work right
         # if "totp" in config_dict.keys():
@@ -250,9 +249,14 @@ class EODAGCallHandler(BaseAPICallHandler):
             ):
                 prod_dict["properties"]["eodag:quicklook"] = ""
 
-            if ("eo:cloud_cover" not in prod_dict["properties"].keys()) or (
-                prod_dict["properties"]["eo:cloud_cover"] is None
+            if (
+                ("eo:cloud_cover" not in prod_dict["properties"].keys())
+                or (prod_dict["properties"]["eo:cloud_cover"] is None)
+                or (prod_dict["properties"]["eo:cloud_cover"] == -1)
             ):
+                # -1 is USGS/Landsat's convention for "cloud cover not calculated" for a scene;
+                # normalise it to NaN like other missing values, since cloud cover cannot be
+                # negative and a literal -1 would otherwise look like the clearest scene available.
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set
@@ -474,6 +478,9 @@ class EODAGCallHandler(BaseAPICallHandler):
                     wait = product.downloader.config.wait
                 else:
                     wait = 0.2
+
+                if product.provider == "usgs":
+                    self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
                 for attempt in range(self.context.get("max_retrys", 3)):
                     try:
@@ -756,6 +763,12 @@ class EODAGCallHandler(BaseAPICallHandler):
     def check_usgs_tmp_file(self, delete_tmp_file: bool = True):
         """
         Check for the presence of a temporary file created by the USGS provider during download, and remove it if it exists.
+
+        Called from :py:meth:`_download_product_EOProduct` immediately before a USGS
+        download, not from ``__init__`` -- this file is specific to USGS's own download
+        validation, so checking it on every handler construction (regardless of which
+        provider is actually being used) risked one script's handler removing it out from
+        under a concurrently-running script's in-progress USGS download.
         """
 
         TMPFILE = os.path.join(os.path.expanduser("~"), ".usgs")

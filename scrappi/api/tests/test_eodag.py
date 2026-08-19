@@ -1,6 +1,7 @@
 """scrappi.api.tests.test_EODAG - tests for scrappi.api.EODAG"""
 
 import os
+import math
 import unittest
 import unittest.mock as mock
 import datetime as dt
@@ -354,6 +355,82 @@ class TestEODAGCallHandler(unittest.TestCase):
     )
     @mock.patch(
         "scrappi.api.eodag.EODAGCallHandler._set_geom",
+        return_value={
+            "latitude_minimum": -38,
+            "longitude_minimum": 145,
+            "latitude_maximum": -36,
+            "longitude_maximum": 150,
+        },
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_product_type",
+        return_value="LANDSAT_C2L1",
+    )
+    def test_perform_query_cloud_cover_not_calculated(self, mock_product, mock_geom, mock_datetime, mock_poly):
+        """eo:cloud_cover of -1 (USGS/Landsat's "not calculated" sentinel) should be normalised to NaN,
+        the same as a missing/None value, rather than kept as a literal -1."""
+        mock_datetime.side_effect = lambda d: d.strftime("%Y-%m-%dT%H:%M:%S") if hasattr(d, "strftime") else d
+        input_query = {
+            "collection": "LANDSAT_C2L1",
+            "start_time": dt.datetime(1973, 6, 19, 0, 0),
+            "stop_time": dt.datetime(1973, 6, 19, 23, 59),
+            "geom": {
+                "latitude_minimum": -38,
+                "longitude_minimum": 145,
+                "latitude_maximum": -36,
+                "longitude_maximum": 150,
+            },
+        }
+
+        properties = {
+            "productType": "landsat_ot_c2_l1",
+            "title": "LC08_L1TP_089085_20220607_20220616_02_T1",
+            "eo:cloud_cover": -1,
+            "start_datetime": "1973-06-19T00:00:00",
+            "end_datetime": "1973-06-19T23:59:59",
+            "providers": [{"name": "usgs"}],
+            "id": "LC08_L1TP_089085_20220607_20220616_02_T1",
+            "quicklook": "",
+        }
+        geometry = Polygon(
+            [
+                (149.64227, -37.10008),
+                (149.64227, -34.98604),
+                (152.22995, -34.98604),
+                (152.22995, -37.10008),
+                (149.64227, -37.10008),
+            ]
+        )
+
+        with mock.patch.object(self.eodag_call_handler.dag, "search_all") as mock_search:
+            obj = type("FakeProd", (), {})()
+            obj.as_dict = lambda: {
+                "properties": {**properties},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [list(geometry.exterior.coords)],
+                },
+                "id": properties["id"],
+                "collection": "LANDSAT_C2L1",
+            }
+            obj.search_intersection = geometry
+            obj.geometry = geometry
+
+            mock_search.return_value = [obj]
+
+            products = self.eodag_call_handler.perform_query(input_query)
+            product = products[0]
+
+            self.assertTrue(math.isnan(product.cloud_fraction))
+            self.assertTrue(math.isnan(product.prod_dict["properties"]["eo:cloud_cover"]))
+            self.assertTrue(math.isnan(product.filter_dict["cloud_fraction"]))
+
+    @mock.patch("scrappi.api.eodag.Polygon", return_value=True)
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_datetime",
+    )
+    @mock.patch(
+        "scrappi.api.eodag.EODAGCallHandler._set_geom",
         return_value=Polygon(
             [
                 (149.64227, -36.0),
@@ -688,6 +765,59 @@ class TestEODAGCallHandler(unittest.TestCase):
                 called_kwargs = mock_download.call_args.kwargs
                 self.assertEqual(called_kwargs.get("outputs_prefix"), example_path)
                 self.assertEqual(called_kwargs.get("extract"), False)
+
+    def test_init_does_not_check_usgs_tmp_file(self):
+        # Regression test: check_usgs_tmp_file() used to run unconditionally on every
+        # EODAGCallHandler construction (even for providers that never touch USGS, e.g.
+        # cop_dataspace-only Sentinel-2 queries), risking one script's handler removing
+        # ~/.usgs out from under an unrelated, concurrently-running USGS download. It's
+        # now only checked immediately before an actual USGS download -- see
+        # test_download_product_EOProduct_checks_usgs_tmp_file_for_usgs_provider below.
+        with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+            EODAGCallHandler(ScrappiContext())
+            mock_check.assert_not_called()
+
+    def test_download_product_EOProduct_checks_usgs_tmp_file_for_usgs_provider(self):
+        input_product = EOProduct(
+            provider="usgs",
+            properties={
+                "productType": "landsat_ot_c2_l1",
+                "title": "LC08_L1TP_089085_20220607_20220616_02_T1",
+                "id": "LC08_L1TP_089085_20220607_20220616_02_T1",
+                "startTimeFromAscendingNode": "2022-06-07 00:00:00",
+                "completionTimeFromAscendingNode": "2022-06-07 00:00:00",
+            },
+            productType="LANDSAT_C2L1",
+        )
+
+        with mock.patch.object(EOProduct, "download") as mock_download:
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
+                with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+                    path = example_path
+                    mock_download.return_value = os.path.join(path, input_product.properties["id"])
+                    self.eodag_call_handler._download_product_EOProduct(input_product, path)
+                    mock_check.assert_called_once()
+
+    def test_download_product_EOProduct_skips_usgs_tmp_file_check_for_non_usgs_provider(self):
+        input_product = EOProduct(
+            provider="cop_dataspace",
+            properties={
+                "productType": "S2_MSI_L1C",
+                "title": "S2A_MSIL1C_20220607T085601_N0400_R007_T35NKA_20220607T104858",
+                "id": "S2A_MSIL1C_20220607T085601_N0400_R007_T35NKA_20220607T104858",
+                "startTimeFromAscendingNode": "2022-06-07 00:00:00",
+                "completionTimeFromAscendingNode": "2022-06-07 00:00:00",
+            },
+            productType="S2_MSI_L1C",
+        )
+
+        with mock.patch.object(EOProduct, "download") as mock_download:
+            with mock.patch("scrappi.api.eodag.validate_product_download", return_value=True):
+                with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file") as mock_check:
+                    path = example_path
+                    mock_download.return_value = os.path.join(path, input_product.properties["id"])
+                    self.eodag_call_handler._download_product_EOProduct(input_product, path)
+                    mock_check.assert_not_called()
 
     def test_download_product_None(self):
         input_product = ProductItem(

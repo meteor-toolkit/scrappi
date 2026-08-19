@@ -7,6 +7,7 @@ from scrappi import ScrappiContext
 context = ScrappiContext()
 hypernets_archive_path = r"T:\ECO\EOServer\data\insitu\hypernets\archive"
 context["fs"]["path"] = hypernets_archive_path
+context.set_preferred_api("hypernets_offline")
 
 if __name__ == "__main__":
     start = "2025-11-01T00:00:00"

@@ -12,7 +12,7 @@ from scrappi.product import ProductItem
 from scrappi import ScrappiContext
 
 __author__ = [
-    "Pieter De Vis <pieter.de.vis@npl.co.uk",
+    "Pieter De Vis <pieter.de.vis@npl.co.uk>",
     "Jacob Fahy <jacob.fahy@npl.co.uk>",
     "Sam Hunt <sam.hunt@npl.co.uk>",
     "Matthew Scholes <matthew.scholes@npl.co.uk>",
@@ -33,6 +33,8 @@ class LocalFileSystem(BaseFileSystem):
         self,
         path: Optional[str] = None,
         context: Optional[ScrappiContext] = None,
+        organise_data: Optional[bool] = None,
+        read_only: Optional[bool] = None,
     ):
         if not context:
             context = ScrappiContext()
@@ -41,8 +43,8 @@ class LocalFileSystem(BaseFileSystem):
         else:
             directory = context["fs"]["path"]
         super().__init__(directory)
-        self.organise_data = context["fs"]["organise_data"]
-        self.read_only = context["fs"]["read_only"]
+        self.organise_data = context["fs"]["organise_data"] if organise_data is None else organise_data
+        self.read_only = context["fs"]["read_only"] if read_only is None else read_only
 
     def return_path(self, product_item: ProductItem, check_exists: bool = False):
         """
