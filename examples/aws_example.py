@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
         dem_30_query = {
             "collections": [
-                "Copernicus-dem-30m",
+                "copernicus_dem_30m",
             ],
             "geom": site_def[site],
         }

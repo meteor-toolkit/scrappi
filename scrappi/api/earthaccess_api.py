@@ -10,9 +10,10 @@ import numpy as np
 import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon
 from typing import Any, Optional, Union, List
-
-import earthaccess
-from earthaccess import DataGranule
+try:
+    from earthaccess import DataGranule
+except:
+    DataGranule = None
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
@@ -30,9 +31,8 @@ class EarthaccessCallHandler(BaseAPICallHandler):
     name = "earthaccess"
 
     def __init__(self, context: Optional[Union[str, List, ScrappiContext]] = None):
-
         super().__init__(context)
-
+        import earthaccess
         try:
             os.environ["EARTHDATA_USERNAME"] = self.context["earthaccess"]["credentials"]["username"]
             os.environ["EARTHDATA_REMOVED_PASSWORD"] = self.context["earthaccess"]["credentials"]["password"]

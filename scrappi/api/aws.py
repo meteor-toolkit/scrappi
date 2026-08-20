@@ -13,7 +13,7 @@ import re
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi import ScrappiContext
-
+from scrappi.utils.utils import convert_geom_list
 __all__ = ["AWSCallHandler"]
 
 
@@ -55,14 +55,14 @@ class AWSCallHandler(BaseAPICallHandler):
 
         self.collections = [
             "ESA_WorldCover",
-            "Copernicus-dem-30m",
-            "Copernicus-dem-90m",
+            "Copernicus_dem_30m",
+            "Copernicus_dem_90m",
         ]
 
         self.buckets = {
             "ESA_WorldCover": "esa-worldcover",
-            "Copernicus-dem-30m": "copernicus-dem-30m",
-            "Copernicus-dem-90m": "copernicus-dem-90m",
+            "Copernicus_dem_30m": "copernicus-dem-30m",
+            "Copernicus_dem_90m": "copernicus-dem-90m",
         }
 
         self.s3_resource = None
@@ -134,18 +134,8 @@ class AWSCallHandler(BaseAPICallHandler):
         return self.buckets[collection]
 
     def _set_geom(self, geom, collection) -> List[List[str]]:
-        if isinstance(geom, list):
-            min_lat, min_lon, max_lat, max_lon = geom
-
-        elif isinstance(geom, dict):
-            min_lat, min_lon, max_lat, max_lon = (
-                geom["latitude_minimum"],
-                geom["longitude_minimum"],
-                geom["latitude_maximum"],
-                geom["longitude_maximum"],
-            )
-        else:
-            raise TypeError(f"Unsupported geometry type: {type(geom)}")
+        
+        min_lat, min_lon, max_lat, max_lon = convert_geom_list(geom)
 
         tile_size = 3 if "WorldCover" in collection else 1
 

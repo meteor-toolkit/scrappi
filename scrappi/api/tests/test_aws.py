@@ -14,8 +14,8 @@ class TestAWSCallHandler(unittest.TestCase):
     def test_list_collections(self):
         expected = [
             "ESA_WorldCover",
-            "Copernicus-dem-30m",
-            "Copernicus-dem-90m",
+            "copernicus_dem_30m",
+            "copernicus_dem_90m",
         ]
         self.assertEqual(self.handler.list_collections(), expected)
 
@@ -68,7 +68,7 @@ class TestAWSCallHandler(unittest.TestCase):
 
         tiles = self.handler._set_geom(
             geom,
-            "Copernicus-dem-30m",
+            "copernicus_dem_30m",
         )
 
         self.assertEqual(
@@ -206,7 +206,7 @@ class TestAWSCallHandler(unittest.TestCase):
 
     def test_get_tile_size_dem(self):
         self.assertEqual(
-            self.handler._get_tile_size("Copernicus-dem-30m"),
+            self.handler._get_tile_size("copernicus_dem_30m"),
             1,
         )
 

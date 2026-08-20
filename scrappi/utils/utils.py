@@ -179,7 +179,7 @@ def convert_geom(geom: Any) -> Any:
         try:
             return shapely.wkt.loads(geom)
         except shapely.errors.WKTReadingError:
-            raise ValueError("""Incorrect "geom" query format. 
+            raise TypeError("""Incorrect "geom" query format. 
                             Please choose from: 
                                 shapely geometry object,
                                 Well-Known-Text string (wkt str)
@@ -208,8 +208,32 @@ def convert_geom_shapely(geom: Any) -> Any:
                 (geom["longitude_minimum"], geom["latitude_minimum"]),
             )
         )
-    else:
+    elif isinstance(
+        geom,
+        (
+            shapely.geometry.base.BaseGeometry,
+            shapely.geometry.base.BaseMultipartGeometry,
+        ),
+    ):
         return geom
+        
+
+def convert_geom_list(geom: Any) -> Any:
+    """
+    Get the geometry converted to shapely
+
+    :param geom:
+    :returns:
+    """
+    geom = convert_geom(
+        geom
+    )  # this returns shapely or dictionary with "longitude_minimum", "longitude_maximum", "latitude_minimum", "latitude_maximum"
+    if isinstance(geom, dict):
+        return geom["latitude_minimum"], geom["longitude_minimum"], geom["latitude_maximum"], geom["longitude_maximum"]
+        
+    else:
+        min_lon, min_lat, max_lon, max_lat = geom.bounds
+        return min_lat, min_lon, max_lat, max_lon
 
 
 # dictionary tools from eoio
