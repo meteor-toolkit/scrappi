@@ -179,7 +179,7 @@ def convert_geom(geom: Any) -> Any:
         try:
             return shapely.wkt.loads(geom)
         except shapely.errors.WKTReadingError:
-            raise TypeError("""Incorrect "geom" query format. 
+            raise ValueError("""Incorrect "geom" query format. 
                             Please choose from: 
                                 shapely geometry object,
                                 Well-Known-Text string (wkt str)

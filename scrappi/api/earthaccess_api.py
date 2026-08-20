@@ -11,6 +11,7 @@ import datetime as dt
 from shapely.geometry import Polygon, MultiPolygon
 from typing import Any, Optional, Union, List
 try:
+    import earthaccess
     from earthaccess import DataGranule
 except:
     DataGranule = None

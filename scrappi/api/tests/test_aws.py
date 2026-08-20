@@ -14,8 +14,8 @@ class TestAWSCallHandler(unittest.TestCase):
     def test_list_collections(self):
         expected = [
             "ESA_WorldCover",
-            "copernicus_dem_30m",
-            "copernicus_dem_90m",
+            "Copernicus_dem_30m",
+            "Copernicus_dem_90m",
         ]
         self.assertEqual(self.handler.list_collections(), expected)
 
@@ -87,7 +87,7 @@ class TestAWSCallHandler(unittest.TestCase):
         )
 
     def test_set_geom_invalid_type(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             self.handler._set_geom("invalid", "ESA_WorldCover")
 
     def test_format_query_worldcover(self):
