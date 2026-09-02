@@ -87,6 +87,34 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         self.assertIsInstance(eodag_api, EODAGCallHandler)
         self.assertIsNot(radcalnet_api, eodag_api)
 
+    def test_context_aware_call_rebuilds_a_handler_cached_without_context(self):
+        """Regression test: a no-context call (e.g. is_insitu_collection, which only
+        needs a handler to type-check list_collections()) primes the cache with a
+        handler built from scrappi defaults only. A later call that *does* pass a
+        context must not get that context-free handler back on a cache hit -- it must
+        be rebuilt from the given context, so per-run config (credentials, RadCalNet
+        site_definitions, an offline archive path, ...) actually reaches it."""
+        from scrappi import ScrappiContext
+
+        context_free = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        ctx = ScrappiContext({"marker_for_this_run": "present"})
+        with_context = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+
+        # not the cached context-free instance, and built from the context we passed
+        self.assertIsNot(context_free, with_context)
+        self.assertEqual(with_context.context["marker_for_this_run"], "present")
+        self.assertIsNone(context_free.context.get("marker_for_this_run"))
+
+    def test_eodag_handler_is_served_from_cache_regardless_of_context(self):
+        """eodag construction is expensive and its per-run context differences (the
+        preferred provider) are applied at query time, so it stays cached by name even
+        when a context is passed."""
+        from scrappi import ScrappiContext
+
+        first = self.api_call_handler_factory.get_api_call_handler("eodag")
+        second = self.api_call_handler_factory.get_api_call_handler("eodag", context=ScrappiContext())
+        self.assertIs(first, second)
+
 
 if __name__ == "__main__":
     unittest.main()
