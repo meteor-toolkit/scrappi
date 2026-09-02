@@ -245,6 +245,18 @@ class TestRCNCallHandler(unittest.TestCase):
             print("SSL Error detected, this is expected if running via the NPL LAN")
             print(err)
 
+    def test_get_roi_shapely_raises_a_helpful_error_for_an_unregistered_site(self):
+        """A site that isn't a scrappi built-in and hasn't been added to
+        context['RadCalNet']['site_definitions'] used to fail with a bare
+        ``KeyError: '<site>'`` from ``roi_dict[site]``, deep in insitubase.py. The
+        error now names the site, lists the known ones, and points at the config."""
+        handler = RadcalnetCallHandler()
+        with self.assertRaises(KeyError) as ctx:
+            handler.get_roi_shapely("ERUS")
+        message = str(ctx.exception)
+        self.assertIn("ERUS", message)
+        self.assertIn("site_definitions", message)
+
     def test_list_sites(self):
         self.rcnHandler = RadcalnetCallHandler()
         try:

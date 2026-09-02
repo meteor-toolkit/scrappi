@@ -38,11 +38,25 @@ class InSituCallHandler(BaseAPICallHandler):
         self.roi_dict: dict = roi_dict if roi_dict is not None else {}
         self.sites = list(self.roi_dict.keys())
 
+    def _roi_or_raise(self, site: str):
+        """*site*'s raw ROI geometry from :py:attr:`roi_dict`, or a ``KeyError`` that
+        actually says what's wrong (the bare ``roi_dict[site]`` lookup just raised
+        ``KeyError: '<site>'``, which gives no hint that the fix is a config entry)."""
+        try:
+            return self.roi_dict[site]
+        except KeyError:
+            raise KeyError(
+                f"in-situ site {site!r} is not registered with {type(self).__name__} -- "
+                f"known sites: {sorted(self.roi_dict)}. If this is a RadCalNet site that "
+                f"isn't on the built-in list, add its latitude/longitude/default_roi under "
+                f"context['RadCalNet']['site_definitions']."
+            ) from None
+
     def get_roi_shapely(self, site: str):
-        return convert_geom_shapely(self.roi_dict[site])
+        return convert_geom_shapely(self._roi_or_raise(site))
 
     def get_roi(self, site: str):
-        return convert_geom(self.roi_dict[site])
+        return convert_geom(self._roi_or_raise(site))
 
     def set_roi(self, site: str, geom: Any):
         self.roi_dict[site] = geom
