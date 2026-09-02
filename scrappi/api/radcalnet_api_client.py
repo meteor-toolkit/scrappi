@@ -39,6 +39,13 @@ __all__ = ["RadcalnetCallHandler", "RadcalnetOfflineCallHandler"]
 # set -- the offline archive is a local mirror of the same two product types).
 RCN_COLLECTIONS = ["RCN_TOA", "RCN_BOA"]
 
+# Default per-request timeout (seconds) for calls to the online RadCalNet API -- a
+# scalar applies to both the connect and each read. Without it a request to an
+# unresponsive server (e.g. for a site the portal doesn't host but which a user has
+# added via context["RadCalNet"]["site_definitions"]) hangs the whole run forever with
+# no way to Ctrl-C out. Override per run with context["request_timeout"].
+DEFAULT_REQUEST_TIMEOUT_S = 60
+
 # Built-in RadCalNet site coordinates/ROI, module-level so both RadcalnetCallHandler and
 # RadcalnetOfflineCallHandler resolve the same starting point (see
 # _resolve_site_definitions) -- kept as RadcalnetCallHandler.DEFAULT_SITE_DEFINITIONS
@@ -391,7 +398,8 @@ class RadcalnetCallHandler(InSituCallHandler):
         url = self.url_base + site + "/data/" + filename
         if not os.path.exists(os.path.dirname(dest_str)):
             os.makedirs(os.path.dirname(dest_str))
-        with self.session.get(url, stream=True) as r:
+        timeout = self.context.get("request_timeout", DEFAULT_REQUEST_TIMEOUT_S)
+        with self.session.get(url, stream=True, timeout=timeout) as r:
             r.raise_for_status()
             with open(dest_str, "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
@@ -413,7 +421,7 @@ class RadcalnetCallHandler(InSituCallHandler):
             return []
         url = self.url_base + site + "/data/"
         # get the list of all files for the site
-        r = self.session.get(url)
+        r = self.session.get(url, timeout=self.context.get("request_timeout", DEFAULT_REQUEST_TIMEOUT_S))
         r.raise_for_status()
         filelist = [file["name"] for file in r.json()]
 

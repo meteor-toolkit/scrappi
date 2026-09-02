@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import string
+import threading
 import unittest
 import datetime as dt
 import numpy as np
@@ -191,6 +192,37 @@ class TestInterface(unittest.TestCase):
         ):
             self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
             self.assertEqual(get_api_name("LANDSAT_C2L1", context=context, all_apis=True), ["handle1"])
+
+    def test_get_api_name_does_not_hang_on_a_processor_tools_context(self):
+        """Regression test: a bare processor_tools.Context (e.g. eomatch's
+        EOMatchContext, handed straight to get_api_name by
+        Sat2InSituMUFinder.identify_mu_events) must be unwrapped to its values dict
+        before ScrappiContext() construction. Context.__init__ treats a non-(str|dict)
+        config as a sequence and does ``list(config)`` -- and ``list()`` on a Context
+        never terminates, because Context.__getitem__ returns None (not IndexError) for
+        the integer indices the sequence protocol probes. get_api_name used to hang here
+        forever with no way to Ctrl-C out (eodag installs its own signal handling)."""
+        from processor_tools import Context
+
+        context = Context(
+            {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA", "api": {"preferred_api": None}}
+        )
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["LANDSAT_C2L1"]
+        result = {}
+
+        def _run():
+            with (
+                mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True),
+                mock.patch("scrappi.interface.Factory.all_api_list", ["handle1"]),
+            ):
+                result["value"] = get_api_name("LANDSAT_C2L1", context=context, all_apis=True)
+
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout=15)
+        self.assertFalse(worker.is_alive(), "get_api_name hung on a processor_tools.Context")
+        self.assertEqual(result.get("value"), ["handle1"])
 
     def test_make_api_accepts_a_non_scrappicontext_truthy_context(self):
         """Same regression as test_get_api_name_accepts_a_non_scrappicontext_truthy_context,
