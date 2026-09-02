@@ -7,10 +7,12 @@ import unittest.mock as mock
 from datetime import datetime as dt, timedelta, timezone
 import shutil
 import pytest
+from tempfile import TemporaryDirectory
 
 import requests.exceptions
 
-from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
+from scrappi import ScrappiContext
+from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
 from scrappi.utils.utils import convert_geom_shapely
 
 __author__ = [
@@ -327,6 +329,173 @@ class TestRCNCallHandler(unittest.TestCase):
                     shapes[site].bounds[i],
                     places=5,
                 )
+
+
+class TestRadcalnetOfflineCallHandler(unittest.TestCase):
+    """Tests for RadcalnetOfflineCallHandler -- resolving RadCalNet products from a
+    local archive rather than the online API. See RadcalnetOfflineCallHandler's own
+    docstring for the archive-layout rationale (any directory tree, matched purely by
+    filename, not location)."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.archive_path = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, *path_parts):
+        """Create an empty file at os.path.join(self.archive_path, *path_parts),
+        creating any intermediate directories -- content is irrelevant, perform_query
+        only inspects the filename."""
+        full_path = os.path.join(self.archive_path, *path_parts)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w"):
+            pass
+        return full_path
+
+    def test_list_collections(self):
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        self.assertEqual(handler.list_collections(), ["RCN_TOA", "RCN_BOA"])
+
+    def test_perform_query_finds_matching_boa_file_in_nested_directory(self):
+        """Archive layout mirrors the online API's own {site}/data/{filename}
+        convention -- perform_query must search recursively, not just archive_path's
+        top level."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {
+                "collection": "RCN_BOA",
+                "site": "GONA",
+                "start_time": dt(2022, 10, 1),
+                "stop_time": dt(2022, 11, 1),
+            }
+        )
+
+        self.assertEqual(len(products), 1)
+        product = list(products)[0]
+        self.assertEqual(product.id, "GONA01_2022_291_v04.09.output")
+
+    def test_perform_query_filters_toa_vs_boa_by_filename_suffix(self):
+        self._write("GONA01_2022_291_v04.09.output")  # .output -> BOA
+        self._write("GONA01_2022_291_v04.09.input")  # .input -> TOA
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        query = {"site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+
+        boa_products = handler.perform_query({**query, "collection": "RCN_BOA"})
+        toa_products = handler.perform_query({**query, "collection": "RCN_TOA"})
+
+        self.assertEqual([p.id for p in boa_products], ["GONA01_2022_291_v04.09.output"])
+        self.assertEqual([p.id for p in toa_products], ["GONA01_2022_291_v04.09.input"])
+
+    def test_perform_query_skips_files_for_other_sites(self):
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("RVUS01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_skips_non_rcn_named_files(self):
+        """A file that doesn't parse via the site_instrument_year_doy_version
+        convention (e.g. a checksum or readme) is silently skipped, not an error."""
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("README.md")
+        self._write("checksums.sha256")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_respects_date_range(self):
+        self._write("GONA01_2022_291_v04.09.output")  # 18 Oct 2022
+        self._write("GONA01_2023_291_v04.09.output")  # 18 Oct 2023 -- out of range
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_returns_empty_when_archive_path_missing(self):
+        missing_path = os.path.join(self.archive_path, "does-not-exist")
+        handler = RadcalnetOfflineCallHandler(archive_path=missing_path)
+
+        with self.assertWarns(UserWarning):
+            products = handler.perform_query(
+                {
+                    "collection": "RCN_BOA",
+                    "site": "GONA",
+                    "start_time": dt(2022, 10, 1),
+                    "stop_time": dt(2022, 11, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 0)
+
+    def test_perform_query_returns_empty_for_unregistered_site(self):
+        self._write("ZZZZ01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        with self.assertWarns(UserWarning):
+            products = handler.perform_query(
+                {
+                    "collection": "RCN_BOA",
+                    "site": "ZZZZ",
+                    "start_time": dt(2022, 10, 1),
+                    "stop_time": dt(2022, 11, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 0)
+
+    def test_perform_query_finds_offline_only_site_registered_via_context(self):
+        """A site with no built-in entry (e.g. a newer RCN site not yet on the online
+        portal) becomes discoverable purely by adding it to
+        context['RadCalNet']['site_definitions'] -- no code change needed."""
+        self._write("NEWS01_2024_100_v04.09.output")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {"NEWS": {"latitude": 10.0, "longitude": 20.0, "default_roi": 100}}
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "NEWS", "start_time": dt(2024, 1, 1), "stop_time": dt(2024, 12, 31)}
+        )
+
+        self.assertEqual([p.id for p in products], ["NEWS01_2024_100_v04.09.output"])
+
+    def test_archive_path_resolves_from_context_when_not_passed_explicitly(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["offline_archive_path"] = self.archive_path
+        handler = RadcalnetOfflineCallHandler(context=context)
+        self.assertEqual(handler.archive_path, self.archive_path)
+
+    def test_explicit_archive_path_overrides_context(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["offline_archive_path"] = "/some/other/path"
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self.assertEqual(handler.archive_path, self.archive_path)
+
+    def test_download_product_resolves_existing_file_without_network(self):
+        file_path = self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        path = handler.download_product(products)
+
+        self.assertEqual(len(path), 1)
+        self.assertEqual(os.path.normpath(path[0]), os.path.normpath(file_path))
 
 
 if __name__ == "__main__":

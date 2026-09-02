@@ -284,7 +284,18 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
     for api in api_list:
         api_handler = make_api(api, context)
-        products = api_handler.perform_query(query)
+        try:
+            products = api_handler.perform_query(query)
+        except Exception as e:
+            # A candidate API can legitimately fail for a query only it can't
+            # serve -- e.g. an in-situ site unknown to *this* particular API
+            # (RadcalnetCallHandler.get_files_list raises for a site outside its
+            # own DEFAULT_SITE_DEFINITIONS) -- so one candidate's own error
+            # shouldn't abort the whole fallback chain when a later candidate
+            # (e.g. an offline archive handler for the same collection) might
+            # still have an answer.
+            warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
+            continue
         if len(products) > 0:
             return products
 
