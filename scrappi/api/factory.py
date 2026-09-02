@@ -64,22 +64,32 @@ class APICallHandlerFactory:
 
         :param name: selected API (e.g. ``"eodag"``)
         :param context: optional `ScrappiContext` to pass to the handler
-        :param use_cache: if ``True`` (default), reuse a previously built handler for
-            the same *name* instead of constructing a new one on every call. This
-            matters most for ``"eodag"``: its handler's ``__init__`` builds a fresh
-            ``eodag.EODataAccessGateway``, which reads and prunes every provider
-            config on every construction -- a few hundred ms each time, dominating
-            callers (e.g. ``is_insitu_collection``) that resolve a handler by name
-            repeatedly. A cached handler keeps whatever *context* it was first built
-            with -- pass ``use_cache=False`` (or call :py:meth:`clear_cache` first)
-            if you need a handler rebuilt from a specific, possibly different,
-            *context* (e.g. different credentials).
+        :param use_cache: if ``True`` (default), a previously built handler for the same
+            *name* may be reused instead of constructing a new one. This matters for
+            ``"eodag"``: its ``__init__`` builds a fresh ``eodag.EODataAccessGateway``,
+            which reads and prunes every provider config on every construction -- a few
+            hundred ms each time -- and its per-run context differences (the preferred
+            provider) are applied at query time, not construction, so the eodag handler
+            is served from the cache regardless of *context*. Every other handler is
+            cheap to build and *is* context-sensitive (credentials, RadCalNet
+            ``site_definitions``, an offline archive path, ...), so a cached one is
+            served only to a caller that passes no *context* (e.g. ``is_insitu_collection``,
+            which only needs a handler to type-check ``list_collections()``); a caller
+            that passes a *context* always gets a handler freshly built from it. Pass
+            ``use_cache=False`` to force a rebuild in every case.
         :return: instance of a `BaseAPICallHandler` subclass
         """
         if isinstance(name, BaseAPICallHandler):
             return name
 
-        if use_cache:
+        # eodag: cache by name always. Others: only serve a cached instance to a
+        # no-context caller -- otherwise a context-free handler cached by
+        # is_insitu_collection() would be handed back to get_api_name()/make_api(),
+        # so a run's own site_definitions / credentials never reach it.
+        is_eodag = name.split(":")[0].lower() == "eodag"
+        serve_from_cache = use_cache and (is_eodag or context is None)
+
+        if serve_from_cache:
             cached = self._handler_cache.get(name)
             if cached is not None:
                 return cached
