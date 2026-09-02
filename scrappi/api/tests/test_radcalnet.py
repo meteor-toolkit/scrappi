@@ -50,12 +50,12 @@ product_list = [
 
 
 class MockSession:
-    def get(self, url):
+    def get(self, url, **kwargs):
         return MockGet(url)
 
 
 class MockSessionError:
-    def get(self, url):
+    def get(self, url, **kwargs):
         return MockGetError()
 
 
@@ -93,6 +93,17 @@ class TestRCNCallHandler(unittest.TestCase):
             filtered_list,
             ["GONA01_2022_289_v04.09.output", "GONA01_2022_290_v04.09.output"],
         )
+
+    @mock.patch("requests.session")
+    def test_get_files_list_passes_a_request_timeout(self, mock_session):
+        """Regression test: the file-list GET must carry a timeout -- without one, a
+        request to an unresponsive server (e.g. for a site the portal doesn't host but
+        that a user added via context["RadCalNet"]["site_definitions"]) hangs the whole
+        run forever, and eodag's signal handling means Ctrl-C won't break out of it."""
+        session = mock_session.return_value
+        session.get.return_value = MockGet("url")
+        RadcalnetCallHandler().get_files_list("GONA", "GONA_TOA", dt(2022, 10, 10), dt(2022, 11, 10))
+        self.assertTrue(session.get.call_args.kwargs.get("timeout"))
 
     def test_check_date_in_range_matches_same_calendar_day(self):
         """Regression test: a query window entirely within one calendar day must
