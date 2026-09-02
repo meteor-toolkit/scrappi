@@ -148,8 +148,16 @@ def get_api_name(
     :return: name/s of API to use
     """
 
-    if not context:
-        context = ScrappiContext()
+    if not isinstance(context, ScrappiContext):
+        # A falsy check alone (the old `if not context:`) only catches None/empty --
+        # a non-ScrappiContext object that's still truthy (e.g. an eomatch
+        # EOMatchContext, passed straight through by a caller like
+        # Sat2InSituMUFinder.identify_mu_events) would pass through unwrapped and
+        # crash below on context["api"]["preferred_api"], since it doesn't carry
+        # scrappi's own defaults.yaml (api.preferred_api etc.) the way a real
+        # ScrappiContext does. Same isinstance-based normalisation the API handler
+        # constructors themselves already use (e.g. RadcalnetCallHandler.__init__).
+        context = ScrappiContext(context)
 
     preferred_api = ""
     if context["api"]["preferred_api"]:
@@ -226,8 +234,9 @@ def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None
     :param context: Context object (user provided configuration values or scrappi default)
     :return : reader object
     """
-    if not context:
-        context = ScrappiContext()
+    if not isinstance(context, ScrappiContext):
+        # See get_api_name's own comment on this same isinstance-vs-falsy fix.
+        context = ScrappiContext(context)
     if isinstance(api, BaseAPICallHandler):
         return api
     elif not api:
@@ -245,8 +254,9 @@ def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     :param context: Context object (user provided configuration values or scrappi default)
 
     """
-    if not context:
-        context = ScrappiContext()
+    if not isinstance(context, ScrappiContext):
+        # See get_api_name's own comment on this same isinstance-vs-falsy fix.
+        context = ScrappiContext(context)
     if not fs:
         fs = context["fs"]["path"]
     return FSFactory.get_fs_call_handler(fs, context)

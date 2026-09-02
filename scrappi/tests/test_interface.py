@@ -158,6 +158,47 @@ class TestInterface(unittest.TestCase):
         ) as _mock_handlers:
             self.assertEqual(get_api_name("S2_MSI_L1C", context=context), None)
 
+    def test_get_api_name_accepts_a_non_scrappicontext_truthy_context(self):
+        """Regression test: a caller may pass a non-ScrappiContext object as
+        *context* (e.g. eomatch's own EOMatchContext, or a plain populated dict) --
+        get_api_name used to only normalise a falsy context (`if not context:`),
+        so a truthy-but-wrong-type context skipped ScrappiContext() construction
+        entirely and crashed on context["api"]["preferred_api"] (that key isn't
+        populated with scrappi's own defaults on an arbitrary object). A plain
+        dict is truthy the same way a populated EOMatchContext is, so it
+        reproduces the same failure mode without needing eomatch installed."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA", "api": {"preferred_api": None}}
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["LANDSAT_C2L1"]
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1"],
+            ) as _mock_all_api_list,
+        ):
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context, all_apis=True), ["handle1"])
+
+    def test_make_api_accepts_a_non_scrappicontext_truthy_context(self):
+        """Same regression as test_get_api_name_accepts_a_non_scrappicontext_truthy_context,
+        for make_api -- it reads context["api"]["preferred_api"] itself when *api*
+        isn't given explicitly."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA"}
+        m = mock.MagicMock()
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True):
+            make_api("handle1", context=context)
+        m.assert_called_once()
+
+    def test_make_fs_accepts_a_non_scrappicontext_truthy_context(self):
+        """Same regression as test_get_api_name_accepts_a_non_scrappicontext_truthy_context,
+        for make_fs -- it reads context["fs"]["path"] itself when *fs* isn't given."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA"}
+        fs = make_fs(self.tmp_dir_path, context=context)
+        self.assertEqual(os.path.normpath(fs.directory), os.path.normpath(self.tmp_dir_path))
+
     @mock.patch(
         "scrappi.api.eodag.EODataAccessGateway.list_collections",
         return_value=[mock.Mock(id="LANDSAT_C2L1"), mock.Mock(id="S2_MSI_L1C")],
