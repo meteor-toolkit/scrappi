@@ -678,3 +678,56 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
                 )
 
         return ProductItemSet(product_list)
+
+    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
+        """Absolute path of *product*'s file within the archive tree, or ``None``
+        if the archive doesn't contain it.
+
+        :py:meth:`perform_query` attaches a per-file :py:func:`_archive_filesystem`
+        to each product it returns, but a product rebuilt from a STAC catalogue
+        (``eomatch``'s ``product_item_from_stac``) arrives with no filesystem/API
+        config at all -- so :py:meth:`download_product` re-resolves the file by
+        filename here rather than trusting ``product.filesystem``.
+        """
+        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
+            if product.id in filenames:
+                return os.path.join(dirpath, product.id)
+        return None
+
+    def download_product(
+        self, product: Union[str, ProductItem, ProductItemSet]
+    ) -> Optional[Union[list, str]]:
+        """Resolve *product* to its path in the local archive -- no network, no copy.
+
+        "Download" is a misnomer for the offline handler: the file is already on
+        local disk. This locates it under :py:attr:`archive_path` by filename (see
+        :py:meth:`_archive_path_for`) and returns that path, repinning
+        ``product.filesystem`` to the file's real directory so
+        :py:meth:`~scrappi.product.ProductItem.get_path` and any STAC registration
+        resolve correctly even for a product rebuilt from a catalogue (which reaches
+        here with no archive filesystem attached -- otherwise the base
+        :py:meth:`~scrappi.api.insitubase.InSituCallHandler.download_product` would
+        look for the file wherever that product's current filesystem points, not
+        find it, and fall through to a doomed copy/fetch).
+
+        :param product: a :py:class:`~scrappi.product.ProductItem` or
+            :py:class:`~scrappi.product.ProductItemSet`.
+        :return: absolute path to the archive file (or list thereof).
+        :raises FileNotFoundError: if the archive doesn't contain the file.
+        """
+        if isinstance(product, ProductItemSet):
+            return [self.download_product(p) for p in product]  # type: ignore[misc]
+        if not isinstance(product, ProductItem):
+            raise TypeError(
+                "product must be a ProductItem or ProductItemSet for "
+                "RadcalnetOfflineCallHandler.download_product"
+            )
+
+        src = self._archive_path_for(product)
+        if src is None:
+            raise FileNotFoundError(
+                f"{product.id!r} not found under the RadCalNet offline archive "
+                f"{self.archive_path!r}"
+            )
+        product.filesystem = _archive_filesystem(os.path.dirname(src), self.context)
+        return src

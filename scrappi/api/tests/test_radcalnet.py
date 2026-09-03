@@ -520,6 +520,46 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         self.assertEqual(len(path), 1)
         self.assertEqual(os.path.normpath(path[0]), os.path.normpath(file_path))
 
+    def test_download_product_relocates_file_for_a_product_with_no_filesystem(self):
+        """A product rebuilt from a STAC catalogue (eomatch's product_item_from_stac)
+        arrives with no filesystem/API config -- download_product must re-locate the
+        file under archive_path by filename, not trust product.filesystem."""
+        file_path = self._write("ERUS", "2023", "08", "30", "ERUS00_2023_242_v00.04.input")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+            )
+        )[0]
+        product.filesystem = None  # as if freshly rebuilt from a STAC item
+
+        path = handler.download_product(product)
+
+        self.assertEqual(os.path.normpath(path), os.path.normpath(file_path))
+        # filesystem is repinned so get_path()/STAC registration work afterwards
+        self.assertEqual(os.path.normpath(product.get_path()), os.path.normpath(file_path))
+
+    def test_download_product_raises_when_file_not_in_archive(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self._write("ERUS", "2023", "08", "30", "ERUS00_2023_242_v00.04.input")
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+            )
+        )[0]
+        product.id = "ERUS00_2023_999_v00.04.input"  # not in the archive
+
+        with self.assertRaises(FileNotFoundError):
+            handler.download_product(product)
+
     def test_product_can_be_converted_to_a_stac_item(self):
         """Regression test: adding an offline-archive matchup to a catalogue calls
         ProductItem.to_stac_item(), which needs the product's filesystem to expose
