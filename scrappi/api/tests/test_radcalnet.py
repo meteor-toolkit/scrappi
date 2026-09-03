@@ -520,6 +520,30 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         self.assertEqual(len(path), 1)
         self.assertEqual(os.path.normpath(path[0]), os.path.normpath(file_path))
 
+    def test_product_can_be_converted_to_a_stac_item(self):
+        """Regression test: adding an offline-archive matchup to a catalogue calls
+        ProductItem.to_stac_item(), which needs the product's filesystem to expose
+        return_stac_item_path (a STACFileSystem method) and to resolve the archive
+        file relative to its own data_root. A plain LocalFileSystem raised
+        AttributeError; STACFileSystem with the default <dir>/data/ layout raised
+        ValueError on the relative_to."""
+        file_path = self._write("ERUS", "2023", "02", "15", "ERUS01_2023_046_v04.09.input")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 3, 1)}
+        )
+        self.assertEqual(len(products), 1)
+
+        item = products[0].to_stac_item()
+
+        self.assertEqual(item.id, "ERUS01_2023_046_v04.09.input")
+        # the on-disk file still resolves for a (networkless) download
+        self.assertEqual(os.path.normpath(products[0].get_path()), os.path.normpath(file_path))
+
 
 if __name__ == "__main__":
     unittest.main()

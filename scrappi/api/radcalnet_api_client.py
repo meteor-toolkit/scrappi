@@ -24,7 +24,7 @@ from processor_tools import Context
 
 from scrappi import ScrappiContext
 from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
-from scrappi.fs.localfilesystem import LocalFileSystem
+from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
 
@@ -490,6 +490,31 @@ def _default_offline_archive_path() -> str:
     )  # r"\\eoserver", "home", "data", "insitu", "radcalnet", "archive"
 
 
+def _archive_filesystem(dirpath: str, context: ScrappiContext) -> STACFileSystem:
+    """A :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to *dirpath* --
+    the directory a RadCalNet archive file actually sits in.
+
+    Used as the per-product filesystem in
+    :py:meth:`RadcalnetOfflineCallHandler.perform_query`. STACFileSystem (rather than a
+    plain LocalFileSystem) so :py:meth:`~scrappi.product.ProductItem.to_stac_item` --
+    called when the matchup is added to a catalogue -- has ``return_stac_item_path``.
+
+    STACFileSystem otherwise assumes a ``<root>/data/`` + ``<root>/stac/`` layout (and
+    strips a trailing ``data`` from the path -- which a RadCalNet archive dir mirroring
+    the online API's ``{site}/data/{file}`` layout actually ends in). A RadCalNet file
+    just sits directly in its directory, so every path attribute is pinned back to
+    *dirpath*: ``return_path`` (download resolution) and ``to_stac_item`` (which resolves
+    the asset relative to ``data_root``) then both work regardless of archive layout.
+    ``organise_data`` is already ``False`` (set in the handler's ``__init__``).
+    """
+    fs = STACFileSystem(path=dirpath, context=context)
+    fs.directory = dirpath
+    fs.directory_stac = dirpath
+    fs.data_root = dirpath
+    fs.stac_root = os.path.join(dirpath, "stac")
+    return fs
+
+
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
     """
     Offline API handler for RadCalNet data.
@@ -553,7 +578,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             archive_path = _default_offline_archive_path()
 
         self.archive_path = archive_path
-        # Each product's own LocalFileSystem (built in perform_query) already points
+        # Each product's own filesystem (built in perform_query) already points
         # directly at its containing directory -- organise_data would instead try to
         # rebuild a reorganised path from product metadata, which won't match where
         # the file actually is. Same fix HYPERNETSOfflineCallHandler already applies.
@@ -578,10 +603,13 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         filters :py:meth:`RadcalnetCallHandler.get_files_list` applies to the online
         API's own file listing. Each match becomes a
         :py:class:`~scrappi.product.ProductItem` whose own
-        :py:class:`~scrappi.fs.localfilesystem.LocalFileSystem` points directly at the
-        file's containing directory, so :py:meth:`download_product`
+        :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` points directly at the
+        file's containing directory (flat layout -- its ``data_root`` is that directory
+        itself, not a ``data/`` subdir), so :py:meth:`download_product`
         (:py:meth:`~scrappi.api.insitubase.InSituOfflineCallHandler.download_file`)
-        resolves it without ever attempting a network fetch.
+        resolves it without ever attempting a network fetch, and
+        :py:meth:`~scrappi.product.ProductItem.to_stac_item` (called when the matchup is
+        added to a catalogue) can resolve the STAC item path.
 
         :param query: catalogue query -- same shape as
             :py:meth:`RadcalnetCallHandler.perform_query` accepts (``"site"`` or
@@ -645,7 +673,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
                         quicklook="",
                         api=self,
                         context=self.context,
-                        filesystem=LocalFileSystem(dirpath, self.context),
+                        filesystem=_archive_filesystem(dirpath, self.context),
                     )
                 )
 
