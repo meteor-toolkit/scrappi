@@ -43,3 +43,45 @@ Alternatively, it is also possible to set the prefered provider for eodag by usi
 
     from scrappi.interface import make_api
     api=make_api("eodag:usgs")
+
+
+RadCalNet
+=========
+RadCalNet (`radcalnet.org <https://www.radcalnet.org>`_) is a network of instrumented
+sites providing near-simultaneous surface and top-of-atmosphere reflectance for
+satellite radiometric calibration and validation. Each site and day is delivered as
+two files: ``*.output`` (the modelled **top-of-atmosphere** reflectance, collection
+``RCN_TOA``) and ``*.input`` (the measured **surface / bottom-of-atmosphere**
+reflectance and atmospheric state, collection ``RCN_BOA``).
+
+**Built-in sites** (GONA, BTCN, BSCN, LCFR, RVUS) work with no configuration.
+Any other site -- e.g. a newer one not yet on the portal -- needs its
+latitude/longitude and half-ROI added to the context, no code change:
+
+.. code-block:: yaml
+
+    RadCalNet:
+        site_definitions:
+            ERUS:
+                latitude: 43.7380
+                longitude: -96.6304
+                default_roi: 45          # metres from the centre to each edge
+
+Online (``"radcalnet"``)
+    Fetches files from the RadCalNet JSON API. Credentials go under
+    ``RadCalNet`` in the config (``username`` / ``password``).
+
+Offline (``"radcalnet_offline"``)
+    Resolves files from a local archive instead of the network -- for a site not
+    published online, or as a fallback. Point it at the archive root with:
+
+    .. code-block:: yaml
+
+        RadCalNet:
+            offline_archive_path: /path/to/radcalnet/archive
+
+    The tree is searched recursively; only the filename matters (the standard
+    ``<site><instrument>_<year>_<doy>_<version>.input``/``.output`` convention), so
+    any layout works. When several reprocessings of one day are present, only the
+    newest version is returned. ``radcalnet_offline`` is listed after ``radcalnet``
+    in the candidate list, so the online portal is used whenever it has the data.

@@ -123,10 +123,55 @@ def _parse_rcn_filename(filename: str) -> Tuple[str, int, int, str]:
     :py:meth:`RadcalnetOfflineCallHandler.perform_query`.
 
     :param filename: name of RCN file, e.g. ``"GONA01_2022_291_v04.09.output"``.
-    :return: ``(site_instrument, year, doy, version)``.
+    :return: ``(site_instrument, year, doy, version)`` -- *version* still carries the
+        file extension, e.g. ``"v04.09.output"`` (see :py:func:`_rcn_version_key`).
     """
     site_instrument, year, doy, version = filename.split("_")
     return site_instrument, int(year), int(doy), version
+
+
+def _rcn_version_key(version: str) -> Tuple[int, ...]:
+    """A sortable key for an RCN version string so the newest reprocessing of a
+    site/day can be picked when an accumulating offline archive keeps several
+    (e.g. ``v04.08.output`` alongside ``v04.09.output``).
+
+    :param version: the version field from :py:func:`_parse_rcn_filename`, e.g.
+        ``"v04.09.output"`` (extension included) or ``"v04.9"``.
+    :return: e.g. ``(4, 9)``; an unparseable version sorts lowest (``()``).
+    """
+    core = version.lstrip("vV").split(".")
+    numbers: list = []
+    for part in core:
+        if not part.isdigit():
+            break
+        numbers.append(int(part))
+    return tuple(numbers)
+
+
+def _file_matches_collection(filename: str, collection: str) -> bool:
+    """Whether *filename*'s TOA/BOA suffix matches the requested *collection*.
+
+    RadCalNet delivers two files per site and day: ``*.input`` carries the measured
+    **surface (bottom-of-atmosphere)** reflectance and atmospheric state, and
+    ``*.output`` the **top-of-atmosphere** reflectance modelled by propagating that
+    state upward. So an ``RCN_TOA`` query wants the ``.output`` files and ``RCN_BOA``
+    wants the ``.input`` files (matching :py:mod:`eoio`'s own RadCalNet reader, which
+    labels ``.input`` "Bottom of Atmosphere" and ``.output`` "Top of Atmosphere"). A
+    *collection* naming neither -- the bare site id -- matches both.
+
+    Shared by the online :py:meth:`RadcalnetCallHandler.get_files_list` and the offline
+    :py:meth:`RadcalnetOfflineCallHandler.perform_query` so the two can never disagree
+    on the mapping.
+
+    :param filename: an RCN filename, e.g. ``"GONA01_2022_291_v04.09.output"``.
+    :param collection: the queried collection id, e.g. ``"RCN_TOA"``/``"RCN_BOA"``.
+    :return: ``True`` if *filename* belongs in *collection*.
+    """
+    if "TOA" in collection:
+        return filename.endswith(".output")
+    if "BOA" in collection:
+        return filename.endswith(".input")
+    return True
 
 
 def _check_date_in_range(year: int, doy: int, date1: dt.date, date2: dt.date) -> bool:
@@ -427,9 +472,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         mask = np.zeros(len(filelist))
         for ifile, filename in enumerate(filelist):
-            if "TOA" in collection and ".input" in filename:
-                mask[ifile] = 1
-            elif "BOA" in collection and ".output" in filename:
+            if not _file_matches_collection(filename, collection):
                 mask[ifile] = 1
 
             site_instrument, year, doy, version = self.parse_name(filename)
@@ -491,28 +534,18 @@ def _default_offline_archive_path() -> str:
 
 
 def _archive_filesystem(dirpath: str, context: ScrappiContext) -> STACFileSystem:
-    """A :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to *dirpath* --
-    the directory a RadCalNet archive file actually sits in.
+    """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to
+    *dirpath* -- the directory a RadCalNet archive file actually sits in.
 
     Used as the per-product filesystem in
     :py:meth:`RadcalnetOfflineCallHandler.perform_query`. STACFileSystem (rather than a
     plain LocalFileSystem) so :py:meth:`~scrappi.product.ProductItem.to_stac_item` --
     called when the matchup is added to a catalogue -- has ``return_stac_item_path``.
-
-    STACFileSystem otherwise assumes a ``<root>/data/`` + ``<root>/stac/`` layout (and
-    strips a trailing ``data`` from the path -- which a RadCalNet archive dir mirroring
-    the online API's ``{site}/data/{file}`` layout actually ends in). A RadCalNet file
-    just sits directly in its directory, so every path attribute is pinned back to
-    *dirpath*: ``return_path`` (download resolution) and ``to_stac_item`` (which resolves
-    the asset relative to ``data_root``) then both work regardless of archive layout.
-    ``organise_data`` is already ``False`` (set in the handler's ``__init__``).
+    ``flat=True`` disables both the ``<root>/data`` + ``<root>/stac`` subdivision and
+    the organised constellation/platform/date tree, so the file resolves at
+    ``<dirpath>/<id>`` regardless of how the archive itself is laid out.
     """
-    fs = STACFileSystem(path=dirpath, context=context)
-    fs.directory = dirpath
-    fs.directory_stac = dirpath
-    fs.data_root = dirpath
-    fs.stac_root = os.path.join(dirpath, "stac")
-    return fs
+    return STACFileSystem(path=dirpath, context=context, flat=True)
 
 
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
@@ -554,6 +587,9 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
     name = "radcalnet_offline"
     COLLECTIONS = RCN_COLLECTIONS
+    #: OfflineArchiveHandler reads the archive root from here when it isn't passed
+    #: to __init__: context["RadCalNet"]["offline_archive_path"].
+    ARCHIVE_PATH_CONTEXT_KEYS = ("RadCalNet", "offline_archive_path")
 
     def __init__(
         self,
@@ -569,20 +605,15 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         # needs a registered ROI for get_roi_shapely() to resolve it.
         self.DEFAULT_SITE_DEFINITIONS = _resolve_site_definitions(context)
         self._default_geometries = _build_default_geometries(self.DEFAULT_SITE_DEFINITIONS)
-        super().__init__(context, self._default_geometries)
+        # OfflineArchiveHandler resolves self.archive_path (arg -> context ->
+        # _default_archive_path) and provides download_product / _archive_path_for;
+        # InSituCallHandler takes the roi_dict. No context mutation for organise_data
+        # -- each per-product filesystem is built flat in perform_query.
+        super().__init__(context, roi_dict=self._default_geometries, archive_path=archive_path)
 
-        if archive_path is None:
-            radcalnet_config = context["RadCalNet"] if context and context.get("RadCalNet") else {}
-            archive_path = radcalnet_config.get("offline_archive_path") if radcalnet_config else None
-        if archive_path is None:
-            archive_path = _default_offline_archive_path()
-
-        self.archive_path = archive_path
-        # Each product's own filesystem (built in perform_query) already points
-        # directly at its containing directory -- organise_data would instead try to
-        # rebuild a reorganised path from product metadata, which won't match where
-        # the file actually is. Same fix HYPERNETSOfflineCallHandler already applies.
-        self.context["fs"]["organise_data"] = False
+    @staticmethod
+    def _default_archive_path() -> str:
+        return _default_offline_archive_path()
 
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
@@ -642,92 +673,50 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             )
             return ProductItemSet()
 
+        start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
+
+        # Keep only the newest version of each site/day: an accumulating archive
+        # often holds e.g. GONA01_2022_291_v04.08.output next to ...v04.09.output,
+        # and the online portal exposes only the latest. best[(year, doy)] =
+        # (version_key, filename, dirpath).
+        best: Dict[Tuple[int, int], Tuple[Tuple[int, ...], str, str]] = {}
+        for filename, filepath in self._archive_index.items():
+            try:
+                site_instrument, year, doy, version = _parse_rcn_filename(filename)
+            except ValueError:
+                continue  # not an RCN-named file (e.g. a checksum/readme) -- skip
+            if site_instrument[0:4] != site:
+                continue
+            if not _file_matches_collection(filename, collection):
+                continue
+            if not _check_date_in_range(year, doy, date1, date2):
+                continue
+            vkey = _rcn_version_key(version)
+            existing = best.get((year, doy))
+            if existing is None or vkey > existing[0]:
+                best[(year, doy)] = (vkey, filename, os.path.dirname(filepath))
+
         product_list = []
-        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
-            for filename in filenames:
-                try:
-                    site_instrument, year, doy, _version = _parse_rcn_filename(filename)
-                except ValueError:
-                    continue  # not an RCN-named file (e.g. a checksum/readme) -- skip
-
-                if site_instrument[0:4] != site:
-                    continue
-                if "TOA" in collection and ".input" not in filename:
-                    continue
-                if "BOA" in collection and ".output" not in filename:
-                    continue
-                if not _check_date_in_range(year, doy, date1, date2):
-                    continue
-
-                start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
-                product_list.append(
-                    ProductItem(
-                        constellation="RadCalNet",
-                        platform=site,
-                        collection=collection,
-                        id=filename,
-                        geometry=geom,
-                        start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
-                        stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
-                        url="",
-                        quicklook="",
-                        api=self,
-                        context=self.context,
-                        filesystem=_archive_filesystem(dirpath, self.context),
-                    )
+        for (year, doy), (_vkey, filename, dirpath) in best.items():
+            product_list.append(
+                ProductItem(
+                    constellation="RadCalNet",
+                    platform=site,
+                    collection=collection,
+                    id=filename,
+                    geometry=geom,
+                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
+                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
+                    url="",
+                    quicklook="",
+                    api=self,
+                    context=self.context,
+                    filesystem=_archive_filesystem(dirpath, self.context),
                 )
+            )
 
         return ProductItemSet(product_list)
 
-    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
-        """Absolute path of *product*'s file within the archive tree, or ``None``
-        if the archive doesn't contain it.
-
-        :py:meth:`perform_query` attaches a per-file :py:func:`_archive_filesystem`
-        to each product it returns, but a product rebuilt from a STAC catalogue
-        (``eomatch``'s ``product_item_from_stac``) arrives with no filesystem/API
-        config at all -- so :py:meth:`download_product` re-resolves the file by
-        filename here rather than trusting ``product.filesystem``.
-        """
-        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
-            if product.id in filenames:
-                return os.path.join(dirpath, product.id)
-        return None
-
-    def download_product(
-        self, product: Union[str, ProductItem, ProductItemSet]
-    ) -> Optional[Union[list, str]]:
-        """Resolve *product* to its path in the local archive -- no network, no copy.
-
-        "Download" is a misnomer for the offline handler: the file is already on
-        local disk. This locates it under :py:attr:`archive_path` by filename (see
-        :py:meth:`_archive_path_for`) and returns that path, repinning
-        ``product.filesystem`` to the file's real directory so
-        :py:meth:`~scrappi.product.ProductItem.get_path` and any STAC registration
-        resolve correctly even for a product rebuilt from a catalogue (which reaches
-        here with no archive filesystem attached -- otherwise the base
-        :py:meth:`~scrappi.api.insitubase.InSituCallHandler.download_product` would
-        look for the file wherever that product's current filesystem points, not
-        find it, and fall through to a doomed copy/fetch).
-
-        :param product: a :py:class:`~scrappi.product.ProductItem` or
-            :py:class:`~scrappi.product.ProductItemSet`.
-        :return: absolute path to the archive file (or list thereof).
-        :raises FileNotFoundError: if the archive doesn't contain the file.
-        """
-        if isinstance(product, ProductItemSet):
-            return [self.download_product(p) for p in product]  # type: ignore[misc]
-        if not isinstance(product, ProductItem):
-            raise TypeError(
-                "product must be a ProductItem or ProductItemSet for "
-                "RadcalnetOfflineCallHandler.download_product"
-            )
-
-        src = self._archive_path_for(product)
-        if src is None:
-            raise FileNotFoundError(
-                f"{product.id!r} not found under the RadCalNet offline archive "
-                f"{self.archive_path!r}"
-            )
-        product.filesystem = _archive_filesystem(os.path.dirname(src), self.context)
-        return src
+    # download_product / _archive_path_for come from OfflineArchiveHandler: locate the
+    # file by id under archive_path, repin product.filesystem, return the path. RCN
+    # ids are exactly the filenames, so the base _archive_path_for needs no override.

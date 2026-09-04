@@ -55,6 +55,30 @@ Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
 
 
+def _candidate_failure_is_recoverable(exc: BaseException) -> bool:
+    """Whether *exc*, raised by one candidate API while serving a query or download,
+    means "this API can't serve this request" -- so the fan-out over candidate APIs
+    (see :py:func:`perform_query` / :py:func:`download_product`) should try the next
+    one -- rather than "this API is misconfigured or broken", which must surface.
+
+    Recoverable: a site/collection outside this API's own registry
+    (``RadcalnetCallHandler.get_files_list`` raises ``ValueError`` for one), an
+    unimplemented operation, or an HTTP 404 (absent) / 5xx (provider transiently
+    down). **Not** recoverable: HTTP 401/403 (bad credentials -- a real config error
+    the user must fix), or anything else (``TypeError``/``AttributeError`` bugs,
+    connection/DNS errors, ...).
+
+    :param exc: the exception a candidate handler raised.
+    :return: ``True`` to try the next candidate, ``False`` to re-raise now.
+    """
+    if isinstance(exc, (ValueError, KeyError, NotImplementedError)):
+        return True
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status is not None:
+        return status == 404 or 500 <= status < 600
+    return False
+
+
 def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
     """
     Function to parse individual queries that scrappi should run from the output of orbitx
@@ -290,25 +314,34 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
 
     apis = get_api_name(query["collection"], context=context, all_apis=True)
 
-    # run query for different apis until results found
+    # Fan the query out across every candidate API for the collection, in preference
+    # order, returning the first non-empty result. A candidate that raises only
+    # because it can't serve this particular query (see
+    # _candidate_failure_is_recoverable) is skipped so a later candidate still gets a
+    # go; any other error surfaces immediately, and if *every* candidate that ran
+    # bailed that way, the last error is re-raised rather than masquerading as
+    # "no products found".
     api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+    n_ran = 0
+    n_recoverable = 0
+    last_exc: Optional[BaseException] = None
     for api in api_list:
+        n_ran += 1
         api_handler = make_api(api, context)
         try:
             products = api_handler.perform_query(query)
         except Exception as e:
-            # A candidate API can legitimately fail for a query only it can't
-            # serve -- e.g. an in-situ site unknown to *this* particular API
-            # (RadcalnetCallHandler.get_files_list raises for a site outside its
-            # own DEFAULT_SITE_DEFINITIONS) -- so one candidate's own error
-            # shouldn't abort the whole fallback chain when a later candidate
-            # (e.g. an offline archive handler for the same collection) might
-            # still have an answer.
+            if not _candidate_failure_is_recoverable(e):
+                raise
             warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
+            n_recoverable += 1
+            last_exc = e
             continue
         if len(products) > 0:
             return products
 
+    if last_exc is not None and n_recoverable == n_ran:
+        raise last_exc
     return ProductItemSet()
 
 
@@ -410,9 +443,27 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
     apis = get_api_name(product.collection, context=context, all_apis=True)
     download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
 
+    # Same fan-out-with-recovery as perform_query: a product may be resolvable only
+    # by a later candidate (e.g. an offline archive handler for a site the online
+    # portal 404s on), so a recoverable failure from an earlier candidate is warned
+    # and skipped rather than aborting the chain -- but a real error (bad
+    # credentials, a bug) surfaces, and if every candidate bailed recoverably the
+    # last error is re-raised instead of returning None.
+    n_ran = 0
+    n_recoverable = 0
+    last_exc: Optional[BaseException] = None
     for api in download_apis:
+        n_ran += 1
         api_handler = make_api(api, context=context)
-        download_path = api_handler.download_product(product)
+        try:
+            download_path = api_handler.download_product(product)
+        except Exception as e:
+            if not _candidate_failure_is_recoverable(e):
+                raise
+            warnings.warn(f"Download failed for api {api!r}, product {getattr(product, 'id', product)!r}: {e}")
+            n_recoverable += 1
+            last_exc = e
+            continue
         if download_path is not None:
             # After successful download, attempt to register the product in filesystem STAC catalogs
             try:
@@ -443,6 +494,10 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                 pass
 
             return download_path
+
+    if last_exc is not None and n_recoverable == n_ran:
+        raise last_exc
+    return None
 
 
 def download_product_filename(

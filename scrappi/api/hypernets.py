@@ -222,19 +222,23 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
     collections: List[str] = COLLECTIONS
     _default_geometries: Dict[str, Polygon] = {}
+    #: OfflineArchiveHandler reads the archive root from context["fs"]["path"] when
+    #: it isn't passed to __init__.
+    ARCHIVE_PATH_CONTEXT_KEYS = ("fs", "path")
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
-        super().__init__(context, HYPERNETS_DEFAULT_ROI)
-        if archive_path is None:
-            archive_path = self.context["fs"]["path"]
+        # OfflineArchiveHandler resolves self.archive_path (arg -> context["fs"]["path"])
+        # and provides download_product / _archive_path_for; InSituCallHandler takes
+        # the roi_dict. No context mutation for organise_data -- perform_query builds
+        # each per-product filesystem flat.
+        super().__init__(context, roi_dict=HYPERNETS_DEFAULT_ROI, archive_path=archive_path)
         # lazy import of hypernets_api offline API
         try:
             from hypernets_api import OfflineHYPERNETSAPI
 
-            self.api = OfflineHYPERNETSAPI(archive_path)
+            self.api = OfflineHYPERNETSAPI(self.archive_path)
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s" % e)
-        self.context["fs"]["organise_data"] = False
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -296,6 +300,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         :param query: catalogue query
         :returns: ProductItemSet
         """
+        query = dict(query)  # don't mutate the caller's dict
         if query["collection"].startswith("LHYP"):
             query["collection"] = query["collection"][5::]
 
@@ -306,6 +311,14 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
         product_list = []
         for prod in hypernets_results:
+            # Flat filesystem pinned to the product's own archive directory: the file
+            # is already there, so organise_data (which would rebuild a reorganised
+            # path from product metadata) must be off for this instance.
+            product_fs = LocalFileSystem(
+                os.path.join(self.api.archive_path, prod["rel_product_dir"]),
+                self.context,
+            )
+            product_fs.organise_data = False
             product_list.append(
                 ProductItem(
                     constellation="HYPERNETS",
@@ -317,10 +330,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
-                    filesystem=LocalFileSystem(
-                        os.path.join(self.api.archive_path, prod["rel_product_dir"]),
-                        self.context,
-                    ),
+                    filesystem=product_fs,
                     url=prod["sequence_name"],
                     quicklook="",
                     api=self,
