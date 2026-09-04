@@ -302,6 +302,43 @@ class TestInterface(unittest.TestCase):
             m.assert_called_with(context=context)
             m().perform_query.assert_called_with({"collection": "LANDSAT_C2L1"})
 
+    def test_perform_query_tries_next_api_when_a_candidate_raises(self):
+        """A candidate whose perform_query *raises* (e.g. RadcalnetCallHandler
+        raising for a site the online portal doesn't host) must not abort the
+        fallback chain -- the next candidate (e.g. an offline archive handler for
+        the same collection) still gets a turn. Without this, one candidate's
+        error crashed the whole query instead of falling through."""
+        failing = mock.MagicMock()
+        failing.perform_query.side_effect = ValueError("site unknown")
+        working = mock.MagicMock()
+        working.perform_query.return_value = ["a product"]
+        handler_classes = {
+            "handle1": mock.MagicMock(return_value=failing),
+            "handle2": mock.MagicMock(return_value=working),
+        }
+        for m in handler_classes.values():
+            m().list_collections.return_value = ["LANDSAT_C2L1"]
+
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                handler_classes,
+                clear=True,
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1", "handle2"],
+            ) as _mock_all_api_list,
+        ):
+            context = ScrappiContext()
+            context["api"]["preferred_api"] = None
+            with self.assertWarns(UserWarning):
+                result = perform_query({"collection": "LANDSAT_C2L1"}, context)
+
+        self.assertEqual(result, ["a product"])
+        failing.perform_query.assert_called_once()
+        working.perform_query.assert_called_once()
+
     def test_download_product(self):
         context = ScrappiContext()
         m = mock.MagicMock()
