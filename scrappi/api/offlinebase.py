@@ -129,9 +129,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         return self._archive_index.get(target) if target else None
 
     # ---------------------------------------------------------------- download
-    def download_product(
-        self, product: Union[str, ProductItem, ProductItemSet]
-    ) -> Optional[Union[list, str]]:
+    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
         """Resolve *product* to its on-disk path in the archive -- no network, no copy.
 
         "Download" is a misnomer for an offline handler: the file is already local.
@@ -150,7 +148,9 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         if isinstance(product, ProductItemSet):
             return [self.download_product(p) for p in product]  # type: ignore[misc]
         if not isinstance(product, ProductItem):
-            warnings.warn(f"{type(self).__name__}.download_product: expected a ProductItem, got {type(product).__name__}")
+            warnings.warn(
+                f"{type(self).__name__}.download_product: expected a ProductItem, got {type(product).__name__}"
+            )
             return None
 
         src = self._archive_path_for(product)
