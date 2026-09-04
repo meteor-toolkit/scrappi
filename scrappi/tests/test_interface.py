@@ -14,6 +14,7 @@ from shapely.geometry import Point, Polygon
 from scrappi.product import ProductItem
 from scrappi.interface import (
     Factory,
+    _ensure_scrappi_context,
     download_product,
     download_product_filename,
     download_product_scene,
@@ -28,6 +29,7 @@ from scrappi.interface import (
     set_credentials,
     update_context_file,
 )
+import scrappi.interface as interface_module
 from scrappi import THIS_DIRECTORY, ScrappiContext
 
 __author__ = [
@@ -41,6 +43,12 @@ __author__ = [
 
 class TestInterface(unittest.TestCase):
     def setUp(self) -> None:
+        # Avoid a stale entry from an earlier test's (by-then-garbage-collected)
+        # context object whose id() happens to be reused within this same run --
+        # see _ensure_scrappi_context's own docstring on why the cache holds a
+        # reference to prevent that in real usage; tests don't hold one that long.
+        interface_module._context_wrap_cache = {}
+
         letters = string.ascii_lowercase
         self.tmp_dir_name = "tmp_" + "".join(random.choice(letters) for i in range(5))
         self.tmp_dir_path = os.path.join(THIS_DIRECTORY, self.tmp_dir_name)
@@ -204,6 +212,64 @@ class TestInterface(unittest.TestCase):
         with mock.patch.dict("scrappi.interface.FSFactory.fs_call_handlers", {"fs": m}, clear=True) as _mock_handlers:
             make_fs("fs", context)
             m.assert_called_with(context=context)
+
+    def test_ensure_scrappi_context_passes_through_a_real_scrappicontext_unchanged(self):
+        context = ScrappiContext()
+        self.assertIs(_ensure_scrappi_context(context), context)
+
+    def test_ensure_scrappi_context_wraps_a_non_scrappicontext_object(self):
+        """A plain dict (standing in for e.g. eomatch's own EOMatchContext -- any
+        non-ScrappiContext, config-like object) is wrapped into a real
+        ScrappiContext, not just checked for truthiness -- a falsy check alone
+        (the pre-fix behaviour) would pass a truthy-but-wrong-type object straight
+        through unwrapped and crash later on e.g. context["api"]["preferred_api"],
+        since it doesn't carry scrappi's own defaults.yaml."""
+        raw = {"platforms": "S2A,GONA"}
+        wrapped = _ensure_scrappi_context(raw)
+        self.assertIsInstance(wrapped, ScrappiContext)
+        self.assertIsNot(wrapped, raw)
+
+    def test_ensure_scrappi_context_reuses_the_same_wrapped_instance(self):
+        """The core fix: repeated calls with the *same* raw, non-ScrappiContext
+        object -- the normal case, a caller builds one context once and reuses it
+        for every query in a run -- must get back the *same* wrapped
+        ScrappiContext each time, not a fresh one. Without this,
+        APICallHandlerFactory.get_api_call_handler's own context-identity handler
+        cache never hits for a caller (e.g. eomatch's run_scrappi) that always
+        passes such an object through perform_query/make_api, since each call
+        would otherwise see a differently-identified wrapper."""
+        raw = {"platforms": "S2A,GONA"}
+        first = _ensure_scrappi_context(raw)
+        second = _ensure_scrappi_context(raw)
+        self.assertIs(first, second)
+
+    def test_ensure_scrappi_context_different_raw_objects_get_different_wrappers(self):
+        first = _ensure_scrappi_context({"platforms": "S2A,GONA"})
+        second = _ensure_scrappi_context({"platforms": "S2A,GONA"})
+        self.assertIsNot(first, second)
+
+    def test_ensure_scrappi_context_none_is_stable_across_calls_too(self):
+        """context=None (the default for every caller that doesn't build its own)
+        must also get back the same wrapped instance every time -- two separate
+        perform_query calls, one for search and one for download, each passing
+        context=None, should still let the factory cache share one handler."""
+        first = _ensure_scrappi_context(None)
+        second = _ensure_scrappi_context(None)
+        self.assertIs(first, second)
+
+    def test_make_api_reuses_one_handler_across_repeated_calls_with_a_raw_context(self):
+        """End-to-end: make_api (as perform_query/download_product call it) reuses
+        one cached handler across repeated calls that all pass the *same* raw,
+        non-ScrappiContext object -- the actual fix this module exists for, proven
+        through the real (unmocked) _ensure_scrappi_context -> Factory chain rather
+        than just the wrapping helper in isolation."""
+        Factory.clear_cache()
+        raw_context = {"platforms": "S2A,GONA"}
+
+        first = make_api("radcalnet", raw_context)
+        second = make_api("radcalnet", raw_context)
+
+        self.assertIs(first, second)
 
     def test_set_credentials_context(self):
         context = ScrappiContext()

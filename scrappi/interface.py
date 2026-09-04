@@ -55,6 +55,53 @@ Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
 logger = logging.getLogger(__name__)
 
+# id(raw context) -> (raw context reference, wrapped ScrappiContext), shared across
+# the whole process -- see _ensure_scrappi_context.
+_context_wrap_cache: Dict[int, Any] = {}
+
+
+def _ensure_scrappi_context(context: Optional[Any]) -> ScrappiContext:
+    """Return *context* as a real :py:class:`~scrappi.ScrappiContext`, wrapping it
+    if it isn't already one.
+
+    Every module-level helper below (``get_api_name``, ``make_api``, ``make_fs``,
+    ``perform_query``, ``download_product``) normalises its own *context* argument
+    through this one function, for two reasons:
+
+    - **Correctness**: a plain falsy check (``if not context:``) only catches
+      ``None``/empty -- a non-``ScrappiContext`` object that's still truthy (e.g. a
+      caller's own config class, such as eomatch's ``EOMatchContext``) would pass
+      through unwrapped and crash on e.g. ``context["api"]["preferred_api"]``, since
+      it doesn't carry scrappi's own ``defaults.yaml``. ``isinstance`` catches this.
+
+    - **Identity stability across repeated calls**: wrapping unconditionally on
+      *every* call -- even for the *same* raw *context* object passed again and
+      again (the normal case: a caller builds one context once and reuses it for
+      every query in a run) -- would hand back a *different* ``ScrappiContext``
+      object each time, defeating ``APICallHandlerFactory.get_api_call_handler``'s
+      own context-*identity* handler cache (see its docstring) at the exact point
+      it needs a stable identity to hold. This function instead wraps a given raw
+      object once and returns the *same* wrapped instance for that object on every
+      later call (the raw object is kept alive in the cache entry so its ``id()``
+      can't be recycled for an unrelated object in the meantime).
+
+    :param context: a :py:class:`~scrappi.ScrappiContext`, ``None``, or any other
+        config-like object (e.g. a dict, or another ``processor_tools.Context``
+        subclass).
+    :return: *context* unchanged if already a ``ScrappiContext``; otherwise the
+        same wrapped ``ScrappiContext`` returned for this exact *context* object
+        (identity, not equality) on every call.
+    """
+    if isinstance(context, ScrappiContext):
+        return context
+    key = id(context)
+    cached = _context_wrap_cache.get(key)
+    if cached is not None and cached[0] is context:
+        return cached[1]
+    wrapped = ScrappiContext(context)
+    _context_wrap_cache[key] = (context, wrapped)
+    return wrapped
+
 
 def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
     """
@@ -149,8 +196,7 @@ def get_api_name(
     :return: name/s of API to use
     """
 
-    if not context:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
 
     preferred_api = ""
     if context["api"]["preferred_api"]:
@@ -230,8 +276,7 @@ def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None
     :param context: Context object (user provided configuration values or scrappi default)
     :return : reader object
     """
-    if not context:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     if isinstance(api, BaseAPICallHandler):
         return api
     elif not api:
@@ -249,8 +294,7 @@ def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     :param context: Context object (user provided configuration values or scrappi default)
 
     """
-    if not context:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     if not fs:
         fs = context["fs"]["path"]
     return FSFactory.get_fs_call_handler(fs, context)
@@ -264,8 +308,7 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     :param context: Context object (user provided configuration values or scrappi default)
     :return: ProductItemSet satisfying query
     """
-    if not isinstance(context, ScrappiContext):
-        context = ScrappiContext(context)
+    context = _ensure_scrappi_context(context)
 
     # if multiple collections are provided, run query for each and combine results
     if "collections" in query.keys():
@@ -379,7 +422,12 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         if isinstance(product, ProductItem):
             context = product.context
         else:
-            context = ScrappiContext()
+            # No caller context and no single ProductItem to fall back to
+            # product.context on -- go through _ensure_scrappi_context (not a bare
+            # ScrappiContext()) anyway, so repeated calls in this shape (e.g. once
+            # per matchup in a download loop) reuse the same default instance
+            # instead of building a fresh one every time -- see its own docstring.
+            context = _ensure_scrappi_context(context)
 
     if isinstance(product, ProductItemSet):
         return [p.download_product(context=context) for p in product]
@@ -441,8 +489,7 @@ def download_product_filename(
 
     :return product paths of downloaded products
     """
-    if context is None:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     api = context["api"]["preferred_api"]
     api_handler = make_api(api, context=context)
     func = getattr(api_handler, "download_product_filename", None)
@@ -463,8 +510,7 @@ def download_product_scene(
     :param context: Context object (user provided configuration values or scrappi default)
     :return product paths of downloaded products
     """
-    if context is None:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     api = context["api"]["preferred_api"]
     api_handler = make_api(api, context=context)
     func = getattr(api_handler, "download_product_scene", None)
