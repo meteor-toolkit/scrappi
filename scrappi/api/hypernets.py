@@ -311,26 +311,27 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
         product_list = []
         for prod in hypernets_results:
-            # Flat filesystem pinned to the product's own archive directory: the file
-            # is already there, so organise_data (which would rebuild a reorganised
-            # path from product metadata) must be off for this instance.
-            product_fs = LocalFileSystem(
-                os.path.join(self.api.archive_path, prod["rel_product_dir"]),
-                self.context,
-            )
-            product_fs.organise_data = False
             product_list.append(
                 ProductItem(
                     constellation="HYPERNETS",
                     platform=prod["site_id"],
-                    collection=query["collection"],
+                    collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
                     geometry=self.get_roi_shapely(prod["site_id"]),
                     start_time=self._get_datetime(prod["datetime_start"]),
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
-                    filesystem=product_fs,
+                    # Flat filesystem pinned to the product's own archive directory:
+                    # the file is already there, so organise_data (which would rebuild
+                    # a reorganised path from product metadata) must be off, and the
+                    # archive is not ours to write to.
+                    filesystem=LocalFileSystem(
+                        os.path.join(self.api.archive_path, prod["rel_product_dir"]),
+                        self.context,
+                        organise_data=False,
+                        read_only=True,
+                    ),
                     url=prod["sequence_name"],
                     quicklook="",
                     api=self,
