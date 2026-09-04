@@ -515,28 +515,18 @@ def _default_offline_archive_path() -> str:
 
 
 def _archive_filesystem(dirpath: str, context: ScrappiContext) -> STACFileSystem:
-    """A :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to *dirpath* --
-    the directory a RadCalNet archive file actually sits in.
+    """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to
+    *dirpath* -- the directory a RadCalNet archive file actually sits in.
 
     Used as the per-product filesystem in
     :py:meth:`RadcalnetOfflineCallHandler.perform_query`. STACFileSystem (rather than a
     plain LocalFileSystem) so :py:meth:`~scrappi.product.ProductItem.to_stac_item` --
     called when the matchup is added to a catalogue -- has ``return_stac_item_path``.
-
-    STACFileSystem otherwise assumes a ``<root>/data/`` + ``<root>/stac/`` layout (and
-    strips a trailing ``data`` from the path -- which a RadCalNet archive dir mirroring
-    the online API's ``{site}/data/{file}`` layout actually ends in). A RadCalNet file
-    just sits directly in its directory, so every path attribute is pinned back to
-    *dirpath*: ``return_path`` (download resolution) and ``to_stac_item`` (which resolves
-    the asset relative to ``data_root``) then both work regardless of archive layout.
-    ``organise_data`` is already ``False`` (set in the handler's ``__init__``).
+    ``flat=True`` disables both the ``<root>/data`` + ``<root>/stac`` subdivision and
+    the organised constellation/platform/date tree, so the file resolves at
+    ``<dirpath>/<id>`` regardless of how the archive itself is laid out.
     """
-    fs = STACFileSystem(path=dirpath, context=context)
-    fs.directory = dirpath
-    fs.directory_stac = dirpath
-    fs.data_root = dirpath
-    fs.stac_root = os.path.join(dirpath, "stac")
-    return fs
+    return STACFileSystem(path=dirpath, context=context, flat=True)
 
 
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
@@ -602,11 +592,11 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             archive_path = _default_offline_archive_path()
 
         self.archive_path = archive_path
-        # Each product's own filesystem (built in perform_query) already points
-        # directly at its containing directory -- organise_data would instead try to
-        # rebuild a reorganised path from product metadata, which won't match where
-        # the file actually is. Same fix HYPERNETSOfflineCallHandler already applies.
-        self.context["fs"]["organise_data"] = False
+        # Note: no ``self.context["fs"]["organise_data"] = False`` here -- that mutates
+        # the shared context object and leaks to every later handler/download in the
+        # run. Each product's filesystem is built flat in perform_query
+        # (:py:func:`_archive_filesystem`), which sets ``organise_data=False`` on that
+        # instance only.
 
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """

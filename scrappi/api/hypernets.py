@@ -234,7 +234,9 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
             self.api = OfflineHYPERNETSAPI(archive_path)
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s" % e)
-        self.context["fs"]["organise_data"] = False
+        # Note: no ``self.context["fs"]["organise_data"] = False`` here -- that mutates
+        # the shared context and leaks to every later handler/download. perform_query
+        # sets it on each per-product filesystem instance instead.
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -306,6 +308,14 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
         product_list = []
         for prod in hypernets_results:
+            # Flat filesystem pinned to the product's own archive directory: the file
+            # is already there, so organise_data (which would rebuild a reorganised
+            # path from product metadata) must be off for this instance.
+            product_fs = LocalFileSystem(
+                os.path.join(self.api.archive_path, prod["rel_product_dir"]),
+                self.context,
+            )
+            product_fs.organise_data = False
             product_list.append(
                 ProductItem(
                     constellation="HYPERNETS",
@@ -317,10 +327,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
-                    filesystem=LocalFileSystem(
-                        os.path.join(self.api.archive_path, prod["rel_product_dir"]),
-                        self.context,
-                    ),
+                    filesystem=product_fs,
                     url=prod["sequence_name"],
                     quicklook="",
                     api=self,

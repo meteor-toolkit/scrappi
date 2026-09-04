@@ -510,6 +510,25 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
         self.assertEqual(handler.archive_path, self.archive_path)
 
+    def test_construction_does_not_mutate_the_shared_context(self):
+        """The handler must not flip context['fs']['organise_data'] on the shared
+        context object -- that leaks to every other handler and download in the run.
+        The per-product filesystem is built flat instead."""
+        context = ScrappiContext()
+        before = context["fs"]["organise_data"]
+        RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self.assertEqual(context["fs"]["organise_data"], before)
+
+    def test_perform_query_product_filesystem_is_flat(self):
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            )
+        )[0]
+        self.assertFalse(product.filesystem.organise_data)
+
     def test_download_product_resolves_existing_file_without_network(self):
         file_path = self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
