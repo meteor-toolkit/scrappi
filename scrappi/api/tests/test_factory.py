@@ -106,6 +106,33 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         self.assertIn("ZZZZ", with_context.sites)
         self.assertNotIn("ZZZZ", context_free.sites)
 
+    def test_same_context_object_reuses_the_cached_handler(self):
+        """Regression test: repeated calls that reuse the *same* context object (the
+        common case within one run -- one context built once, passed to every query)
+        must reuse one handler and its live session, not rebuild from scratch every
+        call. Without this, a batch run issuing many context-aware queries (e.g.
+        Sat2InSituMUFinder's per-event RadCalNet queries) piles up one open session
+        per query -- each pinned alive by every ProductItem it returned via
+        ProductItem.api -- and can exhaust the process's open-file limit."""
+        from scrappi import ScrappiContext
+
+        ctx = ScrappiContext()
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+        self.assertIs(first, second)
+
+    def test_different_context_objects_get_independent_handlers(self):
+        """Two distinct context objects -- even with identical content -- must not
+        share a cached handler: the whole point of keying by context identity (not
+        just name) is that a genuinely different context always gets its own handler."""
+        from scrappi import ScrappiContext
+
+        ctx_a = ScrappiContext()
+        ctx_b = ScrappiContext()
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx_a)
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx_b)
+        self.assertIsNot(first, second)
+
     def test_eodag_handler_is_served_from_cache_regardless_of_context(self):
         """eodag construction is expensive and its per-run context differences (the
         preferred provider) are applied at query time, so it stays cached by name even
