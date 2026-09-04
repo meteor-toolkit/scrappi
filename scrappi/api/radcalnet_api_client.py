@@ -129,6 +129,32 @@ def _parse_rcn_filename(filename: str) -> Tuple[str, int, int, str]:
     return site_instrument, int(year), int(doy), version
 
 
+def _file_matches_collection(filename: str, collection: str) -> bool:
+    """Whether *filename*'s TOA/BOA suffix matches the requested *collection*.
+
+    RadCalNet delivers two files per site and day: ``*.input`` carries the measured
+    **surface (bottom-of-atmosphere)** reflectance and atmospheric state, and
+    ``*.output`` the **top-of-atmosphere** reflectance modelled by propagating that
+    state upward. So an ``RCN_TOA`` query wants the ``.output`` files and ``RCN_BOA``
+    wants the ``.input`` files (matching :py:mod:`eoio`'s own RadCalNet reader, which
+    labels ``.input`` "Bottom of Atmosphere" and ``.output`` "Top of Atmosphere"). A
+    *collection* naming neither -- the bare site id -- matches both.
+
+    Shared by the online :py:meth:`RadcalnetCallHandler.get_files_list` and the offline
+    :py:meth:`RadcalnetOfflineCallHandler.perform_query` so the two can never disagree
+    on the mapping.
+
+    :param filename: an RCN filename, e.g. ``"GONA01_2022_291_v04.09.output"``.
+    :param collection: the queried collection id, e.g. ``"RCN_TOA"``/``"RCN_BOA"``.
+    :return: ``True`` if *filename* belongs in *collection*.
+    """
+    if "TOA" in collection:
+        return filename.endswith(".output")
+    if "BOA" in collection:
+        return filename.endswith(".input")
+    return True
+
+
 def _check_date_in_range(year: int, doy: int, date1: dt.date, date2: dt.date) -> bool:
     """
     Function to check whether date of file is between the query dates.
@@ -427,9 +453,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
         mask = np.zeros(len(filelist))
         for ifile, filename in enumerate(filelist):
-            if "TOA" in collection and ".input" in filename:
-                mask[ifile] = 1
-            elif "BOA" in collection and ".output" in filename:
+            if not _file_matches_collection(filename, collection):
                 mask[ifile] = 1
 
             site_instrument, year, doy, version = self.parse_name(filename)
@@ -652,9 +676,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
                 if site_instrument[0:4] != site:
                     continue
-                if "TOA" in collection and ".input" not in filename:
-                    continue
-                if "BOA" in collection and ".output" not in filename:
+                if not _file_matches_collection(filename, collection):
                     continue
                 if not _check_date_in_range(year, doy, date1, date2):
                     continue

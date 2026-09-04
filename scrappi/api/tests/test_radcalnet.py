@@ -381,7 +381,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
         self.assertEqual(handler.list_collections(), ["RCN_TOA", "RCN_BOA"])
 
-    def test_perform_query_finds_matching_boa_file_in_nested_directory(self):
+    def test_perform_query_finds_matching_file_in_nested_directory(self):
         """Archive layout mirrors the online API's own {site}/data/{filename}
         convention -- perform_query must search recursively, not just archive_path's
         top level."""
@@ -390,7 +390,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
 
         products = handler.perform_query(
             {
-                "collection": "RCN_BOA",
+                "collection": "RCN_TOA",
                 "site": "GONA",
                 "start_time": dt(2022, 10, 1),
                 "stop_time": dt(2022, 11, 1),
@@ -402,16 +402,18 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         self.assertEqual(product.id, "GONA01_2022_291_v04.09.output")
 
     def test_perform_query_filters_toa_vs_boa_by_filename_suffix(self):
-        self._write("GONA01_2022_291_v04.09.output")  # .output -> BOA
-        self._write("GONA01_2022_291_v04.09.input")  # .input -> TOA
+        # RadCalNet: .output = modelled TOA reflectance, .input = measured surface (BOA)
+        # -- same mapping as the online handler and eoio's own RadCalNet reader.
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA01_2022_291_v04.09.input")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
         query = {"site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
 
-        boa_products = handler.perform_query({**query, "collection": "RCN_BOA"})
         toa_products = handler.perform_query({**query, "collection": "RCN_TOA"})
+        boa_products = handler.perform_query({**query, "collection": "RCN_BOA"})
 
-        self.assertEqual([p.id for p in boa_products], ["GONA01_2022_291_v04.09.output"])
-        self.assertEqual([p.id for p in toa_products], ["GONA01_2022_291_v04.09.input"])
+        self.assertEqual([p.id for p in toa_products], ["GONA01_2022_291_v04.09.output"])
+        self.assertEqual([p.id for p in boa_products], ["GONA01_2022_291_v04.09.input"])
 
     def test_perform_query_skips_files_for_other_sites(self):
         self._write("GONA01_2022_291_v04.09.output")
@@ -419,7 +421,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
 
         products = handler.perform_query(
-            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
         )
 
         self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
@@ -433,7 +435,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
 
         products = handler.perform_query(
-            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
         )
 
         self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
@@ -444,7 +446,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
 
         products = handler.perform_query(
-            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
         )
 
         self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
@@ -456,7 +458,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         with self.assertWarns(UserWarning):
             products = handler.perform_query(
                 {
-                    "collection": "RCN_BOA",
+                    "collection": "RCN_TOA",
                     "site": "GONA",
                     "start_time": dt(2022, 10, 1),
                     "stop_time": dt(2022, 11, 1),
@@ -472,7 +474,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         with self.assertWarns(UserWarning):
             products = handler.perform_query(
                 {
-                    "collection": "RCN_BOA",
+                    "collection": "RCN_TOA",
                     "site": "ZZZZ",
                     "start_time": dt(2022, 10, 1),
                     "stop_time": dt(2022, 11, 1),
@@ -491,7 +493,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
 
         products = handler.perform_query(
-            {"collection": "RCN_BOA", "site": "NEWS", "start_time": dt(2024, 1, 1), "stop_time": dt(2024, 12, 31)}
+            {"collection": "RCN_TOA", "site": "NEWS", "start_time": dt(2024, 1, 1), "stop_time": dt(2024, 12, 31)}
         )
 
         self.assertEqual([p.id for p in products], ["NEWS01_2024_100_v04.09.output"])
@@ -512,7 +514,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         file_path = self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
         products = handler.perform_query(
-            {"collection": "RCN_BOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
         )
 
         path = handler.download_product(products)
@@ -532,7 +534,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
         product = list(
             handler.perform_query(
-                {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+                {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
             )
         )[0]
         product.filesystem = None  # as if freshly rebuilt from a STAC item
@@ -552,7 +554,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         self._write("ERUS", "2023", "08", "30", "ERUS00_2023_242_v00.04.input")
         product = list(
             handler.perform_query(
-                {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+                {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
             )
         )[0]
         product.id = "ERUS00_2023_999_v00.04.input"  # not in the archive
@@ -574,7 +576,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         }
         handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
         products = handler.perform_query(
-            {"collection": "RCN_TOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 3, 1)}
+            {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 3, 1)}
         )
         self.assertEqual(len(products), 1)
 
