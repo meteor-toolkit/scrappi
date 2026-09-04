@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import warnings
 from abc import abstractmethod
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.fs.stacfilesystem import STACFileSystem
@@ -80,6 +80,29 @@ class OfflineArchiveHandler(BaseAPICallHandler):
             f"context{list(self.ARCHIVE_PATH_CONTEXT_KEYS)}, and no _default_archive_path()."
         )
 
+    # --------------------------------------------------------------- archive scan
+    @property
+    def _archive_index(self) -> Dict[str, str]:
+        """``filename -> absolute path`` for every file under :py:attr:`archive_path`,
+        built once by a single :py:func:`os.walk` and cached on the instance.
+
+        A handler instance is short-lived (one query or one download batch), and the
+        archive doesn't change under it mid-batch, so caching is safe and turns an
+        ``os.walk``-per-product (a real cost on a large networked archive) into one
+        walk per handler. If two files share a name, the first found wins -- a
+        subclass that cares about which (e.g. product versions) does its own
+        selection in :py:meth:`perform_query`.
+        """
+        idx: Optional[Dict[str, str]] = getattr(self, "_archive_index_cache", None)
+        if idx is None:
+            idx = {}
+            if os.path.isdir(self.archive_path):
+                for dirpath, _dirnames, filenames in os.walk(self.archive_path):
+                    for filename in filenames:
+                        idx.setdefault(filename, os.path.join(dirpath, filename))
+            self._archive_index_cache = idx
+        return idx
+
     # -------------------------------------------------------------- filesystem
     def _flat_filesystem(self, dirpath: str) -> STACFileSystem:
         """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned
@@ -98,17 +121,12 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         :py:meth:`perform_query` attaches a correct per-file filesystem to every
         product it returns, but a product rebuilt from a STAC catalogue (eomatch's
         ``product_item_from_stac``) arrives with none, so :py:meth:`download_product`
-        re-resolves it here rather than trusting ``product.filesystem``. Subclasses
-        whose ids don't map 1:1 to filenames, or whose archives are large enough to
-        want an index, override this.
+        re-resolves it here rather than trusting ``product.filesystem``. Resolved via
+        :py:attr:`_archive_index` (one walk, cached); subclasses whose ids don't map
+        1:1 to filenames override this.
         """
         target = getattr(product, "id", None)
-        if not target or not os.path.isdir(self.archive_path):
-            return None
-        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
-            if target in filenames:
-                return os.path.join(dirpath, target)
-        return None
+        return self._archive_index.get(target) if target else None
 
     # ---------------------------------------------------------------- download
     def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:

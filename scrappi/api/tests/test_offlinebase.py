@@ -1,5 +1,6 @@
 import os
 import unittest
+import unittest.mock
 from datetime import datetime
 from tempfile import TemporaryDirectory
 
@@ -98,6 +99,14 @@ class TestDownloadProduct(unittest.TestCase):
     def test_non_product_input_warns_and_returns_none(self):
         with self.assertWarns(UserWarning):
             self.assertIsNone(self.handler.download_product("just a string"))
+
+    def test_archive_is_walked_once_and_cached(self):
+        self._write("x", "a")
+        self._write("y", "b")
+        with unittest.mock.patch("scrappi.api.offlinebase.os.walk", wraps=os.walk) as walk:
+            self.handler.download_product(ProductItemSet([_product("a"), _product("b")]))
+            self.handler._archive_index  # a third touch
+        walk.assert_called_once()
 
 
 if __name__ == "__main__":

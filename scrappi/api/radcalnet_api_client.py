@@ -123,10 +123,29 @@ def _parse_rcn_filename(filename: str) -> Tuple[str, int, int, str]:
     :py:meth:`RadcalnetOfflineCallHandler.perform_query`.
 
     :param filename: name of RCN file, e.g. ``"GONA01_2022_291_v04.09.output"``.
-    :return: ``(site_instrument, year, doy, version)``.
+    :return: ``(site_instrument, year, doy, version)`` -- *version* still carries the
+        file extension, e.g. ``"v04.09.output"`` (see :py:func:`_rcn_version_key`).
     """
     site_instrument, year, doy, version = filename.split("_")
     return site_instrument, int(year), int(doy), version
+
+
+def _rcn_version_key(version: str) -> Tuple[int, ...]:
+    """A sortable key for an RCN version string so the newest reprocessing of a
+    site/day can be picked when an accumulating offline archive keeps several
+    (e.g. ``v04.08.output`` alongside ``v04.09.output``).
+
+    :param version: the version field from :py:func:`_parse_rcn_filename`, e.g.
+        ``"v04.09.output"`` (extension included) or ``"v04.9"``.
+    :return: e.g. ``(4, 9)``; an unparseable version sorts lowest (``()``).
+    """
+    core = version.lstrip("vV").split(".")
+    numbers: list = []
+    for part in core:
+        if not part.isdigit():
+            break
+        numbers.append(int(part))
+    return tuple(numbers)
 
 
 def _file_matches_collection(filename: str, collection: str) -> bool:
@@ -654,38 +673,47 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             )
             return ProductItemSet()
 
+        start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
+
+        # Keep only the newest version of each site/day: an accumulating archive
+        # often holds e.g. GONA01_2022_291_v04.08.output next to ...v04.09.output,
+        # and the online portal exposes only the latest. best[(year, doy)] =
+        # (version_key, filename, dirpath).
+        best: Dict[Tuple[int, int], Tuple[Tuple[int, ...], str, str]] = {}
+        for filename, filepath in self._archive_index.items():
+            try:
+                site_instrument, year, doy, version = _parse_rcn_filename(filename)
+            except ValueError:
+                continue  # not an RCN-named file (e.g. a checksum/readme) -- skip
+            if site_instrument[0:4] != site:
+                continue
+            if not _file_matches_collection(filename, collection):
+                continue
+            if not _check_date_in_range(year, doy, date1, date2):
+                continue
+            vkey = _rcn_version_key(version)
+            existing = best.get((year, doy))
+            if existing is None or vkey > existing[0]:
+                best[(year, doy)] = (vkey, filename, os.path.dirname(filepath))
+
         product_list = []
-        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
-            for filename in filenames:
-                try:
-                    site_instrument, year, doy, _version = _parse_rcn_filename(filename)
-                except ValueError:
-                    continue  # not an RCN-named file (e.g. a checksum/readme) -- skip
-
-                if site_instrument[0:4] != site:
-                    continue
-                if not _file_matches_collection(filename, collection):
-                    continue
-                if not _check_date_in_range(year, doy, date1, date2):
-                    continue
-
-                start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
-                product_list.append(
-                    ProductItem(
-                        constellation="RadCalNet",
-                        platform=site,
-                        collection=collection,
-                        id=filename,
-                        geometry=geom,
-                        start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
-                        stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
-                        url="",
-                        quicklook="",
-                        api=self,
-                        context=self.context,
-                        filesystem=_archive_filesystem(dirpath, self.context),
-                    )
+        for (year, doy), (_vkey, filename, dirpath) in best.items():
+            product_list.append(
+                ProductItem(
+                    constellation="RadCalNet",
+                    platform=site,
+                    collection=collection,
+                    id=filename,
+                    geometry=geom,
+                    start_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=start_hour),
+                    stop_time=dt.datetime(year, 1, 1) + dt.timedelta(days=doy - 1, hours=stop_hour),
+                    url="",
+                    quicklook="",
+                    api=self,
+                    context=self.context,
+                    filesystem=_archive_filesystem(dirpath, self.context),
                 )
+            )
 
         return ProductItemSet(product_list)
 
