@@ -467,6 +467,24 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
 
         self.assertEqual(len(products), 0)
 
+    def test_perform_query_keeps_only_the_newest_version_of_each_day(self):
+        """An accumulating archive keeps several reprocessings of the same day; the
+        online portal exposes only the latest, so the offline handler must dedup."""
+        self._write("GONA01_2022_291_v04.08.output")
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA01_2022_291_v04.10.output")  # newest -- string-sorts below v04.9
+        self._write("GONA01_2022_292_v04.09.output")  # a different day, kept as-is
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual(
+            sorted(p.id for p in products),
+            ["GONA01_2022_291_v04.10.output", "GONA01_2022_292_v04.09.output"],
+        )
+
     def test_perform_query_returns_empty_for_unregistered_site(self):
         self._write("ZZZZ01_2022_291_v04.09.output")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
