@@ -318,6 +318,63 @@ class TestInterface(unittest.TestCase):
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
 
+    def test_candidate_failure_is_recoverable(self):
+        from scrappi.interface import _candidate_failure_is_recoverable
+
+        class _HTTPish(Exception):
+            def __init__(self, code):
+                self.response = mock.Mock(status_code=code)
+
+        self.assertTrue(_candidate_failure_is_recoverable(ValueError("site unknown")))
+        self.assertTrue(_candidate_failure_is_recoverable(KeyError("ERUS")))
+        self.assertTrue(_candidate_failure_is_recoverable(NotImplementedError()))
+        self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(404)))
+        self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(503)))
+        self.assertFalse(_candidate_failure_is_recoverable(_HTTPish(401)))
+        self.assertFalse(_candidate_failure_is_recoverable(_HTTPish(403)))
+        self.assertFalse(_candidate_failure_is_recoverable(TypeError("bug")))
+        self.assertFalse(_candidate_failure_is_recoverable(ConnectionError()))
+
+    def _fanout_handlers(self, first, second):
+        """Two candidate APIs; `first`/`second` are the perform_query side effects."""
+        h1, h2 = mock.MagicMock(), mock.MagicMock()
+        h1.list_collections.return_value = h2.list_collections.return_value = ["LANDSAT_C2L1"]
+        h1.perform_query.side_effect = first
+        h2.perform_query.side_effect = second
+        factory = {"h1": mock.MagicMock(return_value=h1), "h2": mock.MagicMock(return_value=h2)}
+        return factory
+
+    def test_perform_query_recoverable_failure_falls_through_to_next_candidate(self):
+        from scrappi.product import ProductItemSet
+
+        wanted = ProductItemSet([mock.Mock()])
+        factory = self._fanout_handlers(ValueError("site not in this registry"), lambda q: wanted)
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertWarns(UserWarning):
+                out = perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+            self.assertIs(out, wanted)
+
+    def test_perform_query_reraises_a_non_recoverable_failure(self):
+        factory = self._fanout_handlers(TypeError("a real bug"), lambda q: None)
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertRaises(TypeError):
+                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+
+    def test_perform_query_reraises_last_error_when_every_candidate_fails_recoverably(self):
+        factory = self._fanout_handlers(ValueError("nope 1"), ValueError("nope 2"))
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertRaises(ValueError):
+                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+
     def test_download_product_filename(self):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "api"
