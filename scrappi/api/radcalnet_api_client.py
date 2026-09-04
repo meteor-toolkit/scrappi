@@ -568,6 +568,9 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
     name = "radcalnet_offline"
     COLLECTIONS = RCN_COLLECTIONS
+    #: OfflineArchiveHandler reads the archive root from here when it isn't passed
+    #: to __init__: context["RadCalNet"]["offline_archive_path"].
+    ARCHIVE_PATH_CONTEXT_KEYS = ("RadCalNet", "offline_archive_path")
 
     def __init__(
         self,
@@ -583,20 +586,15 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         # needs a registered ROI for get_roi_shapely() to resolve it.
         self.DEFAULT_SITE_DEFINITIONS = _resolve_site_definitions(context)
         self._default_geometries = _build_default_geometries(self.DEFAULT_SITE_DEFINITIONS)
-        super().__init__(context, self._default_geometries)
+        # OfflineArchiveHandler resolves self.archive_path (arg -> context ->
+        # _default_archive_path) and provides download_product / _archive_path_for;
+        # InSituCallHandler takes the roi_dict. No context mutation for organise_data
+        # -- each per-product filesystem is built flat in perform_query.
+        super().__init__(context, roi_dict=self._default_geometries, archive_path=archive_path)
 
-        if archive_path is None:
-            radcalnet_config = context["RadCalNet"] if context and context.get("RadCalNet") else {}
-            archive_path = radcalnet_config.get("offline_archive_path") if radcalnet_config else None
-        if archive_path is None:
-            archive_path = _default_offline_archive_path()
-
-        self.archive_path = archive_path
-        # Note: no ``self.context["fs"]["organise_data"] = False`` here -- that mutates
-        # the shared context object and leaks to every later handler/download in the
-        # run. Each product's filesystem is built flat in perform_query
-        # (:py:func:`_archive_filesystem`), which sets ``organise_data=False`` on that
-        # instance only.
+    @staticmethod
+    def _default_archive_path() -> str:
+        return _default_offline_archive_path()
 
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
@@ -691,55 +689,6 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
         return ProductItemSet(product_list)
 
-    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
-        """Absolute path of *product*'s file within the archive tree, or ``None``
-        if the archive doesn't contain it.
-
-        :py:meth:`perform_query` attaches a per-file :py:func:`_archive_filesystem`
-        to each product it returns, but a product rebuilt from a STAC catalogue
-        (``eomatch``'s ``product_item_from_stac``) arrives with no filesystem/API
-        config at all -- so :py:meth:`download_product` re-resolves the file by
-        filename here rather than trusting ``product.filesystem``.
-        """
-        for dirpath, _dirnames, filenames in os.walk(self.archive_path):
-            if product.id in filenames:
-                return os.path.join(dirpath, product.id)
-        return None
-
-    def download_product(
-        self, product: Union[str, ProductItem, ProductItemSet]
-    ) -> Optional[Union[list, str]]:
-        """Resolve *product* to its path in the local archive -- no network, no copy.
-
-        "Download" is a misnomer for the offline handler: the file is already on
-        local disk. This locates it under :py:attr:`archive_path` by filename (see
-        :py:meth:`_archive_path_for`) and returns that path, repinning
-        ``product.filesystem`` to the file's real directory so
-        :py:meth:`~scrappi.product.ProductItem.get_path` and any STAC registration
-        resolve correctly even for a product rebuilt from a catalogue (which reaches
-        here with no archive filesystem attached -- otherwise the base
-        :py:meth:`~scrappi.api.insitubase.InSituCallHandler.download_product` would
-        look for the file wherever that product's current filesystem points, not
-        find it, and fall through to a doomed copy/fetch).
-
-        :param product: a :py:class:`~scrappi.product.ProductItem` or
-            :py:class:`~scrappi.product.ProductItemSet`.
-        :return: absolute path to the archive file (or list thereof).
-        :raises FileNotFoundError: if the archive doesn't contain the file.
-        """
-        if isinstance(product, ProductItemSet):
-            return [self.download_product(p) for p in product]  # type: ignore[misc]
-        if not isinstance(product, ProductItem):
-            raise TypeError(
-                "product must be a ProductItem or ProductItemSet for "
-                "RadcalnetOfflineCallHandler.download_product"
-            )
-
-        src = self._archive_path_for(product)
-        if src is None:
-            raise FileNotFoundError(
-                f"{product.id!r} not found under the RadCalNet offline archive "
-                f"{self.archive_path!r}"
-            )
-        product.filesystem = _archive_filesystem(os.path.dirname(src), self.context)
-        return src
+    # download_product / _archive_path_for come from OfflineArchiveHandler: locate the
+    # file by id under archive_path, repin product.filesystem, return the path. RCN
+    # ids are exactly the filenames, so the base _archive_path_for needs no override.
