@@ -157,6 +157,30 @@ class TestSTACFileSystem(unittest.TestCase):
             ),
         )
 
+    def test_flat_resolves_the_file_directly_in_path(self):
+        """flat=True: no <root>/data or organised constellation/platform/date tree --
+        the product resolves at <path>/<id>. For offline-archive handlers."""
+        test_prod = ProductItem(
+            constellation="Landsat",
+            platform="LC08",
+            collection="LANDSAT_C2L1",
+            id="some_product",
+            geometry=L8_PRODUCT_EXAMPLE_1["geometry"],
+            start_time=L8_PRODUCT_EXAMPLE_1["start_time"],
+            stop_time=L8_PRODUCT_EXAMPLE_1["stop_time"],
+            prod_dict=L8_PRODUCT_EXAMPLE_1["prod_dict"],
+            url="",
+        )
+
+        stac_fs = STACFileSystem(example_path, flat=True)
+
+        self.assertFalse(stac_fs.organise_data)
+        self.assertEqual(stac_fs.data_root, example_path)
+        self.assertEqual(stac_fs.return_path(test_prod, False), os.path.join(example_path, "some_product"))
+        # the trailing-"data" strip that the default layout applies is not done in flat mode
+        with_data = STACFileSystem(os.path.join(example_path, "data"), flat=True)
+        self.assertEqual(with_data.directory, os.path.join(example_path, "data"))
+
 
 class TestTdriveTempMatchesTdriveLayout(unittest.TestCase):
     """TdriveTempFileSystem is documented as a "temporary" variant of

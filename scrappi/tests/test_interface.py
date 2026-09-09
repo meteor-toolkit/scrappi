@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import string
+import threading
 import unittest
 import datetime as dt
 import numpy as np
@@ -158,6 +159,78 @@ class TestInterface(unittest.TestCase):
         ) as _mock_handlers:
             self.assertEqual(get_api_name("S2_MSI_L1C", context=context), None)
 
+    def test_get_api_name_accepts_a_non_scrappicontext_truthy_context(self):
+        """Regression test: a caller may pass a non-ScrappiContext object as
+        *context* (e.g. eomatch's own EOMatchContext, or a plain populated dict) --
+        get_api_name used to only normalise a falsy context (`if not context:`),
+        so a truthy-but-wrong-type context skipped ScrappiContext() construction
+        entirely and crashed on context["api"]["preferred_api"] (that key isn't
+        populated with scrappi's own defaults on an arbitrary object). A plain
+        dict is truthy the same way a populated EOMatchContext is, so it
+        reproduces the same failure mode without needing eomatch installed."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA", "api": {"preferred_api": None}}
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["LANDSAT_C2L1"]
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True
+            ) as _mock_handlers,
+            mock.patch(
+                "scrappi.interface.Factory.all_api_list",
+                ["handle1"],
+            ) as _mock_all_api_list,
+        ):
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context), "handle1")
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context, all_apis=True), ["handle1"])
+
+    def test_get_api_name_does_not_hang_on_a_processor_tools_context(self):
+        """Regression test: a bare processor_tools.Context (e.g. eomatch's
+        EOMatchContext, handed straight to get_api_name by
+        Sat2InSituMUFinder.identify_mu_events) must be unwrapped to its values dict
+        before ScrappiContext() construction. Context.__init__ treats a non-(str|dict)
+        config as a sequence and does ``list(config)`` -- and ``list()`` on a Context
+        never terminates, because Context.__getitem__ returns None (not IndexError) for
+        the integer indices the sequence protocol probes. get_api_name used to hang here
+        forever with no way to Ctrl-C out (eodag installs its own signal handling)."""
+        from processor_tools import Context
+
+        context = Context(
+            {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA", "api": {"preferred_api": None}}
+        )
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["LANDSAT_C2L1"]
+        result = {}
+
+        def _run():
+            with (
+                mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True),
+                mock.patch("scrappi.interface.Factory.all_api_list", ["handle1"]),
+            ):
+                result["value"] = get_api_name("LANDSAT_C2L1", context=context, all_apis=True)
+
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout=15)
+        self.assertFalse(worker.is_alive(), "get_api_name hung on a processor_tools.Context")
+        self.assertEqual(result.get("value"), ["handle1"])
+
+    def test_make_api_accepts_a_non_scrappicontext_truthy_context(self):
+        """Same regression as test_get_api_name_accepts_a_non_scrappicontext_truthy_context,
+        for make_api -- it reads context["api"]["preferred_api"] itself when *api*
+        isn't given explicitly."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA"}
+        m = mock.MagicMock()
+        with mock.patch.dict("scrappi.interface.Factory.api_call_handlers", {"handle1": m}, clear=True):
+            make_api("handle1", context=context)
+        m.assert_called_once()
+
+    def test_make_fs_accepts_a_non_scrappicontext_truthy_context(self):
+        """Same regression as test_get_api_name_accepts_a_non_scrappicontext_truthy_context,
+        for make_fs -- it reads context["fs"]["path"] itself when *fs* isn't given."""
+        context = {"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA"}
+        fs = make_fs(self.tmp_dir_path, context=context)
+        self.assertEqual(os.path.normpath(fs.directory), os.path.normpath(self.tmp_dir_path))
+
     @mock.patch(
         "scrappi.api.eodag.EODataAccessGateway.list_collections",
         return_value=[mock.Mock(id="LANDSAT_C2L1"), mock.Mock(id="S2_MSI_L1C")],
@@ -244,6 +317,63 @@ class TestInterface(unittest.TestCase):
             download_product(self.p, context, "handle1")
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
+
+    def test_candidate_failure_is_recoverable(self):
+        from scrappi.interface import _candidate_failure_is_recoverable
+
+        class _HTTPish(Exception):
+            def __init__(self, code):
+                self.response = mock.Mock(status_code=code)
+
+        self.assertTrue(_candidate_failure_is_recoverable(ValueError("site unknown")))
+        self.assertTrue(_candidate_failure_is_recoverable(KeyError("ERUS")))
+        self.assertTrue(_candidate_failure_is_recoverable(NotImplementedError()))
+        self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(404)))
+        self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(503)))
+        self.assertFalse(_candidate_failure_is_recoverable(_HTTPish(401)))
+        self.assertFalse(_candidate_failure_is_recoverable(_HTTPish(403)))
+        self.assertFalse(_candidate_failure_is_recoverable(TypeError("bug")))
+        self.assertFalse(_candidate_failure_is_recoverable(ConnectionError()))
+
+    def _fanout_handlers(self, first, second):
+        """Two candidate APIs; `first`/`second` are the perform_query side effects."""
+        h1, h2 = mock.MagicMock(), mock.MagicMock()
+        h1.list_collections.return_value = h2.list_collections.return_value = ["LANDSAT_C2L1"]
+        h1.perform_query.side_effect = first
+        h2.perform_query.side_effect = second
+        factory = {"h1": mock.MagicMock(return_value=h1), "h2": mock.MagicMock(return_value=h2)}
+        return factory
+
+    def test_perform_query_recoverable_failure_falls_through_to_next_candidate(self):
+        from scrappi.product import ProductItemSet
+
+        wanted = ProductItemSet([mock.Mock()])
+        factory = self._fanout_handlers(ValueError("site not in this registry"), lambda q: wanted)
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertWarns(UserWarning):
+                out = perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+            self.assertIs(out, wanted)
+
+    def test_perform_query_reraises_a_non_recoverable_failure(self):
+        factory = self._fanout_handlers(TypeError("a real bug"), lambda q: None)
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertRaises(TypeError):
+                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+
+    def test_perform_query_reraises_last_error_when_every_candidate_fails_recoverably(self):
+        factory = self._fanout_handlers(ValueError("nope 1"), ValueError("nope 2"))
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertRaises(ValueError):
+                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
 
     def test_download_product_filename(self):
         context = ScrappiContext()

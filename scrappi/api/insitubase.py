@@ -10,6 +10,7 @@ from abc import abstractmethod
 from typing import Optional, Union, List, Any
 
 from scrappi.api.base import BaseAPICallHandler
+from scrappi.api.offlinebase import OfflineArchiveHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import convert_geom_shapely, convert_geom, generate_bounding_lat_lon
 from scrappi.fs.base import BaseFileSystem
@@ -38,11 +39,25 @@ class InSituCallHandler(BaseAPICallHandler):
         self.roi_dict: dict = roi_dict if roi_dict is not None else {}
         self.sites = list(self.roi_dict.keys())
 
+    def _roi_or_raise(self, site: str):
+        """*site*'s raw ROI geometry from :py:attr:`roi_dict`, or a ``KeyError`` that
+        actually says what's wrong (the bare ``roi_dict[site]`` lookup just raised
+        ``KeyError: '<site>'``, which gives no hint that the fix is a config entry)."""
+        try:
+            return self.roi_dict[site]
+        except KeyError:
+            raise KeyError(
+                f"in-situ site {site!r} is not registered with {type(self).__name__} -- "
+                f"known sites: {sorted(self.roi_dict)}. If this is a RadCalNet site that "
+                f"isn't on the built-in list, add its latitude/longitude/default_roi under "
+                f"context['RadCalNet']['site_definitions']."
+            ) from None
+
     def get_roi_shapely(self, site: str):
-        return convert_geom_shapely(self.roi_dict[site])
+        return convert_geom_shapely(self._roi_or_raise(site))
 
     def get_roi(self, site: str):
-        return convert_geom(self.roi_dict[site])
+        return convert_geom(self._roi_or_raise(site))
 
     def set_roi(self, site: str, geom: Any):
         self.roi_dict[site] = geom
@@ -130,15 +145,21 @@ class InSituCallHandler(BaseAPICallHandler):
         return None
 
 
-class InSituOfflineCallHandler(InSituCallHandler):
-    """
-    Class for offline insitu call handler implementations.
+class InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler):
+    """Base for in-situ API handlers that resolve products from a local archive.
 
-    InSituOfflineCallHandlers require a ROI dictionary and
+    Combines :py:class:`~scrappi.api.offlinebase.OfflineArchiveHandler` (archive-path
+    resolution, a flat per-product filesystem, a no-network ``download_product`` that
+    re-locates a file by id) with :py:class:`InSituCallHandler` (the site -> ROI
+    machinery). Concrete handlers (RadCalNet, HYPERNETS) implement only
+    :py:meth:`perform_query`, :py:meth:`list_collections`, and their own filename
+    grammar; see :py:class:`~scrappi.api.offlinebase.OfflineArchiveHandler` for what
+    else to set. A satellite offline handler subclasses ``OfflineArchiveHandler``
+    directly instead of this.
 
-    Subclasses must implement abstract methods.
-
-    :param roi_dict: dictionary with the ROI for the different sites included in the in situ API
+    :param roi_dict: mapping of site -> geometry (see :py:class:`InSituCallHandler`).
+    :param archive_path: root directory to search (see
+        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_archive_path`).
     """
 
     @abstractmethod
@@ -156,12 +177,15 @@ class InSituOfflineCallHandler(InSituCallHandler):
         product: Union[str, ProductItem],
         fs: Optional[Union[str, BaseFileSystem]] = None,
     ) -> Union[list, str]:
-        """
-        return path to product for the provided filesystem (one could also just use the ProductItem.get_path() function
+        """Path to *product*'s already-local file.
 
-        :param product: ProductItem of ProductItemSet from a product query
-        :param fs: filesystem (can be path or file system object (BaseFileSystem)). Defaults to None, in which case product.filesystem is used.
-        :returns: path (or list of paths) to the relevant file(s)
+        Lower-level than :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler.download_product`
+        (which callers should prefer -- it also re-locates a catalogue-rebuilt
+        product). Kept because :py:class:`InSituCallHandler` declares it abstract.
+
+        :param product: a :py:class:`~scrappi.product.ProductItem`.
+        :param fs: if given, copy the product onto this filesystem first.
+        :returns: the resolved path.
         """
         if not isinstance(product, ProductItem):
             raise TypeError("product must be a ProductItem for InSituOfflineCallHandler.download_file")
