@@ -231,6 +231,9 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         try:
             from hypernets_api import OfflineHYPERNETSAPI
 
+            if archive_path == "tdrive":
+                archive_path = os.path.abspath(r"T:\\ECO\\EOServer\\data\\insitu\\hypernets\\archive")
+                
             self.api = OfflineHYPERNETSAPI(archive_path)
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("hypernets_api (offline) is required to use HYPERNETSOfflineCallHandler: %s" % e)
