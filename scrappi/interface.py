@@ -506,30 +506,31 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                 except Exception:
                     register_flag = False
 
-        if register_flag and isinstance(product, ProductItem):
-            # prefer product.filesystem; make_fs will handle strings
-            try:
-                product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                if register_flag and isinstance(product, ProductItem):
+                    # prefer product.filesystem; make_fs will handle strings
+                    try:
+                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                    except Exception:
+                        # fallback: try using make_fs with product.filesystem attribute
+                        try:
+                            fs = make_fs(product.filesystem)
+                            product.register_in_filesystem_catalog(
+                                filesystem=fs,
+                                overwrite=context["fs"]["overwrite_stac_items"],
+                            )
+                        except Exception as e:
+                            logger.debug("Failed to register product in STAC catalog: %s", e)
+                # for ProductItemSet we assume individual downloads will have registered themselves
             except Exception:
-                # fallback: try using make_fs with product.filesystem attribute
-                try:
-                    fs = make_fs(product.filesystem)
-                    product.register_in_filesystem_catalog(
-                        filesystem=fs,
-                        overwrite=context["fs"]["overwrite_stac_items"],
-                    )
-                except Exception as e:
-                    logger.debug("Failed to register product in STAC catalog: %s", e)
-        # for ProductItemSet we assume individual downloads will have registered themselves
-    except Exception:
-        # Do not let registration errors prevent returning the download path
-        pass
+                # Do not let registration errors prevent returning the download path
+                pass
 
             return download_path
 
     if last_exc is not None and n_recoverable == n_ran:
         raise last_exc
     return None
+
 
 
 def download_product_filename(
