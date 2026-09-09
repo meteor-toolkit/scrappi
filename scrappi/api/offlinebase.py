@@ -104,14 +104,20 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         return idx
 
     # -------------------------------------------------------------- filesystem
-    def _flat_filesystem(self, dirpath: str) -> STACFileSystem:
+    def _flat_filesystem(self, dirpath: str, read_only: Optional[bool] = None) -> STACFileSystem:
         """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned
         to *dirpath* -- the directory an archived file actually sits in. Flat so the
         file resolves at ``<dirpath>/<id>`` regardless of how the archive is laid
         out, and so nothing is reorganised from product metadata (the file is
         already where it is). ``organise_data`` is scoped to this instance, never
-        the shared context."""
-        return STACFileSystem(path=dirpath, context=self.context, flat=True)
+        the shared context.
+
+        :param read_only: passed straight through to
+            :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem`; ``None`` (default)
+            leaves it at that class's own default. Pass ``True`` for an archive a
+            handler should never write back to.
+        """
+        return STACFileSystem(path=dirpath, context=self.context, flat=True, read_only=read_only)
 
     def _archive_path_for(self, product: ProductItem) -> Optional[str]:
         """Absolute path of *product*'s file within :py:attr:`archive_path`, by

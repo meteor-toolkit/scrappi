@@ -14,7 +14,6 @@ from processor_tools import Context
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import generate_bounding_lat_lon
-from scrappi.fs.localfilesystem import LocalFileSystem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -325,14 +324,16 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
-                    # Flat filesystem pinned to the product's own archive directory:
-                    # the file is already there, so organise_data (which would rebuild
-                    # a reorganised path from product metadata) must be off, and the
-                    # archive is not ours to write to.
-                    filesystem=LocalFileSystem(
+                    # Flat filesystem (STACFileSystem, not plain LocalFileSystem) pinned
+                    # to the product's own archive directory: the file is already there,
+                    # so organise_data (which would rebuild a reorganised path from
+                    # product metadata) is off, and the archive is not ours to write to.
+                    # STACFileSystem (rather than LocalFileSystem) so
+                    # ProductItem.to_stac_item() -- called when a matchup is added to a
+                    # catalogue -- has return_stac_item_path (see the identical fix for
+                    # RadcalnetOfflineCallHandler).
+                    filesystem=self._flat_filesystem(
                         os.path.join(self.api.archive_path, prod["rel_product_dir"]),
-                        self.context,
-                        organise_data=False,
                         read_only=True,
                     ),
                     url=prod["sequence_name"],
