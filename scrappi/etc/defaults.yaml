@@ -20,6 +20,8 @@ api:
   preferred_provider: "cop_dataspace"
   eodag_logging_level: 1
   fetch_collection_update: False
+  offline_archive_path:          # root of a local satellite archive for the "eodag_offline" handler (unset = handler inert)
+  offline_archive_paths:         # optional {collection: path} overrides, e.g. {S2_MSI_L1C: /fast/disk/s2}
 
 eodag:
   usgs:

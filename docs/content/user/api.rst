@@ -44,6 +44,24 @@ Alternatively, it is also possible to set the prefered provider for eodag by usi
     from scrappi.interface import make_api
     api=make_api("eodag:usgs")
 
+Offline (``"eodag_offline"``)
+    **Skeleton -- not yet production-ready.** Resolves satellite scenes from a
+    local archive instead of the network, as a fallback in the candidate-API list
+    (after ``"eodag"``). It reads each scene's metadata from scrappi's STAC
+    catalogue tree (``<root>/stac/...``), which scrappi writes automatically on
+    download when ``fs.register_stac_items`` is true (the default). An archive of
+    bare product files with **no** ``stac/`` tree is not served by this handler.
+
+    .. code-block:: yaml
+
+        api:
+            offline_archive_path: /path/to/satellite/archive
+            offline_archive_paths:            # optional per-collection overrides
+                S2_MSI_L1C: /fast/disk/s2
+
+    Each collection is searched under ``<root>/<collection>/`` if present, else
+    ``<root>``. Works for any mission with no per-satellite code.
+
 
 RadCalNet
 =========

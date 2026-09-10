@@ -84,24 +84,58 @@ provides:
   keys named in the class attribute ``ARCHIVE_PATH_CONTEXT_KEYS`` (e.g.
   ``("RadCalNet", "offline_archive_path")``), else ``_default_archive_path()``
   (override it if there is a sensible fixed fallback, otherwise the base raises);
-* ``_archive_index`` -- a cached ``filename -> path`` map from a single walk of the
-  archive, and ``_archive_path_for(product)`` on top of it;
-* ``_flat_filesystem(dirpath)`` -- a flat-layout ``STACFileSystem`` (``flat=True``:
-  no ``<root>/data`` + ``<root>/stac`` split, no organised date tree) to hand each
-  ``ProductItem`` built in ``perform_query`` as its ``filesystem=``;
+* ``_index_of(root)`` -- a cached ``name -> path`` map from a single walk of
+  ``root`` (``_archive_index`` is ``_index_of(self.archive_path)``); a directory
+  whose name ends with one of ``INDEX_DIRECTORY_SUFFIXES`` (e.g. ``.SAFE``) is one
+  entry, not its contents. ``_archive_path_for(product)`` matches ``product.id``
+  against it, ignoring container suffixes on either side;
+* ``_flat_filesystem(dirpath, read_only=None)`` -- a flat-layout ``STACFileSystem``
+  (``flat=True``: no ``<root>/data`` + ``<root>/stac`` split, no organised date
+  tree) to hand each ``ProductItem`` built in ``perform_query`` as its
+  ``filesystem=``; pass ``read_only=True`` for an archive not to be written back to;
 * ``download_product`` -- resolves the product locally (no network, no copy) and
   repins its filesystem, so it also works for a product rebuilt from a STAC
   catalogue (which arrives with none).
 
-The subclass implements only ``perform_query`` and ``list_collections``, plus its
-own filename grammar and (for an in-situ one, via
+An in-situ subclass implements only ``perform_query`` and ``list_collections``,
+plus its own filename grammar and (via
 ``InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler)``) its ROI
-registry. A satellite offline handler subclasses ``OfflineArchiveHandler`` directly.
-Register the handler in ``scrappi.api.factory`` after ``"radcalnet"`` /
-``"hypernets"`` so the online source is preferred when it has the data; the
-interface's candidate-API fan-out (``scrappi.interface.perform_query`` /
-``download_product``) then falls through to the offline handler only when the online
-one can't serve a query/download.
+registry.
+
+Register the handler in ``scrappi.api.factory`` after its online sibling so the
+online source is preferred when it has the data; the interface's candidate-API
+fan-out (``scrappi.interface.perform_query`` / ``download_product``) then falls
+through to the offline handler only when the online one can't serve a
+query/download.
+
+Satellite offline handler
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``scrappi.api.satellite_offline.SatelliteOfflineCallHandler`` (registered
+``"eodag_offline"``, after ``"eodag"``) is the satellite counterpart. **Status:
+skeleton** -- structure and flow are in place, the ``TODO``\ s in the module need a
+real archive layout to settle.
+
+A satellite scene's footprint, times and cloud cover aren't in its filename, so
+this handler reads them from **scrappi's own STAC catalogue tree**. scrappi writes
+that tree (``<root>/stac/<collection>/items/.../<id>.json`` + ``collection.json`` +
+``catalog.json``) for every product it downloads *when*
+``context["fs"]["register_stac_items"]`` is true -- **the default** (see
+``scrappi/etc/defaults.yaml``). So an archive scrappi itself populated is served by
+this handler; an archive of bare product files with no ``stac/`` tree is not
+(``perform_query`` returns empty and warns).
+
+It is mission-agnostic -- ``product_item_from_stac`` rebuilds any mission's item
+and ``scrappi.api.offline_query.product_matches_query`` applies the query filters
+client-side, so no per-satellite subclass is needed. Configuration:
+
+* ``context["api"]["offline_archive_path"]`` -- the archive root (or pass
+  ``archive_path=``); no built-in default, an unconfigured handler is inert;
+* ``context["api"]["offline_archive_paths"]`` -- optional ``{collection: path}``
+  overrides. Otherwise each collection is searched under ``<root>/<collection>/``
+  if that exists, else ``<root>`` -- scoping the walk so a query doesn't traverse a
+  multi-terabyte shared archive;
+* ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
+  whole-product directories.
 
 Suggested implementations for abstract methods (using base class methods)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

@@ -108,6 +108,56 @@ class TestDownloadProduct(unittest.TestCase):
             self.handler._archive_index  # a third touch
         walk.assert_called_once()
 
+    def test_id_matches_an_on_disk_name_with_a_product_suffix(self):
+        """A product id of ``foo`` resolves to ``foo.zip`` / ``foo.nc`` on disk."""
+        real = self._write("2024", "foo.zip")
+        self.assertEqual(
+            os.path.normpath(self.handler.download_product(_product("foo"))),
+            os.path.normpath(real),
+        )
+
+    def test_id_matches_via_stem_when_the_id_carries_the_suffix(self):
+        """A product id of ``foo.nc`` resolves to a file literally named ``foo.nc``
+        *and* the base's suffix-strip fallback still finds ``foo`` if that's the
+        on-disk name."""
+        real = self._write("bar")
+        self.assertEqual(
+            os.path.normpath(self.handler.download_product(_product("bar.nc"))),
+            os.path.normpath(real),
+        )
+
+
+class _DirHandler(_Handler):
+    INDEX_DIRECTORY_SUFFIXES = (".SAFE",)
+
+
+class TestDirectoryProducts(unittest.TestCase):
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.handler = _DirHandler(ScrappiContext(), archive_path=self.tmp.name)
+
+    def _mkproduct_dir(self, *parts):
+        d = os.path.join(self.tmp.name, *parts)
+        os.makedirs(d, exist_ok=True)
+        open(os.path.join(d, "MTD_MSIL1C.xml"), "w").close()
+        open(os.path.join(d, "manifest.safe"), "w").close()
+        return d
+
+    def test_a_dot_safe_directory_is_one_index_entry_not_its_contents(self):
+        safe = self._mkproduct_dir("2023", "S2A_MSIL1C_20230607T104621.SAFE")
+        index = self.handler._archive_index
+        self.assertIn("S2A_MSIL1C_20230607T104621.SAFE", index)
+        self.assertEqual(os.path.normpath(index["S2A_MSIL1C_20230607T104621.SAFE"]), os.path.normpath(safe))
+        # the granule files inside are NOT indexed
+        self.assertNotIn("MTD_MSIL1C.xml", index)
+        self.assertNotIn("manifest.safe", index)
+
+    def test_download_resolves_a_dot_safe_from_the_bare_id(self):
+        safe = self._mkproduct_dir("2023", "S2A_MSIL1C_20230607T104621.SAFE")
+        path = self.handler.download_product(_product("S2A_MSIL1C_20230607T104621"))
+        self.assertEqual(os.path.normpath(path), os.path.normpath(safe))
+
 
 if __name__ == "__main__":
     unittest.main()
