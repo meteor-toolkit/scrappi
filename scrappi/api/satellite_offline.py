@@ -1,10 +1,8 @@
 """Offline (archive-backed) handler for satellite scenes.
 
 **Status: skeleton.** The structure, base-class wiring and query/download flow are
-in place; the parts marked ``TODO`` below need decisions from a real archive
-layout before this is production-ready. See
-``docs/content/developer/api.rst`` and the design notes on the
-``offline-satellite-archive`` branch.
+in place; the ``TODO``\\ s below need decisions from a real archive layout before
+this is production-ready. See ``docs/content/developer/api.rst``.
 
 What this is
 ------------
@@ -12,167 +10,207 @@ The satellite counterpart to
 :py:class:`~scrappi.api.radcalnet_api_client.RadcalnetOfflineCallHandler` /
 :py:class:`~scrappi.api.hypernets.HYPERNETSOfflineCallHandler`: it answers the
 same ``perform_query`` / ``download_product`` interface as the online eodag
-handler but reads scenes from a local directory tree the user already holds,
-for use as a fallback in the candidate-API fan-out (registered after
-``"eodag"`` in :py:mod:`scrappi.api.factory`).
+handler but reads scenes from a local directory tree the user already holds, for
+use as a fallback in the candidate-API fan-out (registered after ``"eodag"`` in
+:py:mod:`scrappi.api.factory`).
 
 Unlike the in-situ offline handlers, a satellite scene's footprint polygon,
 acquisition times and cloud cover are **not** derivable from its filename or a
-site registry -- they need a metadata record per product. This handler reads
-that record from **scrappi's own STAC catalogue tree**.
+site registry -- they need a metadata record per product. This handler reads that
+record from **scrappi's own STAC catalogue tree**.
 
 The STAC-tree requirement
 -------------------------
-scrappi writes a STAC item (and collection/root catalogue) for every product it
-downloads **when** ``context["fs"]["register_stac_items"]`` is true -- which is
-the default (see ``scrappi/etc/defaults.yaml``). So an archive that scrappi
-itself populated has, alongside the data tree::
+scrappi writes a STAC item (and collection / root catalogue) for every product it
+downloads **when** ``context["fs"]["register_stac_items"]`` is true -- the default
+(see ``scrappi/etc/defaults.yaml``). So an archive scrappi itself populated has,
+alongside the data tree::
 
     <root>/data/<constellation>/<platform>/<collection>/<yyyy>/<mm>/<dd>/<product>
     <root>/stac/<collection>/items/<yyyy>/<mm>/<dd>/<product>.json
     <root>/stac/<collection>/collection.json
     <root>/stac/catalog.json
 
-This handler reads those ``*.json`` item files, rebuilds each into a
+This handler reads those item ``*.json`` files, rebuilds each into a
 :py:class:`~scrappi.product.ProductItem` with
-:py:func:`~scrappi.product.product_item_from_stac`, and applies the query
-filters client-side with
-:py:func:`~scrappi.api.offline_query.product_matches_query`.
+:py:func:`~scrappi.product.product_item_from_stac`, and filters them client-side
+with a :py:class:`~scrappi.api.offline_query.CompiledQuery`.
 
 An archive of **bare product files with no ``stac/`` tree is not served by this
 handler** -- :py:meth:`perform_query` returns an empty set and warns. Options for
-that case (not implemented here): point the online eodag handler at a local
-STAC via its ``StaticStacSearch`` plugin, or add a filename-only degraded mode
-(``_parse_product_name``) as a follow-up.
+that case (not implemented): the online eodag handler's ``StaticStacSearch``
+plugin, or a filename-only degraded mode.
+
+Per-collection roots
+--------------------
+So a query doesn't walk a whole shared archive, each collection is searched under
+its own subtree:
+
+1. ``context["api"]["offline_archive_paths"][collection]`` -- explicit override;
+2. ``<archive_path>/<collection>/`` if it holds a ``stac/`` dir;
+3. ``<archive_path>`` itself.
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import warnings
-from typing import Any, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from scrappi.api.offlinebase import OfflineArchiveHandler
-from scrappi.api.offline_query import product_matches_query, query_collections
+from scrappi.api.offline_query import compile_query, query_collections
 from scrappi.product import ProductItem, ProductItemSet, product_item_from_stac
 
 __author__ = ["Maddie Stedman <maddie.stedman@npl.co.uk>"]
 __all__ = ["SatelliteOfflineCallHandler"]
 
-#: names that are catalogue nodes, not product items, when walking the stac tree
+#: json filenames that are catalogue nodes, not product items
 _NON_ITEM_JSON = frozenset({"catalog.json", "collection.json"})
 
 
+def _collection_of(item_path: str) -> Optional[str]:
+    """The collection id from a STAC item path laid out ``.../stac/<collection>/...``
+    -- ``product_item_from_stac`` leaves ``ProductItem.collection`` unset for a
+    standalone item whose collection is only a top-level ``"collection"`` key."""
+    parts = os.path.normpath(item_path).split(os.sep)
+    try:
+        return parts[parts.index("stac") + 1]
+    except (ValueError, IndexError):
+        return None
+
+
 class SatelliteOfflineCallHandler(OfflineArchiveHandler):
-    """Resolve satellite scenes from a local archive that carries scrappi's STAC tree.
+    """Resolve satellite scenes from a local archive carrying scrappi's STAC tree.
 
     :param context: :py:class:`~scrappi.ScrappiContext`.
     :param archive_path: archive root. Falls back to
-        ``context["api"]["offline_archive_path"]``, then
-        :py:meth:`_default_archive_path` (unset by default -- there's no sensible
-        NPL-wide default for "all satellite data").
+        ``context["api"]["offline_archive_path"]``; there is no built-in default,
+        and an unconfigured handler is inert (see :py:meth:`_default_archive_path`).
     """
 
     name = "eodag_offline"
 
-    #: read from context["api"]["offline_archive_path"] when archive_path isn't given
+    #: archive root read from here when archive_path isn't passed to __init__
     ARCHIVE_PATH_CONTEXT_KEYS: Tuple[str, ...] = ("api", "offline_archive_path")
 
     #: extracted Sentinel scenes are whole-product directories
     INDEX_DIRECTORY_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3")
 
+    #: a STAC item id is the product name without an extension; on disk the data
+    #: may carry one of these (never ``.json`` -- that's the item sidecar).
+    PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3", ".zip", ".nc", ".tar.gz", ".tar")
+
     def _default_archive_path(self) -> str:
-        """No built-in default -- there's no sensible NPL-wide "all satellite data"
-        location. Returns ``""`` (rather than raising like the base) so that an
-        unconfigured handler is simply *inert* -- :py:meth:`list_collections`
-        returns ``[]`` and :py:meth:`perform_query` returns an empty set -- instead
-        of breaking every :py:func:`scrappi.get_api_name` call that probes it.
-        Configure via ``archive_path=`` or ``context["api"]["offline_archive_path"]``.
-        """
+        """No built-in default -- there is no sensible NPL-wide "all satellite
+        data" location. Returns ``""`` (rather than raising like the base) so an
+        unconfigured handler is *inert*: :py:meth:`list_collections` returns ``[]``
+        and :py:meth:`perform_query` an empty set, instead of every
+        :py:func:`scrappi.get_api_name` probe raising and warning."""
         return ""
+
+    def clear_cache(self) -> None:
+        """Drop the cached walk indexes *and* the discovered-collections list."""
+        super().clear_cache()
+        self.__dict__.pop("_collections_cache", None)
 
     @property
     def _configured(self) -> bool:
         return bool(self.archive_path) and os.path.isdir(self.archive_path)
 
     # ------------------------------------------------------------------ roots
-    def _collection_root(self, collection: str) -> str:
-        """The directory to search for *collection*'s STAC items.
-
-        Precedence:
-
-        1. an explicit per-collection path in
-           ``context["api"]["offline_archive_paths"][collection]`` (user override);
-        2. ``<archive_path>/<collection>`` if that directory exists (the "one
-           subdirectory per collection" convention);
-        3. ``<archive_path>`` itself.
-
-        Scoping the walk to one collection's subtree is what keeps a query off a
-        multi-terabyte shared archive from walking the whole thing.
-        """
-        overrides: Any = {}
+    def _path_overrides(self) -> Dict[str, str]:
         try:
-            overrides = self.context["api"].get("offline_archive_paths") or {}
+            return dict(self.context["api"].get("offline_archive_paths") or {})
         except Exception:
-            overrides = {}
-        if collection in overrides:
-            return overrides[collection]
+            return {}
 
+    def _collection_root(self, collection: str) -> str:
+        """The directory holding *collection*'s ``stac/`` + data trees -- an
+        explicit override, else ``<archive_path>/<collection>`` if it has a
+        ``stac/`` dir, else ``<archive_path>``."""
+        override = self._path_overrides().get(collection)
+        if override:
+            return override
         per_collection = os.path.join(self.archive_path, collection)
-        if os.path.isdir(per_collection):
+        if os.path.isdir(os.path.join(per_collection, "stac")):
             return per_collection
         return self.archive_path
 
+    def _candidate_roots(self) -> Set[str]:
+        """Every directory that might hold a ``stac/`` tree: the archive root,
+        its immediate subdirectories, and any configured override path."""
+        roots: Set[str] = {self.archive_path}
+        roots.update(self._path_overrides().values())
+        try:
+            roots.update(
+                os.path.join(self.archive_path, d)
+                for d in os.listdir(self.archive_path)
+                if os.path.isdir(os.path.join(self.archive_path, d))
+            )
+        except OSError:
+            pass
+        return roots
+
     # ------------------------------------------------------------------ discovery
-    def _stac_item_paths(self, root: str) -> List[str]:
-        """Absolute paths of every STAC *item* JSON under *root* (excludes
-        ``catalog.json`` / ``collection.json``). Uses the cached
-        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._index_of` walk."""
-        return [
-            path
-            for name, path in self._index_of(root).items()
-            if name.endswith(".json") and name not in _NON_ITEM_JSON
-        ]
+    def _collection_ids_at(self, root: str) -> Dict[str, str]:
+        """``collection id -> path of its collection.json`` for every
+        ``<root>/stac/<collection>/collection.json``."""
+        out: Dict[str, str] = {}
+        for cj in glob.glob(os.path.join(root, "stac", "*", "collection.json")):
+            try:
+                with open(cj) as f:
+                    cid = json.load(f).get("id")
+            except (OSError, ValueError):
+                continue
+            if cid:
+                out.setdefault(cid, cj)
+        return out
 
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
-        """Collection ids the archive holds -- read from every ``collection.json``
-        under :py:attr:`archive_path`, falling back to top-level subdirectory names.
+        """Collection ids the archive holds, from every ``stac/*/collection.json``
+        under the archive root or a configured path. ``[]`` if the handler is
+        unconfigured or there is no STAC tree. Cached (see :py:meth:`clear_cache`).
 
         :param fetch_update: unused; kept for interface compatibility.
         """
-        if not self._configured:
-            return []
-        found: List[str] = []
-        for name, path in self._index_of(self.archive_path).items():
-            if name != "collection.json":
-                continue
-            try:
-                found.append(json.loads(open(path).read())["id"])
-            except Exception:
-                continue
-        if found:
-            return sorted(set(found))
+        cached = self.__dict__.get("_collections_cache")
+        if cached is not None:
+            return cached
+        ids: Set[str] = set()
+        if self._configured:
+            for root in self._candidate_roots():
+                ids.update(self._collection_ids_at(root))
+        result = sorted(ids)
+        self.__dict__["_collections_cache"] = result
+        return result
 
-        # fallback: assume <archive_path>/<collection>/ layout
-        if os.path.isdir(self.archive_path):
-            return sorted(
-                d for d in os.listdir(self.archive_path) if os.path.isdir(os.path.join(self.archive_path, d))
+    def _stac_item_paths(self, stac_root: str) -> List[str]:
+        """Absolute paths of every STAC *item* json under *stac_root* (a
+        ``<...>/stac`` directory), excluding ``catalog.json`` / ``collection.json``.
+        A bounded walk -- ``stac/`` holds only json."""
+        if not os.path.isdir(stac_root):
+            return []
+        out: List[str] = []
+        for dirpath, _dirnames, filenames in os.walk(stac_root):
+            out.extend(
+                os.path.join(dirpath, fn) for fn in filenames if fn.endswith(".json") and fn not in _NON_ITEM_JSON
             )
-        return []
+        return out
 
     # ------------------------------------------------------------------ query
     def perform_query(self, query: dict) -> ProductItemSet:
         """Every archived scene whose STAC item satisfies *query*.
 
-        :param query: same shape as :py:meth:`scrappi.api.eodag.EODAGCallHandler.perform_query`
-            (``collection``/``collections``, ``geom``, ``start_time``, ``stop_time``,
-            optional ``platform``); see :py:func:`~scrappi.api.offline_query.product_matches_query`.
-        :returns: matching products (empty, with a warning, if the archive has no
-            STAC tree for the requested collection).
+        :param query: same shape as
+            :py:meth:`scrappi.api.eodag.EODAGCallHandler.perform_query`
+            (``collection`` / ``collections``, ``geom``, ``start_time``,
+            ``stop_time``, optional ``platform``, ``cloud_cover_max``); see
+            :py:class:`~scrappi.api.offline_query.CompiledQuery`.
+        :returns: matching products; empty (with a warning) if unconfigured, if no
+            collection can be resolved, or if the archive has no ``stac/`` tree.
         """
-        query = dict(query)
-
         if not self._configured:
             warnings.warn(
                 f"{type(self).__name__}: archive_path {self.archive_path!r} is not a directory "
@@ -180,77 +218,87 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             )
             return ProductItemSet()
 
-        collections = query_collections(query) or self.list_collections()
-        if not collections:
+        wanted = query_collections(query) or self.list_collections()
+        if not wanted:
             warnings.warn(
-                f"{type(self).__name__}: no collection in the query and none discoverable "
-                f"under {self.archive_path!r}"
+                f"{type(self).__name__}: no collection in the query and none discoverable under "
+                f"{self.archive_path!r} (needs scrappi's stac/ tree, written on download when "
+                f"context['fs']['register_stac_items'] is true)"
             )
             return ProductItemSet()
 
+        compiled = compile_query(query)
+
+        # group collections by the root they resolve to, so a shared root is walked once
+        by_root: Dict[str, Set[str]] = {}
+        for collection in wanted:
+            by_root.setdefault(self._collection_root(collection), set()).add(collection)
+
         products: List[ProductItem] = []
-        for collection in collections:
-            root = self._collection_root(collection)
-            item_paths = self._stac_item_paths(root)
-            if not item_paths:
-                warnings.warn(
-                    f"{type(self).__name__}: no STAC items found for collection {collection!r} under "
-                    f"{root!r}. This handler needs scrappi's stac/ tree (written on download when "
-                    f"context['fs']['register_stac_items'] is true); a bare archive of product files "
-                    f"is not supported."
-                )
-                continue
-
+        found_any_stac = False
+        for root, collections in by_root.items():
+            item_paths = self._stac_item_paths(os.path.join(root, "stac"))
+            if item_paths:
+                found_any_stac = True
             for item_path in item_paths:
-                product = self._product_from_item(item_path, collection)
-                if product is None:
+                product = self._load_item(item_path, collections)
+                if product is None or not compiled.matches(product):
                     continue
-                if product_matches_query(product, {**query, "collection": collection}):
-                    products.append(product)
+                self._pin_filesystem(product)
+                products.append(product)
 
+        if not found_any_stac:
+            warnings.warn(
+                f"{type(self).__name__}: no STAC items found for {sorted(wanted)} under "
+                f"{sorted(by_root)}. A bare archive of product files with no stac/ tree is "
+                f"not supported by this handler."
+            )
         return ProductItemSet(products)
 
     # ------------------------------------------------------------------ item -> product
-    def _product_from_item(self, item_path: str, collection: str) -> Optional[ProductItem]:
-        """Rebuild one :py:class:`~scrappi.product.ProductItem` from a STAC item
-        JSON and pin its filesystem to wherever the data file actually is."""
+    def _load_item(self, item_path: str, collections: Set[str]) -> Optional[ProductItem]:
+        """Rebuild a :py:class:`~scrappi.product.ProductItem` from a STAC item json
+        (no filesystem yet -- :py:meth:`_pin_filesystem` does that only for the
+        products a query keeps). Returns ``None`` for a json that won't parse or
+        that belongs to a collection outside *collections*."""
         try:
             product = product_item_from_stac(item_path, self.context)
         except Exception as exc:  # a stray / malformed json shouldn't abort the query
             warnings.warn(f"{type(self).__name__}: could not read STAC item {item_path!r}: {exc}")
             return None
-
         if not product.collection:
-            product.collection = collection
-
-        # Pin the filesystem to the data file's own directory. The STAC item's
-        # asset href may be logical (asset://...) or relative, so rather than
-        # resolving it we locate the file by id in the archive (one cached walk).
-        data_path = self._archive_path_for(product)
-        if data_path is not None:
-            product.filesystem = self._flat_filesystem(os.path.dirname(data_path), read_only=True)
-        else:
-            # data not (yet) in the archive -- keep a filesystem so to_stac_item()
-            # etc. still work, pinned at the collection root.
-            product.filesystem = self._flat_filesystem(self._collection_root(collection), read_only=True)
+            product.collection = _collection_of(item_path) or ((product.prod_dict or {}).get("collection"))
+        if product.collection not in collections:
+            return None
         product.api = self
         return product
 
+    def _pin_filesystem(self, product: ProductItem) -> None:
+        """Attach a flat, read-only :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem`
+        pinned to the data file's own directory (or the collection root if the data
+        isn't in the archive yet, so :py:meth:`~scrappi.product.ProductItem.to_stac_item`
+        still resolves)."""
+        data_path = self._archive_path_for(product)
+        pin_dir = os.path.dirname(data_path) if data_path else self._collection_root(product.collection)
+        product.filesystem = self._flat_filesystem(pin_dir)
+
     # ------------------------------------------------------------------ download
     def _archive_path_for(self, product: ProductItem) -> Optional[str]:
-        """Locate *product*'s data file, scoped to its collection's subtree rather
-        than the whole archive (the base walks all of ``archive_path``).
-
-        Matching (bare id, id +/- a container suffix, stem match) and the
-        ``.SAFE`` / ``.SEN3`` directory handling are the base's -- see
-        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_in_index`.
-        ``download_product`` (inherited) then re-pins the filesystem and returns
-        the path, no network.
+        """Locate *product*'s data file, scoped to its collection's data subtree
+        (``<collection_root>/data`` if present, else ``<collection_root>``) rather
+        than the whole archive. Matching (bare id, id + a container suffix from
+        :py:data:`PRODUCT_NAME_SUFFIXES`, ``.SAFE`` / ``.SEN3`` directories) is the
+        base's :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_in_index`.
 
         TODO: if a real archive's id <-> on-disk-name mapping needs more than the
-        suffix logic, resolve via the STAC item's ``data`` asset href relative to
-        ``<collection_root>`` instead.
+        suffix logic, resolve via the STAC item's ``data`` asset href instead.
         """
         collection = getattr(product, "collection", None)
         root = self._collection_root(collection) if collection else self.archive_path
-        return self._resolve_in_index(product, self._index_of(root))
+        data_dir = os.path.join(root, "data")
+        search = data_dir if os.path.isdir(data_dir) else root
+        return self._resolve_in_index(product, self._index_of(search))
+
+    # download_product is inherited from OfflineArchiveHandler: it calls
+    # _archive_path_for (above), re-pins product.filesystem via _flat_filesystem
+    # (carrying ARCHIVE_READ_ONLY), and returns the path -- no network.

@@ -5,34 +5,38 @@ platform, cloud cover) to the remote catalogue and trusts what comes back. An
 offline handler has to apply the same filters itself, to every
 :py:class:`~scrappi.product.ProductItem` it reconstructs from the archive.
 
-:py:func:`product_matches_query` is that filter, in one place, so every offline
-handler (and, in time, the post-search filtering the online eodag handler still
-does by hand) agrees on what "matches" means.
+:py:class:`CompiledQuery` is that filter. Parse the query once
+(:py:func:`compile_query`), then call :py:meth:`CompiledQuery.matches` per
+product -- the query geometry / datetimes are converted a single time, not once
+per candidate. :py:func:`product_matches_query` is the one-shot convenience form.
 
 Query shape -- the same dict the online ``perform_query`` handlers accept:
 
-- ``collection`` (str) or ``collections`` (str | list[str]) -- required to filter on
-- ``start_time`` / ``stop_time`` -- product's [start, stop] must overlap this window
+- ``collection`` (str) or ``collections`` (str | list[str]) -- product collection must be one of them
+- ``start_time`` / ``stop_time`` -- product's ``[start, stop]`` must overlap this window
 - ``geom`` -- WKT / shapely / ``{latitude_minimum, ...}`` bbox; product footprint must intersect
 - ``platform`` -- exact match against ``ProductItem.platform`` when given
 - ``cloud_cover_max`` -- ``ProductItem.cloud_fraction`` must be <= this when given
   (a NaN / unknown cloud fraction is *kept* -- see
   :py:meth:`scrappi.api.eodag.EODAGCallHandler.perform_query`'s -1 handling)
+
+A filter absent from the query is not applied; an empty query matches everything.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import math
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, List, Optional
 
 from scrappi.product import ProductItem
 from scrappi.utils.utils import convert_datetime, convert_geom_shapely
 
-__all__ = ["product_matches_query", "query_collections"]
+__all__ = ["CompiledQuery", "compile_query", "product_matches_query", "query_collections"]
 
 
-def query_collections(query: dict) -> list:
+def query_collections(query: dict) -> List[str]:
     """The collection ids a query filters on -- ``collection`` (one) or
     ``collections`` (one or many). Empty list means "no collection filter"."""
     if query.get("collection") is not None:
@@ -41,12 +45,6 @@ def query_collections(query: dict) -> list:
     if cols is None:
         return []
     return list(cols) if isinstance(cols, (list, tuple, set)) else [cols]
-
-
-def _query_time_range(query: dict) -> tuple[Optional[dt.datetime], Optional[dt.datetime]]:
-    start = convert_datetime(query["start_time"]) if query.get("start_time") is not None else None
-    stop = convert_datetime(query["stop_time"]) if query.get("stop_time") is not None else None
-    return start, stop
 
 
 def _as_datetime(value: Any) -> Optional[dt.datetime]:
@@ -58,46 +56,72 @@ def _as_datetime(value: Any) -> Optional[dt.datetime]:
         return None
 
 
-def product_matches_query(product: ProductItem, query: dict) -> bool:
-    """Whether *product* satisfies every filter present in *query* (see module docstring).
+@dataclass(frozen=True)
+class CompiledQuery:
+    """A query dict with its geometry / datetimes parsed once. Build with
+    :py:func:`compile_query`, then :py:meth:`matches` each product."""
 
-    A filter that isn't in the query isn't applied. Returns ``True`` for an empty
-    query.
-    """
-    # ---- collection ----
-    wanted_collections = query_collections(query)
-    if wanted_collections and product.collection not in wanted_collections:
-        return False
+    collections: frozenset
+    start_time: Optional[dt.datetime]
+    stop_time: Optional[dt.datetime]
+    geom: Any  # shapely geometry, or None
+    platform: Optional[str]
+    cloud_cover_max: Optional[float]
 
-    # ---- time range: product [start, stop] must overlap [query start, query stop] ----
-    q_start, q_stop = _query_time_range(query)
-    p_start = _as_datetime(getattr(product, "start_time", None))
-    p_stop = _as_datetime(getattr(product, "stop_time", None)) or p_start
-    if q_stop is not None and p_start is not None and p_start > q_stop:
-        return False
-    if q_start is not None and p_stop is not None and p_stop < q_start:
-        return False
-
-    # ---- footprint: product geometry must intersect the query geometry ----
-    if query.get("geom") is not None:
-        try:
-            q_geom = convert_geom_shapely(query["geom"])
-            p_geom = product.geometry
-            if q_geom is not None and p_geom is not None and not q_geom.intersects(p_geom):
-                return False
-        except Exception:
-            # a geometry we can't compare shouldn't silently drop the product
-            pass
-
-    # ---- platform ----
-    if query.get("platform") is not None and getattr(product, "platform", None) != query["platform"]:
-        return False
-
-    # ---- cloud cover (only when the query asks and the product has a real number) ----
-    cloud_max = query.get("cloud_cover_max")
-    if cloud_max is not None:
-        cf = getattr(product, "cloud_fraction", None)
-        if cf is not None and not (isinstance(cf, float) and math.isnan(cf)) and cf > cloud_max:
+    def matches(self, product: ProductItem) -> bool:
+        """Whether *product* satisfies every filter this query carries."""
+        if self.collections and getattr(product, "collection", None) not in self.collections:
             return False
 
-    return True
+        # time: product [start, stop] must overlap [query start, query stop]
+        p_start = _as_datetime(getattr(product, "start_time", None))
+        p_stop = _as_datetime(getattr(product, "stop_time", None)) or p_start
+        if self.stop_time is not None and p_start is not None and p_start > self.stop_time:
+            return False
+        if self.start_time is not None and p_stop is not None and p_stop < self.start_time:
+            return False
+
+        # footprint: product geometry must intersect the query geometry
+        if self.geom is not None:
+            p_geom = getattr(product, "geometry", None)
+            try:
+                if p_geom is not None and not self.geom.intersects(p_geom):
+                    return False
+            except Exception:
+                pass  # a geometry we can't compare shouldn't silently drop the product
+
+        if self.platform is not None and getattr(product, "platform", None) != self.platform:
+            return False
+
+        if self.cloud_cover_max is not None:
+            cf = getattr(product, "cloud_fraction", None)
+            known = cf is not None and not (isinstance(cf, float) and math.isnan(cf))
+            if known and cf > self.cloud_cover_max:
+                return False
+
+        return True
+
+
+def compile_query(query: dict) -> CompiledQuery:
+    """Parse *query* into a :py:class:`CompiledQuery` (geometry and datetimes
+    converted once)."""
+    geom = None
+    if query.get("geom") is not None:
+        try:
+            geom = convert_geom_shapely(query["geom"])
+        except Exception:
+            geom = None
+    return CompiledQuery(
+        collections=frozenset(query_collections(query)),
+        start_time=_as_datetime(query.get("start_time")),
+        stop_time=_as_datetime(query.get("stop_time")),
+        geom=geom,
+        platform=query.get("platform"),
+        cloud_cover_max=query.get("cloud_cover_max"),
+    )
+
+
+def product_matches_query(product: ProductItem, query: dict) -> bool:
+    """One-shot :py:meth:`CompiledQuery.matches` -- use :py:func:`compile_query`
+    once and reuse it when filtering many products."""
+    return compile_query(query).matches(product)

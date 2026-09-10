@@ -43,9 +43,12 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     - override :py:meth:`_default_archive_path` if there is a sensible fallback
       when neither the argument nor the context supplies one;
     - build each :py:class:`~scrappi.product.ProductItem` in :py:meth:`perform_query`
-      with ``filesystem=self._flat_filesystem(<the file's own directory>)``;
+      with ``filesystem=self._flat_filesystem(<the file's own directory>)`` (which
+      carries :py:data:`ARCHIVE_READ_ONLY`);
     - set :py:data:`INDEX_DIRECTORY_SUFFIXES` if whole products are directories
       (``.SAFE`` / ``.SEN3``), so :py:meth:`_index_of` treats each as one entry;
+    - set :py:data:`PRODUCT_NAME_SUFFIXES` if a product's ``id`` is its on-disk
+      name without an extension it may actually carry (``.zip`` / ``.SAFE``);
     - use :py:meth:`_index_of` (rather than :py:attr:`_archive_index`) with a
       per-collection subdirectory if the archive is large enough that walking the
       whole thing per query is too slow -- see
@@ -72,21 +75,21 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     #: leave this empty and are unaffected.
     INDEX_DIRECTORY_SUFFIXES: Tuple[str, ...] = ()
 
-    #: Suffixes an archived product's on-disk name may carry that its ``id`` does
-    #: not (an id of ``S2A_...`` may sit on disk as ``S2A_....zip`` / ``.SAFE`` /
-    #: ``.SAFE/``). :py:meth:`_archive_path_for` tries the bare id, then the id
-    #: plus each of these, then a stem match. Mirrors the set
-    #: :py:meth:`scrappi.fs.localfilesystem.LocalFileSystem.check_any_path_exists`
-    #: probes.
-    PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = (
-        ".zip",
-        ".SAFE",
-        ".SEN3",
-        ".nc",
-        ".tar",
-        ".tar.gz",
-        ".json",
-    )
+    #: Container suffixes an archived product's on-disk name may carry that its
+    #: ``id`` does not (an id of ``S2A_...`` may sit on disk as ``S2A_....zip`` or
+    #: ``S2A_....SAFE``). :py:meth:`_archive_path_for` tries the bare ``id`` first,
+    #: then ``id`` + each of these. **Empty by default**: in-situ ids *are* the
+    #: filenames, so RadCalNet / HYPERNETS match exactly or not at all. A satellite
+    #: handler sets this. Never include ``.json`` -- that would match a STAC item
+    #: sidecar as if it were the data file.
+    PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = ()
+
+    #: Whether the archive is scrappi's to write to. ``True`` (the default) is
+    #: right for every offline archive: the data is the user's, already on disk,
+    #: and scrappi only ever reads it. Drives the default ``read_only`` of every
+    #: filesystem :py:meth:`_flat_filesystem` builds -- including the one
+    #: :py:meth:`download_product` re-pins, so the protection survives a download.
+    ARCHIVE_READ_ONLY: bool = True
 
     def __init__(self, context: Any = None, *args: Any, archive_path: Optional[str] = None, **kwargs: Any) -> None:
         super().__init__(context, *args, **kwargs)
@@ -117,19 +120,20 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     def _index_of(self, root: str) -> Dict[str, str]:
         """``name -> absolute path`` for every file under *root* (and every
         directory whose name ends with one of :py:data:`INDEX_DIRECTORY_SUFFIXES`),
-        built once per *root* by a single :py:func:`os.walk` and cached on the
-        instance.
+        from a single :py:func:`os.walk`, cached per *root* on the instance.
 
-        A handler instance is short-lived (one query or one download batch), and the
-        archive doesn't change under it mid-batch, so caching is safe and turns an
-        ``os.walk``-per-product (a real cost on a large networked archive) into one
-        walk per root. If two entries share a name, the first found wins -- a
-        subclass that cares about which (e.g. product versions) does its own
-        selection in :py:meth:`perform_query`.
+        The cache turns an ``os.walk``-per-product (a real cost on a large
+        networked archive) into one walk per root for the life of the handler. It
+        is **not invalidated**: a handler obtained from
+        :py:meth:`~scrappi.api.factory.APICallHandlerFactory.get_api_call_handler`
+        is reused across queries (see its ``use_cache``), so if the archive is
+        added to during a run -- e.g. the online sibling handler downloads into it
+        -- call :py:meth:`clear_cache` before the next offline query. If two
+        entries share a name the first walked wins; a subclass that cares (product
+        versions) selects in :py:meth:`perform_query`.
 
-        :param root: directory to walk. :py:meth:`perform_query` on a satellite
-            handler passes a per-collection subdirectory here rather than the whole
-            archive; :py:attr:`_archive_index` passes :py:attr:`archive_path`.
+        :param root: directory to walk. A satellite handler passes a per-collection
+            subdirectory; :py:attr:`_archive_index` passes :py:attr:`archive_path`.
         """
         cache: Dict[str, Dict[str, str]] = self.__dict__.setdefault("_index_cache", {})
         idx = cache.get(root)
@@ -154,6 +158,12 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         name in-situ handlers already use."""
         return self._index_of(self.archive_path)
 
+    def clear_cache(self) -> None:
+        """Drop every cached :py:meth:`_index_of` walk. Call after the archive has
+        been written to during the handler's lifetime (see :py:meth:`_index_of`);
+        mirrors :py:meth:`~scrappi.api.factory.APICallHandlerFactory.clear_cache`."""
+        self.__dict__.pop("_index_cache", None)
+
     # -------------------------------------------------------------- filesystem
     def _flat_filesystem(self, dirpath: str, read_only: Optional[bool] = None) -> STACFileSystem:
         """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned
@@ -163,11 +173,11 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         already where it is). ``organise_data`` is scoped to this instance, never
         the shared context.
 
-        :param read_only: passed straight through to
-            :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem`; ``None`` (default)
-            leaves it at that class's own default. Pass ``True`` for an archive a
-            handler should never write back to.
+        :param read_only: ``None`` (default) uses :py:data:`ARCHIVE_READ_ONLY`;
+            pass an explicit bool to override for one filesystem.
         """
+        if read_only is None:
+            read_only = self.ARCHIVE_READ_ONLY
         return STACFileSystem(path=dirpath, context=self.context, flat=True, read_only=read_only)
 
     def _archive_path_for(self, product: ProductItem) -> Optional[str]:
@@ -180,43 +190,27 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         re-resolves it here rather than trusting ``product.filesystem``. Resolved via
         :py:meth:`_index_of` (one walk, cached).
 
-        Matching is on the product name with any container suffix ignored on both
-        sides: the bare ``id`` and ``id`` minus a known suffix are each tried
-        exactly, then plus each of :py:data:`PRODUCT_NAME_SUFFIXES`, then against
-        every index entry with its own suffix stripped. So an id of ``S2A_...``
-        finds ``S2A_....zip`` / ``S2A_....SAFE``, and an id of ``S2A_....SAFE``
-        finds a bare ``S2A_...`` or ``S2A_....zip``. Subclasses whose ids don't map
-        onto on-disk names this way (or that want a collection-scoped search)
-        override this.
+        Matching is exact on ``id``, then ``id`` + each of
+        :py:data:`PRODUCT_NAME_SUFFIXES` (empty for in-situ handlers, so those match
+        exactly or not at all). Subclasses whose ids don't map onto on-disk names
+        this way, or that want a collection-scoped search, override this.
         """
         return self._resolve_in_index(product, self._archive_index)
 
     def _resolve_in_index(self, product: ProductItem, index: Dict[str, str]) -> Optional[str]:
         """:py:meth:`_archive_path_for`'s name matching, against an arbitrary
-        *index* (a satellite handler passes a collection-scoped one)."""
+        *index* (a satellite handler passes a collection-scoped one). Only exact and
+        ``id`` + known-suffix lookups -- never a scan that could resolve an
+        unrelated file whose name merely looks similar."""
         target = getattr(product, "id", None)
         if not target:
             return None
-        stem = self._strip_product_suffix(target)
-        for candidate in (target, stem):
-            if candidate in index:
-                return index[candidate]
-            for suffix in self.PRODUCT_NAME_SUFFIXES:
-                if candidate + suffix in index:
-                    return index[candidate + suffix]
-        for name, path in index.items():
-            if self._strip_product_suffix(name) == stem:
-                return path
+        if target in index:
+            return index[target]
+        for suffix in self.PRODUCT_NAME_SUFFIXES:
+            if target + suffix in index:
+                return index[target + suffix]
         return None
-
-    @classmethod
-    def _strip_product_suffix(cls, name: str) -> str:
-        """*name* with a single trailing :py:data:`PRODUCT_NAME_SUFFIXES` entry
-        removed (longest match first, so ``.tar.gz`` wins over ``.gz``)."""
-        for suffix in sorted(cls.PRODUCT_NAME_SUFFIXES, key=len, reverse=True):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
 
     # ---------------------------------------------------------------- download
     def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
@@ -248,6 +242,8 @@ class OfflineArchiveHandler(BaseAPICallHandler):
             raise FileNotFoundError(
                 f"{product.id!r} not found under the {type(self).__name__} archive {self.archive_path!r}"
             )
+        # re-pin to the file's own directory; _flat_filesystem carries ARCHIVE_READ_ONLY
+        # so the archive-protection a query set isn't lost on a catalogue-rebuilt product.
         product.filesystem = self._flat_filesystem(os.path.dirname(src))
         return src
 

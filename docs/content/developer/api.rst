@@ -88,11 +88,15 @@ provides:
   ``root`` (``_archive_index`` is ``_index_of(self.archive_path)``); a directory
   whose name ends with one of ``INDEX_DIRECTORY_SUFFIXES`` (e.g. ``.SAFE``) is one
   entry, not its contents. ``_archive_path_for(product)`` matches ``product.id``
-  against it, ignoring container suffixes on either side;
-* ``_flat_filesystem(dirpath, read_only=None)`` -- a flat-layout ``STACFileSystem``
-  (``flat=True``: no ``<root>/data`` + ``<root>/stac`` split, no organised date
-  tree) to hand each ``ProductItem`` built in ``perform_query`` as its
-  ``filesystem=``; pass ``read_only=True`` for an archive not to be written back to;
+  exactly, then ``id`` + each ``PRODUCT_NAME_SUFFIXES`` entry (empty by default:
+  in-situ ids *are* the filenames). The cache is not invalidated -- call
+  ``clear_cache()`` if the archive is written to during the handler's life (it is
+  reused across queries via ``Factory``'s ``use_cache``);
+* ``_flat_filesystem(dirpath)`` -- a flat-layout ``STACFileSystem`` (``flat=True``:
+  no ``<root>/data`` + ``<root>/stac`` split, no organised date tree) to hand each
+  ``ProductItem`` built in ``perform_query`` as its ``filesystem=``. Read-only by
+  default (``ARCHIVE_READ_ONLY``: an offline archive is the user's, not scrappi's
+  to write to); the read-only flag survives ``download_product``'s re-pin;
 * ``download_product`` -- resolves the product locally (no network, no copy) and
   repins its filesystem, so it also works for a product rebuilt from a STAC
   catalogue (which arrives with none).
@@ -125,17 +129,24 @@ this handler; an archive of bare product files with no ``stac/`` tree is not
 (``perform_query`` returns empty and warns).
 
 It is mission-agnostic -- ``product_item_from_stac`` rebuilds any mission's item
-and ``scrappi.api.offline_query.product_matches_query`` applies the query filters
-client-side, so no per-satellite subclass is needed. Configuration:
+and a ``scrappi.api.offline_query.CompiledQuery`` (the query geometry / datetimes
+parsed once, then ``.matches(product)`` per candidate) applies the filters
+client-side, so no per-satellite subclass is needed. ``perform_query``: discover
+the requested collections' roots, walk each ``<root>/stac`` once (grouping
+collections that share a root), filter each item, and only then build a
+filesystem for the survivors. Configuration:
 
 * ``context["api"]["offline_archive_path"]`` -- the archive root (or pass
   ``archive_path=``); no built-in default, an unconfigured handler is inert;
 * ``context["api"]["offline_archive_paths"]`` -- optional ``{collection: path}``
   overrides. Otherwise each collection is searched under ``<root>/<collection>/``
-  if that exists, else ``<root>`` -- scoping the walk so a query doesn't traverse a
+  if it holds a ``stac/`` dir, else ``<root>`` -- so a query doesn't traverse a
   multi-terabyte shared archive;
+* ``list_collections`` reads ``stac/*/collection.json`` (a bounded glob, cached),
+  not a recursive walk -- it runs on every ``get_api_name`` probe;
 * ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
-  whole-product directories.
+  whole-product directories; ``PRODUCT_NAME_SUFFIXES`` -- the extensions a scene's
+  data may carry that its STAC id does not (never ``.json``).
 
 Suggested implementations for abstract methods (using base class methods)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

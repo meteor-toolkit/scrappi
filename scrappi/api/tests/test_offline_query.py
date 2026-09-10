@@ -1,12 +1,14 @@
-"""Tests for scrappi.api.offline_query.product_matches_query."""
+"""Tests for scrappi.api.offline_query."""
 
 import math
 import unittest
+import unittest.mock
 from datetime import datetime
 
 from shapely.geometry import Polygon
 
-from scrappi.api.offline_query import product_matches_query, query_collections
+from scrappi.api import offline_query
+from scrappi.api.offline_query import CompiledQuery, compile_query, product_matches_query, query_collections
 from scrappi.product import ProductItem
 
 
@@ -76,6 +78,37 @@ class TestProductMatchesQuery(unittest.TestCase):
     def test_unknown_cloud_fraction_is_kept(self):
         self.assertTrue(product_matches_query(_product(cloud_fraction=math.nan), {"cloud_cover_max": 20}))
         self.assertTrue(product_matches_query(_product(cloud_fraction=None), {"cloud_cover_max": 20}))
+
+
+class TestCompiledQuery(unittest.TestCase):
+    def test_compile_parses_geom_and_time_once_then_reuses(self):
+        q = {
+            "collection": "S2_MSI_L1C",
+            "start_time": "2023-06-01",
+            "stop_time": "2023-06-30",
+            "geom": {"latitude_minimum": 1, "longitude_minimum": 1, "latitude_maximum": 3, "longitude_maximum": 3},
+        }
+        with unittest.mock.patch.object(
+            offline_query, "convert_geom_shapely", wraps=offline_query.convert_geom_shapely
+        ) as geom:
+            cq = compile_query(q)
+            for _ in range(5):
+                cq.matches(_product())
+        geom.assert_called_once()  # not once per product
+
+    def test_compiled_matches_agrees_with_product_matches_query(self):
+        q = {"collection": "S2_MSI_L1C", "platform": "S2A"}
+        self.assertEqual(compile_query(q).matches(_product()), product_matches_query(_product(), q))
+
+    def test_empty_query_compiles_to_all_none(self):
+        cq = compile_query({})
+        self.assertEqual(cq.collections, frozenset())
+        self.assertIsNone(cq.start_time)
+        self.assertIsNone(cq.geom)
+        self.assertTrue(cq.matches(_product()))
+
+    def test_compile_returns_a_compiled_query(self):
+        self.assertIsInstance(compile_query({}), CompiledQuery)
 
 
 if __name__ == "__main__":
