@@ -949,7 +949,7 @@ class TestProductItemSet(unittest.TestCase):
         )
 
         p.plot_geometry(padding_type="rel", padding_val=2, geometry_color="y")
-        plt.show()
+        plt.close("all")
 
 
 # ---------------------------------------------------------------------
