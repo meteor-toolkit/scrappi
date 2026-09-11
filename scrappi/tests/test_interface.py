@@ -328,6 +328,32 @@ class TestInterface(unittest.TestCase):
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
 
+    def test_download_product_skips_stac_registration_for_a_read_only_filesystem(self):
+        """Regression test: an offline handler's product.filesystem is pinned inside
+        its own archive (read-only). download_product used to call
+        product.register_in_filesystem_catalog() on it regardless (the default,
+        context['fs']['register_stac_items'] is True), writing a stac/ folder into
+        the archive itself instead of a separate matchup catalogue."""
+        context = ScrappiContext()
+        self.p.filesystem = mock.Mock(read_only=True)
+        self.p.filesystem.return_path.return_value = ("/some/path", False)
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["S3_EFR"]
+        m().download_product.return_value = "/some/path"
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                {"handle1": m},
+                clear=True,
+            ),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1"]),
+            mock.patch.object(self.p, "register_in_filesystem_catalog") as mock_register,
+        ):
+            result = download_product(self.p, context)
+
+        mock_register.assert_not_called()
+        self.assertEqual(result, "/some/path")
+
     def test_candidate_failure_is_recoverable(self):
         from scrappi.interface import _candidate_failure_is_recoverable
 

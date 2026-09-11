@@ -24,7 +24,6 @@ from processor_tools import Context
 
 from scrappi import ScrappiContext
 from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
-from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
 
@@ -533,20 +532,6 @@ def _default_offline_archive_path() -> str:
     )  # r"\\eoserver", "home", "data", "insitu", "radcalnet", "archive"
 
 
-def _archive_filesystem(dirpath: str, context: ScrappiContext) -> STACFileSystem:
-    """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to
-    *dirpath* -- the directory a RadCalNet archive file actually sits in.
-
-    Used as the per-product filesystem in
-    :py:meth:`RadcalnetOfflineCallHandler.perform_query`. STACFileSystem (rather than a
-    plain LocalFileSystem) so :py:meth:`~scrappi.product.ProductItem.to_stac_item` --
-    called when the matchup is added to a catalogue -- has ``return_stac_item_path``.
-    ``flat=True`` disables both the ``<root>/data`` + ``<root>/stac`` subdivision and
-    the organised constellation/platform/date tree, so the file resolves at
-    ``<dirpath>/<id>`` regardless of how the archive itself is laid out.
-    """
-    return STACFileSystem(path=dirpath, context=context, flat=True)
-
 
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
     """
@@ -711,7 +696,11 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
                     quicklook="",
                     api=self,
                     context=self.context,
-                    filesystem=_archive_filesystem(dirpath, self.context),
+                    # flat, read-only (ARCHIVE_READ_ONLY) STACFileSystem pinned to the
+                    # file's own directory, so it resolves at <dirpath>/<id> regardless
+                    # of archive layout and ProductItem.to_stac_item() has
+                    # return_stac_item_path when the matchup is added to a catalogue.
+                    filesystem=self._flat_filesystem(dirpath),
                 )
             )
 
