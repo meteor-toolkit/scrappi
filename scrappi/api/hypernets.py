@@ -5,6 +5,7 @@ implement the `InSituCallHandler` interface to query HYPERNETS catalogues
 and resolve product downloads.
 """
 
+import datetime
 import os
 
 from shapely.geometry import Polygon
@@ -320,7 +321,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
                     geometry=self.get_roi_shapely(prod["site_id"]),
-                    start_time=self._get_datetime(prod["datetime_start"]),
+                    start_time=self._get_datetime(prod["datetime_start"]) if prod["datetime_start"] != '1970-01-01 01:00:00.000000' else self._get_datetime(prod["datetime_SEQ"]) + datetime.timedelta(hours = 1),
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
@@ -355,7 +356,40 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         filter_dict: Dict[str, Any] = {}
 
         return filter_dict
+    
+    def _default_archive_path(self):
+        return os.path.abspath(r"T:\\ECO\\EOServer\\data\\insitu\\hypernets\\archive\\")
 
+    def _resolve_archive_path(self, archive_path: Optional[str]) -> str:
+        """The archive root: *archive_path* if given, else the value at
+        :py:data:`ARCHIVE_PATH_CONTEXT_KEYS` in the context, else
+        :py:meth:`_default_archive_path`."""
+        if archive_path is not None:
+            return archive_path
+        else:
+            return self._default_archive_path()
+    
+    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
+        """Absolute path of *product*'s file within :py:attr:`archive_path`, by
+        matching its ``id`` against filenames in the tree -- or ``None`` if it
+        isn't there.
+
+        :py:meth:`perform_query` attaches a correct per-file filesystem to every
+        product it returns, but a product rebuilt from a STAC catalogue (eomatch's
+        ``product_item_from_stac``) arrives with none, so :py:meth:`download_product`
+        re-resolves it here rather than trusting ``product.filesystem``. Resolved via
+        :py:attr:`_archive_index` (one walk, cached); subclasses whose ids don't map
+        1:1 to filenames override this.
+        """
+        target = getattr(product, "id", None)
+        target_dir = os.path.join(self.archive_path, product.platform, target.split("_")[-3][:4], target.split("_")[-3][4:6], target.split("_")[-3][6:8])
+        for dirpath, _dirnames, filenames in os.walk(target_dir):
+            for filename in filenames:
+                if filename == target:
+                    if os.path.exists(os.path.join(dirpath, filename)):
+                        return os.path.join(dirpath, filename)
+                    else:
+                        return None
 
 if __name__ == "__main__":
     pass
