@@ -84,11 +84,14 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     #: sidecar as if it were the data file.
     PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = ()
 
-    #: Whether the archive is scrappi's to write to. ``True`` (the default) is
-    #: right for every offline archive: the data is the user's, already on disk,
-    #: and scrappi only ever reads it. Drives the default ``read_only`` of every
+    #: Whether the archive is scrappi's to write to. ``True`` (the default) is right
+    #: for every offline archive: the data is the user's, already on disk, and
+    #: scrappi only ever reads it. Drives the default ``read_only`` of every
     #: filesystem :py:meth:`_flat_filesystem` builds -- including the one
-    #: :py:meth:`download_product` re-pins, so the protection survives a download.
+    #: :py:meth:`download_product` re-pins, so the protection survives a download --
+    #: and (via ``ProductItem.register_in_filesystem_catalog``'s own check) stops a
+    #: STAC ``stac/`` folder being written into the archive itself instead of a
+    #: separate matchup catalogue.
     ARCHIVE_READ_ONLY: bool = True
 
     def __init__(self, context: Any = None, *args: Any, archive_path: Optional[str] = None, **kwargs: Any) -> None:
@@ -173,8 +176,8 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         already where it is). ``organise_data`` is scoped to this instance, never
         the shared context.
 
-        :param read_only: ``None`` (default) uses :py:data:`ARCHIVE_READ_ONLY`;
-            pass an explicit bool to override for one filesystem.
+        :param read_only: ``None`` (default) uses :py:data:`ARCHIVE_READ_ONLY`; pass
+            an explicit bool to override for one filesystem.
         """
         if read_only is None:
             read_only = self.ARCHIVE_READ_ONLY
