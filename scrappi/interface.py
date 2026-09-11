@@ -481,19 +481,31 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                     register_flag = False
 
                 if register_flag and isinstance(product, ProductItem):
-                    # prefer product.filesystem; make_fs will handle strings
-                    try:
-                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                    except Exception:
-                        # fallback: try using make_fs with product.filesystem attribute
+                    if getattr(product.filesystem, "read_only", False):
+                        # e.g. an offline archive handler's product.filesystem is pinned
+                        # into the archive itself -- not ours to write a stac/ folder
+                        # into. register_in_filesystem_catalog would raise IOError for
+                        # the same reason; skip quietly rather than let the two-attempt
+                        # fallback below hit it (and log a confusing "failed" message)
+                        # for what is expected, common behaviour for these products.
+                        logger.debug(
+                            "Skipping STAC registration for %r: product.filesystem is read-only",
+                            getattr(product, "id", product),
+                        )
+                    else:
+                        # prefer product.filesystem; make_fs will handle strings
                         try:
-                            fs = make_fs(product.filesystem)
-                            product.register_in_filesystem_catalog(
-                                filesystem=fs,
-                                overwrite=context["fs"]["overwrite_stac_items"],
-                            )
-                        except Exception as e:
-                            logger.debug("Failed to register product in STAC catalog: %s", e)
+                            product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                        except Exception:
+                            # fallback: try using make_fs with product.filesystem attribute
+                            try:
+                                fs = make_fs(product.filesystem)
+                                product.register_in_filesystem_catalog(
+                                    filesystem=fs,
+                                    overwrite=context["fs"]["overwrite_stac_items"],
+                                )
+                            except Exception as e:
+                                logger.debug("Failed to register product in STAC catalog: %s", e)
                 # for ProductItemSet we assume individual downloads will have registered themselves
             except Exception:
                 # Do not let registration errors prevent returning the download path

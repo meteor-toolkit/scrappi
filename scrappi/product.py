@@ -327,6 +327,13 @@ class ProductItem:
         fs = filesystem or self.filesystem
         if fs is None:
             raise ValueError("No filesystem provided")
+        if getattr(fs, "read_only", False):
+            raise IOError(
+                f"Cannot register product {self.id!r} in a filesystem STAC catalog: the "
+                f"filesystem is read-only (e.g. an offline archive handler's own data "
+                f"directory -- not ours to write into). Pass a different filesystem (e.g. "
+                f"a matchup catalogue) as `filesystem=` to register it there instead."
+            )
 
         # Filesystem locations (only used for writing)
         stac_root = Path(fs.stac_root)
