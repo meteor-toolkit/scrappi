@@ -659,11 +659,14 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
         start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
 
-        # Keep only the newest version of each site/day: an accumulating archive
-        # often holds e.g. GONA01_2022_291_v04.08.output next to ...v04.09.output,
-        # and the online portal exposes only the latest. best[(year, doy)] =
-        # (version_key, filename, dirpath).
-        best: Dict[Tuple[int, int], Tuple[Tuple[int, ...], str, str]] = {}
+        # Keep only the newest version of each site_instrument/day: an accumulating
+        # archive often holds e.g. GONA01_2022_291_v04.08.output next to
+        # ...v04.09.output, and the online portal exposes only the latest. Keyed on
+        # site_instrument too, not just (year, doy) -- a site can carry more than one
+        # instrument code (e.g. after an instrument change/addition), and those are
+        # distinct real products for the same day, not reprocessings of each other.
+        # best[(site_instrument, year, doy)] = (version_key, filename, dirpath).
+        best: Dict[Tuple[str, int, int], Tuple[Tuple[int, ...], str, str]] = {}
         for filename, filepath in self._archive_index.items():
             try:
                 site_instrument, year, doy, version = _parse_rcn_filename(filename)
@@ -676,12 +679,13 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             if not _check_date_in_range(year, doy, date1, date2):
                 continue
             vkey = _rcn_version_key(version)
-            existing = best.get((year, doy))
+            key = (site_instrument, year, doy)
+            existing = best.get(key)
             if existing is None or vkey > existing[0]:
-                best[(year, doy)] = (vkey, filename, os.path.dirname(filepath))
+                best[key] = (vkey, filename, os.path.dirname(filepath))
 
         product_list = []
-        for (year, doy), (_vkey, filename, dirpath) in best.items():
+        for (_site_instrument, year, doy), (_vkey, filename, dirpath) in best.items():
             product_list.append(
                 ProductItem(
                     constellation="RadCalNet",

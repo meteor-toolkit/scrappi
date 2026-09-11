@@ -73,12 +73,18 @@ _NON_ITEM_JSON = frozenset({"catalog.json", "collection.json"})
 def _collection_of(item_path: str) -> Optional[str]:
     """The collection id from a STAC item path laid out ``.../stac/<collection>/...``
     -- ``product_item_from_stac`` leaves ``ProductItem.collection`` unset for a
-    standalone item whose collection is only a top-level ``"collection"`` key."""
+    standalone item whose collection is only a top-level ``"collection"`` key.
+
+    Uses the *last* ``stac`` path segment, not the first: the archive root itself
+    may legitimately contain a directory literally named ``stac`` (e.g.
+    ``archive_path=".../stac_archives/sentinel2"``) before the one scrappi's own
+    tree introduces: ``.../stac_archives/sentinel2/stac/S2_MSI_L1C/items/...``.
+    """
     parts = os.path.normpath(item_path).split(os.sep)
-    try:
-        return parts[parts.index("stac") + 1]
-    except (ValueError, IndexError):
+    stac_positions = [i for i, p in enumerate(parts) if p == "stac"]
+    if not stac_positions or stac_positions[-1] + 1 >= len(parts):
         return None
+    return parts[stac_positions[-1] + 1]
 
 
 class SatelliteOfflineCallHandler(OfflineArchiveHandler):
@@ -111,9 +117,10 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         return ""
 
     def clear_cache(self) -> None:
-        """Drop the cached walk indexes *and* the discovered-collections list."""
+        """Drop the cached walk indexes *and* the discovered collections/roots."""
         super().clear_cache()
         self.__dict__.pop("_collections_cache", None)
+        self.__dict__.pop("_collection_roots_cache", None)
 
     @property
     def _configured(self) -> bool:
@@ -127,12 +134,23 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             return {}
 
     def _collection_root(self, collection: str) -> str:
-        """The directory holding *collection*'s ``stac/`` + data trees -- an
-        explicit override, else ``<archive_path>/<collection>`` if it has a
-        ``stac/`` dir, else ``<archive_path>``."""
+        """The directory holding *collection*'s ``stac/`` + data trees.
+
+        Precedence: an explicit override; else wherever :py:meth:`_discover` (the
+        same scan :py:meth:`list_collections` uses) actually found this collection's
+        ``collection.json`` -- so the two never disagree about a collection that
+        exists under a directory not named after the collection id itself (e.g.
+        ``<archive_path>/sentinel2/stac/S2_MSI_L1C/...``); else the
+        ``<archive_path>/<collection>`` convention if it holds a ``stac/`` dir
+        (covers a collection not yet discovered, e.g. no ``collection.json`` written
+        yet); else ``<archive_path>`` itself.
+        """
         override = self._path_overrides().get(collection)
         if override:
             return override
+        discovered = self._discover().get(collection)
+        if discovered:
+            return discovered
         per_collection = os.path.join(self.archive_path, collection)
         if os.path.isdir(os.path.join(per_collection, "stac")):
             return per_collection
@@ -168,6 +186,27 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
                 out.setdefault(cid, cj)
         return out
 
+    def _discover(self) -> Dict[str, str]:
+        """``collection id -> the directory holding its stac/ + data trees``, from
+        a single scan of :py:meth:`_candidate_roots`. Cached (see
+        :py:meth:`clear_cache`); backs both :py:meth:`list_collections` and
+        :py:meth:`_collection_root`, so the two can never disagree about where a
+        discovered collection actually lives -- unlike resolving each independently
+        (``list_collections`` finding a collection by the ``id`` inside its
+        ``collection.json`` while ``_collection_root`` separately assumed the
+        containing directory was named after that id)."""
+        cached = self.__dict__.get("_collection_roots_cache")
+        if cached is not None:
+            return cached
+        roots: Dict[str, str] = {}
+        if self._configured:
+            for root in self._candidate_roots():
+                for cid in self._collection_ids_at(root):
+                    roots.setdefault(cid, root)
+        self.__dict__["_collection_roots_cache"] = roots
+        self.__dict__["_collections_cache"] = sorted(roots)
+        return roots
+
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """Collection ids the archive holds, from every ``stac/*/collection.json``
         under the archive root or a configured path. ``[]`` if the handler is
@@ -175,16 +214,8 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
 
         :param fetch_update: unused; kept for interface compatibility.
         """
-        cached = self.__dict__.get("_collections_cache")
-        if cached is not None:
-            return cached
-        ids: Set[str] = set()
-        if self._configured:
-            for root in self._candidate_roots():
-                ids.update(self._collection_ids_at(root))
-        result = sorted(ids)
-        self.__dict__["_collections_cache"] = result
-        return result
+        self._discover()
+        return self.__dict__["_collections_cache"]
 
     def _stac_item_paths(self, stac_root: str) -> List[str]:
         """Absolute paths of every STAC *item* json under *stac_root* (a

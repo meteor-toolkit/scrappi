@@ -279,5 +279,63 @@ class TestOfflineHYPERNETSCallHandlerRegression(unittest.TestCase):
         self.assertTrue(products[0].filesystem.read_only)
 
 
+class TestRoiDictIsNotSharedBetweenInstances(unittest.TestCase):
+    """Regression tests: HYPERNETSCallHandler / HYPERNETSOfflineCallHandler used to
+    pass the literal module-level HYPERNETS_DEFAULT_ROI dict straight through as
+    roi_dict. InSituCallHandler.set_roi / set_roi_bounding_box mutate roi_dict in
+    place, so every instance -- online or offline, constructed anywhere in the
+    process -- shared and could corrupt one another's ROI. Uses the same
+    sys.modules-faking trick as TestOfflineHYPERNETSCallHandlerRegression so this
+    runs without the real (private, GitLab-hosted) hypernets_api installed."""
+
+    def setUp(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        self.original_ghna = HYPERNETS_DEFAULT_ROI["GHNA"]
+
+        fake_module = types.ModuleType("hypernets_api")
+        fake_module.HYPERNETSAPI = MagicMock(return_value=MagicMock())
+        fake_module.OfflineHYPERNETSAPI = MagicMock(return_value=MagicMock(archive_path="/tmp"))
+        modules_patcher = patch.dict(sys.modules, {"hypernets_api": fake_module})
+        modules_patcher.start()
+        self.addCleanup(modules_patcher.stop)
+
+        context = ScrappiContext()
+        context["hypernets"] = {"credentials": {"apikey": "key"}}
+        self.context = context
+
+    def tearDown(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        # belt-and-braces: restore the module dict even if a test failed midway,
+        # so a mutation bug in this test doesn't leak into a later, unrelated test
+        HYPERNETS_DEFAULT_ROI["GHNA"] = self.original_ghna
+
+    def test_set_roi_on_one_online_instance_does_not_affect_another(self):
+        a = HYPERNETSCallHandler(self.context)
+        b = HYPERNETSCallHandler(self.context)
+
+        a.set_roi("GHNA", Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]))
+
+        self.assertNotEqual(a.roi_dict["GHNA"], b.roi_dict["GHNA"])
+        self.assertEqual(b.roi_dict["GHNA"], self.original_ghna)
+
+    def test_set_roi_on_offline_instance_does_not_affect_online_instance(self):
+        online = HYPERNETSCallHandler(self.context)
+        offline = HYPERNETSOfflineCallHandler(self.context, archive_path="/tmp")
+
+        offline.set_roi_bounding_box("GHNA", 0.0, 0.0, 50)
+
+        self.assertEqual(online.roi_dict["GHNA"], self.original_ghna)
+
+    def test_neither_instance_mutates_the_module_level_default(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        handler = HYPERNETSCallHandler(self.context)
+        handler.set_roi("GHNA", Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]))
+
+        self.assertEqual(HYPERNETS_DEFAULT_ROI["GHNA"], self.original_ghna)
+
+
 if __name__ == "__main__":
     unittest.main()

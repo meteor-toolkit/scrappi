@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import warnings
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
@@ -48,11 +49,32 @@ def query_collections(query: dict) -> List[str]:
 
 
 def _as_datetime(value: Any) -> Optional[dt.datetime]:
+    """Lenient conversion for a *product's own* recorded start/stop time --
+    ``CompiledQuery.matches`` uses this. An unparseable value (a malformed archived
+    record, not something the caller wrote) is treated as "no time recorded" -- the
+    product is kept rather than silently dropped from every time-filtered query,
+    matching the NaN-cloud-fraction precedent in
+    :py:meth:`scrappi.api.eodag.EODAGCallHandler.perform_query`."""
     if value in (None, ""):
         return None
     try:
         return convert_datetime(value)
     except Exception:
+        return None
+
+
+def _query_datetime(value: Any, field: str) -> Optional[dt.datetime]:
+    """Strict conversion for a *query's own* ``start_time`` / ``stop_time`` --
+    :py:func:`compile_query` uses this. Unlike :py:func:`_as_datetime`, an
+    unparseable value here is the caller's mistake and must not be silently
+    dropped (that would widen the query to "no time filter" with no signal
+    anything was wrong); warn and treat it as absent."""
+    if value in (None, ""):
+        return None
+    try:
+        return convert_datetime(value)
+    except Exception as exc:
+        warnings.warn(f"compile_query: could not parse {field}={value!r} ({exc}); ignoring this filter")
         return None
 
 
@@ -104,17 +126,19 @@ class CompiledQuery:
 
 def compile_query(query: dict) -> CompiledQuery:
     """Parse *query* into a :py:class:`CompiledQuery` (geometry and datetimes
-    converted once)."""
+    converted once). A ``start_time`` / ``stop_time`` / ``geom`` present but
+    unparseable warns and is dropped from the compiled query, rather than being
+    silently ignored -- see :py:func:`_query_datetime`."""
     geom = None
     if query.get("geom") is not None:
         try:
             geom = convert_geom_shapely(query["geom"])
-        except Exception:
-            geom = None
+        except Exception as exc:
+            warnings.warn(f"compile_query: could not parse geom={query['geom']!r} ({exc}); ignoring this filter")
     return CompiledQuery(
         collections=frozenset(query_collections(query)),
-        start_time=_as_datetime(query.get("start_time")),
-        stop_time=_as_datetime(query.get("stop_time")),
+        start_time=_query_datetime(query.get("start_time"), "start_time"),
+        stop_time=_query_datetime(query.get("stop_time"), "stop_time"),
         geom=geom,
         platform=query.get("platform"),
         cloud_cover_max=query.get("cloud_cover_max"),

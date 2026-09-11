@@ -227,6 +227,85 @@ class TestSharedLayout(unittest.TestCase):
         self.assertEqual(sorted(p.id for p in products), sorted([_S2_ID, _LS_ID]))
 
 
+class TestDirectoryNameDoesNotMatchCollectionId(unittest.TestCase):
+    """<root>/<some_other_name>/{data,stac/<real_collection_id>}/...
+
+    Regression tests: list_collections() discovers a collection by the "id" field
+    inside its collection.json, regardless of the containing directory's name.
+    _collection_root() used to separately assume that directory was named after
+    the collection id (the "<archive_path>/<collection>/" convention) -- so a
+    collection list_collections() found correctly could still be unresolvable by
+    perform_query.
+    """
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.mission_dir = os.path.join(self.root, "sentinel2")
+        self.safe = _populate(self.mission_dir, "S2_MSI_L1C", _S2_ID)
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=self.root)
+
+    def test_list_collections_finds_it(self):
+        self.assertEqual(self.handler.list_collections(), ["S2_MSI_L1C"])
+
+    def test_collection_root_resolves_to_the_actual_directory(self):
+        self.assertEqual(
+            os.path.normpath(self.handler._collection_root("S2_MSI_L1C")),
+            os.path.normpath(self.mission_dir),
+        )
+
+    def test_perform_query_finds_the_product(self):
+        products = self.handler.perform_query(
+            {
+                "collection": "S2_MSI_L1C",
+                "start_time": datetime(2023, 6, 1),
+                "stop_time": datetime(2023, 6, 30),
+            }
+        )
+        self.assertEqual([p.id for p in products], [_S2_ID])
+
+    def test_download_resolves_the_safe_directory(self):
+        products = self.handler.perform_query(
+            {
+                "collection": "S2_MSI_L1C",
+                "start_time": datetime(2023, 6, 1),
+                "stop_time": datetime(2023, 6, 30),
+            }
+        )
+        path = self.handler.download_product(products[0])
+        self.assertEqual(os.path.normpath(path), os.path.normpath(self.safe))
+
+
+class TestArchiveRootNamedStac(unittest.TestCase):
+    """archive_path itself sits under a directory literally named "stac" -- e.g.
+    "/data/stac_archives/sentinel2" -- before scrappi's own stac/ tree. Regression
+    test for _collection_of() taking the *first* "stac" path segment instead of
+    the last."""
+
+    def test_collection_recovered_when_item_collection_field_is_absent(self):
+        with TemporaryDirectory() as outer:
+            root = os.path.join(outer, "stac", "sentinel2")  # "stac" appears in the path
+            os.makedirs(root)
+            item = _stac_item(_S2_ID, "S2_MSI_L1C")
+            del item["collection"]  # force the path-derived fallback in _load_item
+            _write_json(os.path.join(root, "stac", "S2_MSI_L1C", "items", "2023", "06", "07", f"{_S2_ID}.json"), item)
+            _write_json(os.path.join(root, "stac", "S2_MSI_L1C", "collection.json"), _collection_json("S2_MSI_L1C"))
+            safe = os.path.join(root, "data", f"{_S2_ID}.SAFE")
+            os.makedirs(safe)
+
+            handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=root)
+            products = handler.perform_query(
+                {
+                    "collection": "S2_MSI_L1C",
+                    "start_time": datetime(2023, 6, 1),
+                    "stop_time": datetime(2023, 6, 30),
+                }
+            )
+
+            self.assertEqual([p.id for p in products], [_S2_ID])
+
+
 class TestUnconfiguredAndBareArchive(unittest.TestCase):
     def _query(self):
         return {"collection": "S2_MSI_L1C", "start_time": datetime(2023, 6, 1), "stop_time": datetime(2023, 6, 30)}

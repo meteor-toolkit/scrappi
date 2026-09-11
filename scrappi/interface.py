@@ -65,15 +65,18 @@ def _candidate_failure_is_recoverable(exc: BaseException) -> bool:
 
     Recoverable: a site/collection outside this API's own registry
     (``RadcalnetCallHandler.get_files_list`` raises ``ValueError`` for one), an
-    unimplemented operation, or an HTTP 404 (absent) / 5xx (provider transiently
-    down). **Not** recoverable: HTTP 401/403 (bad credentials -- a real config error
-    the user must fix), or anything else (``TypeError``/``AttributeError`` bugs,
-    connection/DNS errors, ...).
+    unimplemented operation, an HTTP 404 (absent) / 5xx (provider transiently down),
+    or a ``FileNotFoundError`` (an offline archive handler's
+    ``OfflineArchiveHandler.download_product`` raises this when the product isn't in
+    its archive -- the local-filesystem analogue of a 404, and the offline handlers'
+    whole point is being tried as a fallback for exactly this). **Not** recoverable:
+    HTTP 401/403 (bad credentials -- a real config error the user must fix), or
+    anything else (``TypeError``/``AttributeError`` bugs, connection/DNS errors, ...).
 
     :param exc: the exception a candidate handler raised.
     :return: ``True`` to try the next candidate, ``False`` to re-raise now.
     """
-    if isinstance(exc, (ValueError, KeyError, NotImplementedError)):
+    if isinstance(exc, (ValueError, KeyError, NotImplementedError, FileNotFoundError)):
         return True
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if status is not None:

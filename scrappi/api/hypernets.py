@@ -70,7 +70,13 @@ class HYPERNETSCallHandler(InSituCallHandler):
     _default_geometries: Dict[str, Polygon] = {}
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, api_key=None):
-        super().__init__(context, HYPERNETS_DEFAULT_ROI)
+        # a fresh copy -- InSituCallHandler.set_roi/set_roi_bounding_box mutate
+        # self.roi_dict in place, and HYPERNETS_DEFAULT_ROI is a module-level dict
+        # shared with HYPERNETSOfflineCallHandler and every other instance of this
+        # class; passing it directly would let one instance's ROI tweak leak into
+        # every other handler in the process (see the identical fix for RadCalNet's
+        # _resolve_site_definitions/_build_default_geometries).
+        super().__init__(context, dict(HYPERNETS_DEFAULT_ROI))
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
         # lazy import of hypernets_api
@@ -228,9 +234,12 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
         # OfflineArchiveHandler resolves self.archive_path (arg -> context["fs"]["path"])
         # and provides download_product / _archive_path_for; InSituCallHandler takes
-        # the roi_dict. No context mutation for organise_data -- perform_query builds
-        # each per-product filesystem flat.
-        super().__init__(context, roi_dict=HYPERNETS_DEFAULT_ROI, archive_path=archive_path)
+        # the roi_dict -- a fresh copy of HYPERNETS_DEFAULT_ROI (see the identical
+        # comment on HYPERNETSCallHandler.__init__: it's a module-level dict shared
+        # with the online handler, and set_roi/set_roi_bounding_box mutate in place).
+        # No context mutation for organise_data -- perform_query builds each
+        # per-product filesystem flat.
+        super().__init__(context, roi_dict=dict(HYPERNETS_DEFAULT_ROI), archive_path=archive_path)
         # lazy import of hypernets_api offline API
         try:
             from hypernets_api import OfflineHYPERNETSAPI

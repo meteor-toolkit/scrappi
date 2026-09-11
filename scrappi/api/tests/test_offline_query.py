@@ -110,6 +110,32 @@ class TestCompiledQuery(unittest.TestCase):
     def test_compile_returns_a_compiled_query(self):
         self.assertIsInstance(compile_query({}), CompiledQuery)
 
+    def test_unparseable_start_time_warns_and_is_dropped_not_silently_ignored(self):
+        """Regression test: a malformed query field used to be swallowed with no
+        signal anything was wrong, silently widening the query to "no time filter"
+        instead of surfacing the caller's mistake."""
+        with self.assertWarns(UserWarning):
+            cq = compile_query({"start_time": "2024-13-45 not a date"})
+        self.assertIsNone(cq.start_time)
+
+    def test_unparseable_geom_warns_and_is_dropped_not_silently_ignored(self):
+        with self.assertWarns(UserWarning):
+            cq = compile_query({"geom": "NOT WKT AT ALL"})
+        self.assertIsNone(cq.geom)
+
+    def test_a_products_own_unparseable_time_is_not_warned_about(self):
+        """Unlike the query side, a malformed value on the *product* (e.g. from a
+        broken archived record) is tolerated silently -- see _as_datetime's
+        docstring for why (kept, not excluded, matching the NaN-cloud-fraction
+        precedent)."""
+        import warnings as _warnings
+
+        p = _product()
+        p.start_time = "also not a date"  # as if set directly from a malformed archived record
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("error")
+            self.assertTrue(compile_query({}).matches(p))
+
 
 if __name__ == "__main__":
     unittest.main()

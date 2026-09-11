@@ -485,6 +485,24 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
             ["GONA01_2022_291_v04.10.output", "GONA01_2022_292_v04.09.output"],
         )
 
+    def test_perform_query_keeps_distinct_instruments_on_the_same_site_and_day(self):
+        """Regression test: the newest-version dedup used to key on (year, doy)
+        alone, so two distinct instrument codes at the same site on the same day
+        (e.g. after an instrument change/addition) collided and one was silently
+        dropped as if it were an older reprocessing of the other."""
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA02_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual(
+            sorted(p.id for p in products),
+            ["GONA01_2022_291_v04.09.output", "GONA02_2022_291_v04.09.output"],
+        )
+
     def test_perform_query_returns_empty_for_unregistered_site(self):
         self._write("ZZZZ01_2022_291_v04.09.output")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
