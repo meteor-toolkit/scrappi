@@ -1038,6 +1038,17 @@ class BaseStacTest(unittest.TestCase):
         context["fs"]["store_filter_dict_in_stac"] = True
         return context
 
+    @staticmethod
+    def context_not_storing_prod_and_filter_dict():
+        """A ScrappiContext with store_prod_dict_in_stac/store_filter_dict_in_stac explicitly
+        disabled -- store_prod_dict_in_stac now defaults to True (see defaults.yaml), so a test
+        of the disabled case needs this rather than relying on an unconfigured context's
+        default."""
+        context = ScrappiContext()
+        context["fs"]["store_prod_dict_in_stac"] = False
+        context["fs"]["store_filter_dict_in_stac"] = False
+        return context
+
 
 class TestStacCatalog(BaseStacTest):
     def test_item_written_with_logical_hrefs(self):
@@ -1319,12 +1330,15 @@ class TestStacCatalog(BaseStacTest):
         item.to_dict() (the entire serialized STAC item) regardless of
         whether store_prod_dict_in_stac was ever enabled -- actively
         corrupting the field with unrelated data rather than leaving it
-        unset."""
+        unset. store_prod_dict_in_stac now defaults to True, so this test
+        explicitly disables it to exercise the disabled case."""
+        context = self.context_not_storing_prod_and_filter_dict()
         p = self.make_product(
             "item-1",
             bounds=(0, 0, 1, 1),
             start_time="2025-01-01T00:00:00Z",
             prod_dict={"should": "not persist"},
+            context=context,
         )
 
         item_path = p.register_in_filesystem_catalog()
