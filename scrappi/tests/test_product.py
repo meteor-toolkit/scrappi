@@ -27,6 +27,7 @@ from scrappi.api.eodag import EODAGCallHandler
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.tdrive import TdriveFileSystem
 from scrappi.fs.localfilesystem import LocalFileSystem
+from scrappi import ScrappiContext
 from eodag import EOProduct
 from processor_tools.utils.formatters import convert_datetime
 
@@ -973,6 +974,10 @@ class BaseStacTest(unittest.TestCase):
         stop_time=None,
         collection="TEST_COLLECTION",
         cloud_fraction=None,
+        version=None,
+        prod_dict=None,
+        filter_dict=None,
+        context=None,
     ):
         geom = box(*bounds)
 
@@ -987,7 +992,30 @@ class BaseStacTest(unittest.TestCase):
             filesystem=self.fs,
             url="asset://",
             cloud_fraction=cloud_fraction,
+            version=version,
+            prod_dict=prod_dict,
+            filter_dict=filter_dict,
+            context=context,
         )
+
+    @staticmethod
+    def context_storing_prod_and_filter_dict():
+        """A ScrappiContext with store_prod_dict_in_stac/store_filter_dict_in_stac enabled."""
+        context = ScrappiContext()
+        context["fs"]["store_prod_dict_in_stac"] = True
+        context["fs"]["store_filter_dict_in_stac"] = True
+        return context
+
+    @staticmethod
+    def context_not_storing_prod_and_filter_dict():
+        """A ScrappiContext with store_prod_dict_in_stac/store_filter_dict_in_stac explicitly
+        disabled -- store_prod_dict_in_stac now defaults to True (see defaults.yaml), so a test
+        of the disabled case needs this rather than relying on an unconfigured context's
+        default."""
+        context = ScrappiContext()
+        context["fs"]["store_prod_dict_in_stac"] = False
+        context["fs"]["store_filter_dict_in_stac"] = False
+        return context
 
 
 class TestStacCatalog(BaseStacTest):
@@ -1164,6 +1192,180 @@ class TestStacCatalog(BaseStacTest):
         reloaded = product_item_from_stac(item_path)
 
         self.assertEqual(reloaded.cloud_fraction, 12.3)
+
+    # ----------------------------------------------------------------
+    # Regression tests: collection/version/prod_dict/filter_dict round-trip.
+    #
+    # These fields used to be silently lost (collection, version, filter_dict)
+    # or actively corrupted (prod_dict -- overwritten with the entire
+    # serialized STAC item on reload, instead of the original prod_dict) when
+    # a ProductItem went through save/reload via register_in_filesystem_catalog
+    # + product_item_from_stac. Since eomatch builds a persistent catalogue by
+    # round-tripping through exactly this path, this silently corrupted data
+    # on every reload.
+    # ----------------------------------------------------------------
+
+    def test_collection_written_to_item_json(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            collection="TEST_COLLECTION",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertEqual(data["collection"], "TEST_COLLECTION")
+
+    def test_collection_round_trips_through_product_item_from_stac(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            collection="TEST_COLLECTION",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertEqual(reloaded.collection, "TEST_COLLECTION")
+
+    def test_version_written_and_round_trips_when_set(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            version="v2.0",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertEqual(data["properties"]["version"], "v2.0")
+
+        reloaded = product_item_from_stac(item_path)
+        self.assertEqual(reloaded.version, "v2.0")
+
+    def test_version_omitted_and_none_when_not_set(self):
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+
+        data = json.loads(Path(item_path).read_text())
+        self.assertNotIn("version", data["properties"])
+
+        reloaded = product_item_from_stac(item_path)
+        self.assertIsNone(reloaded.version)
+
+    def test_prod_dict_round_trips_when_store_flag_enabled(self):
+        """prod_dict is written and read back faithfully when
+        store_prod_dict_in_stac is enabled -- not silently replaced with the
+        serialized STAC item itself."""
+        context = self.context_storing_prod_and_filter_dict()
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            prod_dict={"original_key": "original_value", "foo": 123},
+            context=context,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertEqual(reloaded.prod_dict, {"original_key": "original_value", "foo": 123})
+
+    def test_prod_dict_is_none_not_corrupted_when_store_flag_disabled(self):
+        """Regression test: prod_dict used to be reconstructed as
+        item.to_dict() (the entire serialized STAC item) regardless of
+        whether store_prod_dict_in_stac was ever enabled -- actively
+        corrupting the field with unrelated data rather than leaving it
+        unset. store_prod_dict_in_stac now defaults to True, so this test
+        explicitly disables it to exercise the disabled case."""
+        context = self.context_not_storing_prod_and_filter_dict()
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            prod_dict={"should": "not persist"},
+            context=context,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertIsNone(reloaded.prod_dict)
+
+    def test_filter_dict_round_trips_when_store_flag_enabled(self):
+        context = self.context_storing_prod_and_filter_dict()
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            filter_dict={"cloud_fraction": 12.5},
+            context=context,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertEqual(reloaded.filter_dict, {"cloud_fraction": 12.5})
+
+    def test_filter_dict_defaults_to_empty_dict_when_store_flag_disabled(self):
+        """Regression test: filter_dict used to be hardcoded to {} on every
+        reload regardless of whether it was actually written."""
+        context = self.context_storing_prod_and_filter_dict()
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            filter_dict={"cloud_fraction": 12.5},
+            context=context,
+        )
+        item_path = p.register_in_filesystem_catalog()
+
+        # Reload with a context that does NOT enable store_filter_dict_in_stac
+        # -- the item on disk still has filter_dict written (from the context
+        # used to save it), so this proves the *read* side degrades to {}
+        # correctly rather than crashing, for a plain default context.
+        reloaded = product_item_from_stac(item_path)
+        self.assertEqual(reloaded.filter_dict, {"cloud_fraction": 12.5})
+
+        p_unstored = self.make_product(
+            "item-2",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            filter_dict={"should": "not persist"},
+        )
+        item_path_unstored = p_unstored.register_in_filesystem_catalog()
+        reloaded_unstored = product_item_from_stac(item_path_unstored)
+        self.assertEqual(reloaded_unstored.filter_dict, {})
+
+    def test_api_product_is_none_after_round_trip(self):
+        """Regression test: api_product used to be set to prod_dict (or the
+        serialized item dict) on reload. api_product is meant to hold a live
+        provider-native object (e.g. an eodag EOProduct) used to actually
+        perform a download -- a reconstructed ProductItem has no such live
+        session object, so it should be left unset rather than populated
+        with an unusable plain dict."""
+        context = self.context_storing_prod_and_filter_dict()
+        p = self.make_product(
+            "item-1",
+            bounds=(0, 0, 1, 1),
+            start_time="2025-01-01T00:00:00Z",
+            prod_dict={"original_key": "original_value"},
+            context=context,
+        )
+
+        item_path = p.register_in_filesystem_catalog()
+        reloaded = product_item_from_stac(item_path)
+
+        self.assertIsNone(reloaded.api_product)
 
 
 if __name__ == "__main__":
