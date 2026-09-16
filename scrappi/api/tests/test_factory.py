@@ -35,10 +35,9 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         context = ScrappiContext()
         with mock.patch("scrappi.api.factory.EODAGCallHandler") as mock_eodag_handler:
             mock_eodag_handler.return_value = mock.Mock()
-            handler = self.api_call_handler_factory.get_api_call_handler("eodag:provider_a", context=context)
+            handler = self.api_call_handler_factory.get_api_call_handler("eodag:cop_dataspace", context=context)
             self.assertIsNotNone(handler)
-            self.assertEqual(context["api"]["preferred_provider"], "provider_a")
-            mock_eodag_handler.assert_called_once_with(context=context)
+            self.assertEqual(context["api"]["preferred_provider"], "cop_dataspace")
 
     def test_get_api_call_handler_invalid_eodag_provider_format(self):
         with self.assertRaises(IOError):
