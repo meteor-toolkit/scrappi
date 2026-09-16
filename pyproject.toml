@@ -56,7 +56,11 @@ earthaccess = [
 ]
 
 hypernets_api = [
-    "hypernets_api>=0.2.1",
+    "hypernets_api>=0.2.2",
+]
+
+insif_api = [
+    "xcube-geodb",
 ]
 
 all = [
@@ -75,6 +79,7 @@ all = [
     "myst_parser",
     "earthaccess>=0.17.0",
     "hypernets_api>=0.2.2",
+    "xcube-geodb",
 ]
 
 [project.scripts]

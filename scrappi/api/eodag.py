@@ -309,7 +309,12 @@ class EODAGCallHandler(BaseAPICallHandler):
             "surface_pressure": "sp",
             "total_column_ozone": "tco3",
             "total_aerosol_optical_depth_550nm": "aod550",
+            "total_aerosol_optical_depth_670nm": "aod670",
+            "total_aerosol_optical_depth_469nm": "aod469",
+            "total_aerosol_optical_depth_865nm": "aod865",
+            "total_aerosol_optical_depth_1240nm": "aod1240",
         }
+    
         return abbreviations.get(variable_name, variable_name)
 
     def get_id(self, prod_dict: dict, query: dict) -> str:

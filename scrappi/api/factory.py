@@ -16,6 +16,8 @@ __all__ = ["APICallHandlerFactory"]
 
 
 from typing import Dict, Optional, Union
+
+from processor_tools import context
 from scrappi import ScrappiContext
 from scrappi.api.eodag import EODAGCallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
@@ -23,7 +25,7 @@ from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 from scrappi.api.aws import AWSCallHandler
 
-all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac", "aws"]
+all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "eumdac", "aws", "insif", "stac"]
 
 # API call handlers by name
 API_CALL_HANDLERS = {
@@ -105,6 +107,11 @@ class APICallHandlerFactory:
             from scrappi.api.hypernets import HYPERNETSOfflineCallHandler
 
             return HYPERNETSOfflineCallHandler(context=context)
+
+        elif name.lower() == "insif":
+            from scrappi.api.insif import INSIFCallHandler
+
+            return INSIFCallHandler(context=context)
 
         elif name.lower() == "earthaccess":
             from scrappi.api.earthaccess_api import EarthaccessCallHandler
