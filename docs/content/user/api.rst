@@ -45,12 +45,34 @@ Alternatively, it is also possible to set the prefered provider for eodag by usi
     api=make_api("eodag:usgs")
 
 Offline (``"eodag_offline"``)
-    **Skeleton -- not yet production-ready.** Resolves satellite scenes from a
-    local archive instead of the network, as a fallback in the candidate-API list
-    (after ``"eodag"``). It reads each scene's metadata from scrappi's STAC
-    catalogue tree (``<root>/stac/...``), which scrappi writes automatically on
-    download when ``fs.register_stac_items`` is true (the default). An archive of
-    bare product files with **no** ``stac/`` tree is not served by this handler.
+    Resolves satellite scenes from a local archive instead of the network, as a
+    fallback in the candidate-API list (after ``"eodag"``) -- for data received
+    directly from a provider with no online API, e.g. a dataset not yet published.
+    It reads each scene's metadata from a STAC catalogue tree (``<root>/stac/...``)
+    -- either the one scrappi writes automatically on download (when
+    ``fs.register_stac_items`` is true, the default), or one you build once for an
+    archive scrappi never downloaded:
+
+    .. code-block:: python
+
+        from scrappi import make_api
+
+        handler = make_api("eodag_offline")
+        handler.harvest("S2_MSI_L1C")   # once, or re-run later for new arrivals
+
+    Querying never reads a product file -- only the already-built STAC index --
+    so it stays fast regardless of archive size. ``harvest`` is the slower,
+    explicit step that reads a product's own manifest (footprint, acquisition
+    time, cloud cover; not the actual imagery) via `eoio
+    <https://gitlab.npl.co.uk/eco/tools/eoio>`_ for any product whose metadata
+    isn't derivable from its filename alone. eoio is an optional extra, needed
+    only for ``harvest``, not for querying an already-harvested archive::
+
+        pip install 'scrappi[satellite_offline]'
+
+    An archive (or collection within it) with **no** ``stac/`` tree at all is not
+    served by ``perform_query`` -- it returns nothing and warns, naming ``harvest``
+    as the fix.
 
     .. code-block:: yaml
 
@@ -60,7 +82,8 @@ Offline (``"eodag_offline"``)
                 S2_MSI_L1C: /fast/disk/s2
 
     Each collection is searched under ``<root>/<collection>/`` if present, else
-    ``<root>``. Works for any mission with no per-satellite code.
+    ``<root>``. Works for any mission with no per-satellite code required for
+    querying.
 
 
 RadCalNet

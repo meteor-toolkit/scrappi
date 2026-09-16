@@ -59,6 +59,14 @@ hypernets_api = [
     "hypernets_api>=0.2.1",
 ]
 
+satellite_offline = [
+    # only needed by SatelliteOfflineCallHandler.harvest() -- reads a product's own
+    # manifest metadata (footprint/time/cloud cover) for a mission with no
+    # _fast_metadata_from_name hook. perform_query() (ordinary querying of an
+    # already-harvested archive) never imports this.
+    "eoio",
+]
+
 all = [
     "ruff",
     "mypy",
@@ -75,6 +83,7 @@ all = [
     "myst_parser",
     "earthaccess>=0.17.0",
     "hypernets_api>=0.2.2",
+    "eoio",
 ]
 
 [project.scripts]

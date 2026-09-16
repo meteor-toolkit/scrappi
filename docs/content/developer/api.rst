@@ -115,38 +115,62 @@ query/download.
 Satellite offline handler
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ``scrappi.api.satellite_offline.SatelliteOfflineCallHandler`` (registered
-``"eodag_offline"``, after ``"eodag"``) is the satellite counterpart. **Status:
-skeleton** -- structure and flow are in place, the ``TODO``\ s in the module need a
-real archive layout to settle.
+``"eodag_offline"``, after ``"eodag"``) is the satellite counterpart.
 
 A satellite scene's footprint, times and cloud cover aren't in its filename, so
-this handler reads them from **scrappi's own STAC catalogue tree**. scrappi writes
-that tree (``<root>/stac/<collection>/items/.../<id>.json`` + ``collection.json`` +
-``catalog.json``) for every product it downloads *when*
-``context["fs"]["register_stac_items"]`` is true -- **the default** (see
-``scrappi/etc/defaults.yaml``). So an archive scrappi itself populated is served by
-this handler; an archive of bare product files with no ``stac/`` tree is not
-(``perform_query`` returns empty and warns).
+this handler reads them from a **STAC catalogue tree** -- either the one scrappi
+writes automatically for every product it downloads (when
+``context["fs"]["register_stac_items"]`` is true -- **the default**), or one built
+for an archive scrappi never downloaded by calling ``handler.harvest(collection)``
+once. Two phases, deliberately kept separate:
 
-It is mission-agnostic -- ``product_item_from_stac`` rebuilds any mission's item
-and a ``scrappi.api.offline_query.CompiledQuery`` (the query geometry / datetimes
-parsed once, then ``.matches(product)`` per candidate) applies the filters
-client-side, so no per-satellite subclass is needed. ``perform_query``: discover
-the requested collections' roots, walk each ``<root>/stac`` once (grouping
-collections that share a root), filter each item, and only then build a
-filesystem for the survivors. Configuration:
+* ``perform_query`` **never reads a product file** -- only already-built STAC item
+  json (a small ``pystac`` parse, independent of product size/format), so a query
+  stays fast regardless of archive size. An archive with no ``stac/`` tree at all
+  for a requested collection returns empty and warns, naming ``harvest`` as the
+  fix.
+* ``harvest(collection, overwrite=False)`` is the comparatively slow, one-off (or
+  periodically re-run) step that *builds* that tree for a collection's data files
+  that don't have a STAC item yet. For a product whose footprint/time isn't
+  derivable from its filename it reads the product's own manifest via **eoio** --
+  a lazy import and optional extra (``pip install 'scrappi[satellite_offline]'``),
+  not needed at all for ``perform_query`` or any other scrappi API. eoio's
+  metadata extractors parse the manifest only (no raster access), so one product
+  is cheap, but it's still a per-product cost -- exactly why it happens once via
+  ``harvest``, not on every query. Before eoio, ``_fast_metadata_from_name(path,
+  collection)`` gets first refusal: a hook for a mission-specific, filename-only
+  parse (returns ``None`` by default -- no mission wired up yet -- falling through
+  to eoio; override for a mission whose name plus e.g. a static tile grid fully
+  determines footprint + time without opening the file).
+
+It is otherwise mission-agnostic -- ``product_item_from_stac`` rebuilds any
+mission's item and a ``scrappi.api.offline_query.CompiledQuery`` (the query
+geometry / datetimes parsed once, then ``.matches(product)`` per candidate)
+applies the filters client-side, so no per-satellite subclass is needed for
+querying. ``perform_query``: discover the requested collections' roots, walk each
+``<root>/stac`` once (grouping collections that share a root), filter each item,
+and only then build a filesystem for the survivors. Configuration:
 
 * ``context["api"]["offline_archive_path"]`` -- the archive root (or pass
   ``archive_path=``); no built-in default, an unconfigured handler is inert;
 * ``context["api"]["offline_archive_paths"]`` -- optional ``{collection: path}``
   overrides. Otherwise each collection is searched under ``<root>/<collection>/``
-  if it holds a ``stac/`` dir, else ``<root>`` -- so a query doesn't traverse a
+  if that directory exists at all (not conditional on ``stac/`` already being
+  there -- ``harvest`` uses this same resolution to find a not-yet-harvested
+  collection's data), else ``<root>`` -- so a query doesn't traverse a
   multi-terabyte shared archive;
 * ``list_collections`` reads ``stac/*/collection.json`` (a bounded glob, cached),
   not a recursive walk -- it runs on every ``get_api_name`` probe;
 * ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
   whole-product directories; ``PRODUCT_NAME_SUFFIXES`` -- the extensions a scene's
   data may carry that its STAC id does not (never ``.json``).
+
+Known limitations, left as follow-ups: ``harvest`` doesn't build/link a root
+``catalog.json`` (this handler discovers purely by filesystem glob/walk, never by
+following STAC links, so it isn't needed for querying -- only for STAC-spec
+compliance / other tools reading the same tree); no mission has
+``_fast_metadata_from_name`` wired up yet, so every harvested product currently
+costs an eoio manifest read.
 
 Suggested implementations for abstract methods (using base class methods)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

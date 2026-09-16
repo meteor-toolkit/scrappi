@@ -6,15 +6,54 @@ query / download / to_stac_item flow.
 """
 
 import json
+import math
 import os
+import sys
+import types
 import unittest
 import unittest.mock
 from datetime import datetime
 from tempfile import TemporaryDirectory
 
+from shapely.geometry import Polygon
+
 from scrappi import ScrappiContext
 from scrappi.api.satellite_offline import SatelliteOfflineCallHandler
 from scrappi.fs.stacfilesystem import STACFileSystem
+
+
+def _fake_eoio_modules(metadata_by_filename: dict) -> dict:
+    """sys.modules entries faking eoio.readers.factory.ReaderFactory, so
+    _metadata_via_eoio can be exercised without the real (optional, lazily
+    imported) eoio package installed. get_reader(path) returns a reader class
+    whose instance exposes .mtd.basic_metadata / .mtd.product_metadata from
+    metadata_by_filename[os.path.basename(path)] = (basic, product); a path with
+    no entry makes get_reader raise, like eoio does for an unrecognised product."""
+
+    class _FakeMtd:
+        def __init__(self, basic, product):
+            self.basic_metadata = basic
+            self.product_metadata = product
+
+    class _FakeReader:
+        def __init__(self, path):
+            basic, product = metadata_by_filename[os.path.basename(path)]
+            self.mtd = _FakeMtd(basic, product)
+
+    class _FakeReaderFactory:
+        @staticmethod
+        def get_reader(path):
+            if os.path.basename(path) not in metadata_by_filename:
+                raise ValueError(f"no fake eoio reader registered for {path!r}")
+            return _FakeReader
+
+    eoio_pkg = types.ModuleType("eoio")
+    readers_pkg = types.ModuleType("eoio.readers")
+    factory_mod = types.ModuleType("eoio.readers.factory")
+    factory_mod.ReaderFactory = _FakeReaderFactory
+    readers_pkg.factory = factory_mod
+    eoio_pkg.readers = readers_pkg
+    return {"eoio": eoio_pkg, "eoio.readers": readers_pkg, "eoio.readers.factory": factory_mod}
 
 
 def _stac_item(item_id: str, collection: str, *, platform="S2A", cloud=12.0) -> dict:
@@ -323,6 +362,184 @@ class TestUnconfiguredAndBareArchive(unittest.TestCase):
             h = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=bare)
             with self.assertWarns(UserWarning):
                 self.assertEqual(len(h.perform_query(self._query())), 0)
+
+
+class TestMetadataViaEoio(unittest.TestCase):
+    def setUp(self):
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path="/nonexistent")
+
+    def test_raises_a_clear_import_error_when_eoio_is_not_installed(self):
+        # genuinely not installed in this environment -- no faking needed
+        with self.assertRaises(ImportError) as ctx:
+            self.handler._metadata_via_eoio("/archive/S2A_TEST.SAFE")
+        self.assertIn("scrappi[satellite_offline]", str(ctx.exception))
+
+    def test_extracts_geometry_datetime_platform_and_cloud_cover(self):
+        geom = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        basic = {
+            "platform": "S2A",
+            "product_datetime": "2023-06-07T10:46:21Z",
+            "footprint": {"geometry": geom},
+        }
+        product_md = {"cloudy_pixel_percentage": 12.0}
+        with unittest.mock.patch.dict(sys.modules, _fake_eoio_modules({"S2A_TEST.SAFE": (basic, product_md)})):
+            meta = self.handler._metadata_via_eoio("/archive/S2A_TEST.SAFE")
+
+        self.assertEqual(meta["geometry"], geom)
+        self.assertEqual(meta["start_time"], "2023-06-07T10:46:21Z")
+        self.assertEqual(meta["platform"], "S2A")
+        self.assertEqual(meta["cloud_fraction"], 12.0)
+
+    def test_warns_and_returns_none_when_eoio_has_no_reader_for_the_product(self):
+        with unittest.mock.patch.dict(sys.modules, _fake_eoio_modules({})):
+            with self.assertWarns(UserWarning):
+                meta = self.handler._metadata_via_eoio("/archive/UNKNOWN_FORMAT.bin")
+        self.assertIsNone(meta)
+
+    def test_warns_and_returns_none_when_geometry_or_datetime_is_missing(self):
+        basic = {"platform": "S2A", "product_datetime": None, "footprint": {"geometry": None}}
+        with unittest.mock.patch.dict(sys.modules, _fake_eoio_modules({"X.SAFE": (basic, {})})):
+            with self.assertWarns(UserWarning):
+                meta = self.handler._metadata_via_eoio("/archive/X.SAFE")
+        self.assertIsNone(meta)
+
+
+class TestBuildProductItem(unittest.TestCase):
+    def setUp(self):
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path="/nonexistent")
+        self.geom = Polygon([(0, 0), (1, 0), (1, 1), (0, 1)])
+
+    def test_strip_container_suffix(self):
+        self.assertEqual(self.handler._strip_container_suffix(f"{_S2_ID}.SAFE"), _S2_ID)
+        self.assertEqual(self.handler._strip_container_suffix(_S2_ID), _S2_ID)
+        self.assertEqual(self.handler._strip_container_suffix("foo.tar.gz"), "foo")
+
+    def test_fast_metadata_from_name_is_unimplemented_by_default(self):
+        self.assertIsNone(self.handler._fast_metadata_from_name("/x/S2A_TEST.SAFE", "S2_MSI_L1C"))
+
+    def test_none_when_neither_fast_path_nor_eoio_has_metadata(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=None):
+            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2_MSI_L1C")
+        self.assertIsNone(product)
+
+    def test_fast_path_is_tried_before_eoio(self):
+        meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z"}
+        with (
+            unittest.mock.patch.object(self.handler, "_fast_metadata_from_name", return_value=meta),
+            unittest.mock.patch.object(self.handler, "_metadata_via_eoio") as eoio_mock,
+        ):
+            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2_MSI_L1C")
+        self.assertIsNotNone(product)
+        eoio_mock.assert_not_called()
+
+    def test_minus_one_cloud_fraction_is_normalised_to_nan(self):
+        """Same USGS/Landsat "not calculated" sentinel EODAGCallHandler.perform_query
+        normalises -- see that fix."""
+        meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "cloud_fraction": -1}
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
+            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", "S2_MSI_L1C")
+        self.assertTrue(math.isnan(product.cloud_fraction))
+
+    def test_platform_preferentially_parsed_from_the_recognised_name(self):
+        meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "platform": "meta-says-something-else"}
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
+            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", "S2_MSI_L1C")
+        self.assertEqual(product.platform, "S2A")
+
+    def test_platform_falls_back_to_eoio_metadata_for_an_unrecognised_name(self):
+        meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "platform": "WEIRDSAT"}
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
+            product = self.handler._build_product_item("/archive/totally_unrecognised_name", "S2_MSI_L1C")
+        self.assertEqual(product.platform, "WEIRDSAT")
+
+
+class TestHarvest(unittest.TestCase):
+    """SatelliteOfflineCallHandler.harvest(): builds the STAC index perform_query
+    reads, for an archive of bare product files scrappi never downloaded (so
+    nothing wrote a STAC record for it)."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.coll_dir = os.path.join(self.root, "S2_MSI_L1C")
+        self.safe = os.path.join(self.coll_dir, "data", f"{_S2_ID}.SAFE")
+        os.makedirs(self.safe)
+        open(os.path.join(self.safe, "MTD_MSIL1C.xml"), "w").close()
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=self.root)
+        self.meta = {
+            "geometry": Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+            "start_time": "2023-06-07T10:46:21Z",
+            "platform": "S2A",
+            "cloud_fraction": 12.0,
+        }
+
+    def _query(self, **over):
+        q = {
+            "collection": "S2_MSI_L1C",
+            "start_time": datetime(2023, 6, 1),
+            "stop_time": datetime(2023, 6, 30),
+        }
+        q.update(over)
+        return q
+
+    def test_writes_a_stac_item_and_collection_json(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            n = self.handler.harvest("S2_MSI_L1C")
+
+        self.assertEqual(n, 1)
+        item_path = os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "items", f"{_S2_ID}.json")
+        self.assertTrue(os.path.exists(item_path))
+        collection_path = os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "collection.json")
+        self.assertTrue(os.path.exists(collection_path))
+        with open(collection_path) as f:
+            self.assertEqual(json.load(f)["id"], "S2_MSI_L1C")
+
+    def test_harvested_archive_is_then_queryable(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest("S2_MSI_L1C")
+
+        products = self.handler.perform_query(self._query())
+
+        self.assertEqual([p.id for p in products], [_S2_ID])
+        self.assertEqual(products[0].platform, "S2A")
+
+    def test_skips_an_already_harvested_product_unless_overwrite(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta) as m:
+            self.handler.harvest("S2_MSI_L1C")
+            n_again = self.handler.harvest("S2_MSI_L1C")
+        self.assertEqual(n_again, 0)
+        m.assert_called_once()  # not re-extracted for the already-harvested product
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            n_overwrite = self.handler.harvest("S2_MSI_L1C", overwrite=True)
+        self.assertEqual(n_overwrite, 1)
+
+    def test_skips_a_product_with_no_extractable_metadata(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=None):
+            n = self.handler.harvest("S2_MSI_L1C")
+        self.assertEqual(n, 0)
+        self.assertFalse(os.path.isdir(os.path.join(self.coll_dir, "stac")))
+
+    def test_clears_the_cache_so_a_query_on_the_same_instance_sees_new_items(self):
+        self.assertEqual(self.handler.list_collections(), [])  # populates the (empty) discovery cache
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest("S2_MSI_L1C")
+
+        self.assertEqual(self.handler.list_collections(), ["S2_MSI_L1C"])
+
+    def test_perform_query_never_calls_eoio_even_after_harvesting(self):
+        """The whole point of harvesting separately: perform_query only ever reads
+        the already-built STAC index, regardless of what harvest() needed."""
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest("S2_MSI_L1C")
+
+        with unittest.mock.patch.object(SatelliteOfflineCallHandler, "_metadata_via_eoio") as eoio_mock:
+            products = self.handler.perform_query(self._query())
+
+        eoio_mock.assert_not_called()
+        self.assertEqual(len(products), 1)
 
 
 if __name__ == "__main__":
