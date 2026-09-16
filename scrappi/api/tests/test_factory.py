@@ -1,9 +1,12 @@
 """scrappi.api.tests.test_factory - tests for scrappi.api.factory"""
 
 import unittest
+from unittest import mock
 
+from scrappi import ScrappiContext
 from scrappi.api.factory import APICallHandlerFactory
 from scrappi.api.eodag import EODAGCallHandler
+from scrappi.api.flex_stac_api import FLEXSTACAPICallHandler
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 
 __author__ = [
@@ -22,13 +25,24 @@ class TestAPICallHandlerFactory(unittest.TestCase):
     def test_get_api_call_handler(self):
         eodag_api = self.api_call_handler_factory.get_api_call_handler("eodag")
         assert isinstance(eodag_api, EODAGCallHandler)
-        # hypernets_api = self.api_call_handler_factory.get_api_call_handler(
-        #     "hypernets_offline"
-        # )
-        # assert isinstance(hypernets_api, HYPERNETSOfflineCallHandler)
         radcalnet_api = self.api_call_handler_factory.get_api_call_handler("radcalnet")
         assert isinstance(radcalnet_api, RadcalnetCallHandler)
+        flex_api = self.api_call_handler_factory.get_api_call_handler("flex_stac")
+        assert isinstance(flex_api, FLEXSTACAPICallHandler)
         self.assertRaises(IOError, self.api_call_handler_factory.get_api_call_handler, "bad_path")
+
+    def test_get_api_call_handler_eodag_with_provider(self):
+        context = ScrappiContext()
+        with mock.patch("scrappi.api.factory.EODAGCallHandler") as mock_eodag_handler:
+            mock_eodag_handler.return_value = mock.Mock()
+            handler = self.api_call_handler_factory.get_api_call_handler("eodag:provider_a", context=context)
+            self.assertIsNotNone(handler)
+            self.assertEqual(context["api"]["preferred_provider"], "provider_a")
+            mock_eodag_handler.assert_called_once_with(context=context)
+
+    def test_get_api_call_handler_invalid_eodag_provider_format(self):
+        with self.assertRaises(IOError):
+            self.api_call_handler_factory.get_api_call_handler("aws:provider_a")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,8 @@
-"""
-scrappi.api.flex_stac_api - FLEX STAC API call handler
+"""FLEX STAC API handler integration for scrappi.
+
+This module provides `FLEXSTACAPICallHandler`, an implementation of
+`BaseAPICallHandler` that uses the FLEX Collaborative Platform STAC API to
+search for products and download assets after authenticating with Keycloak.
 """
 
 from pathlib import Path
@@ -45,13 +48,22 @@ COLLECTIONS = {"FLEX_L2": "L2A_AtmCorr_DATA", "FLEX_L1": "FLORIS_L1C_DATA"}
 
 
 class FLEXSTACAPICallHandler(BaseAPICallHandler):
-    """
-    FLEX STAC API handler 
+    """FLEX STAC API call handler.
+
+    Use this handler to search the FLEX STAC catalogue, map collection names to
+    their platform identifiers and download signed assets after user
+    authentication.
+
+    :param context: scrappi `Context` or equivalent mapping of configuration
     """
 
     name = "flex_stac"
 
     def __init__(self, context=None):
+        """Initialise the FLEX STAC handler and load the configured endpoints.
+
+        :param context: scrappi `Context` or equivalent mapping of configuration
+        """
         super().__init__(context)
 
         self.cp_stac_endpoint = self.context["flex_stac"]["cp_stac_endpoint"]
@@ -62,10 +74,10 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         self.request_token_response = None
 
     def authenticate(self):
-        """
-        Authenticate with the FLEX Collaborative Platform using Keycloak device flow.
-        This method will prompt the user to open a URL in their browser and log in to obtain an access token.
-        The access token will be stored in the instance for subsequent API calls.
+        """Authenticate with the FLEX platform using the Keycloak device flow.
+
+        The first call requests a user code and device login, while subsequent
+        calls re-use the stored token for API access.
         """
         if self.request_token_response is None:
             # Get User Code
@@ -84,7 +96,10 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
     # ------------------------------------------------------------------
 
     def list_collections(self) -> List[str]:
-        
+        """List supported FLEX collection names.
+
+        :returns: the collection names exposed by the FLEX STAC API
+        """
         return list(COLLECTIONS.keys())
 
     # ------------------------------------------------------------------
@@ -92,8 +107,11 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
     # ------------------------------------------------------------------
 
     def _query_stac(self, query: dict) -> ProductItemSet:
-        """
-        Query the FLEX STAC API using the provided query parameters.
+        """Return the raw STAC search response for a given query.
+
+        :param query: catalogue query containing optional collection, geometry,
+            start and stop time filters
+        :returns: response object from the FLEX STAC search endpoint
         """
         if "collection" in query:
             if isinstance(query["collection"], (list, tuple)):
@@ -135,14 +153,10 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
     
 
     def perform_query(self, query: dict) -> ProductItemSet:
-        """
-        Query local logical-HREF STAC catalog.
+        """Return catalogue products that satisfy a FLEX STAC query.
 
-        Supported keys:
-          - collection (str | list[str])
-          - geom (WKT / shapely / bbox)
-          - start_time
-          - stop_time
+        :param query: catalogue query with collection, geometry and time filters
+        :returns: `ProductItemSet` of matching catalogue products
         """
 
         self.authenticate()
@@ -170,10 +184,10 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         self,
         product: Union[str, ProductItem, ProductItemSet],
     ):
-        """
-        Resolve asset paths for STAC products.
+        """Download one or more FLEX products to a local path.
 
-        For local catalogs, this returns a filesystem path.
+        :param product: `ProductItem` or `ProductItemSet` returned by a search
+        :returns: downloaded path or list of paths on the local filesystem
         """
 
         if isinstance(product, ProductItemSet):
@@ -218,6 +232,12 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
 
     def download_flex(self, product, download_dir):
+        """Fetch a FLEX product item and save its signed assets to a directory.
+
+        :param product: product item to download
+        :param download_dir: directory in which the product assets are stored
+        :returns: list of downloaded file paths
+        """
         # Get download URL
         self.authenticate()  # Ensure we have a valid token
 
@@ -225,7 +245,7 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         item_url = f"{self.cp_stac_endpoint}/collections/{COLLECTIONS[product.collection]}/items/{aux_id}"
         aux_item = self.getItem(item_url)
         url = self.getDownloadURL(item_url)
-        print('Download URL:', url, item_url) 
+        #print('Download URL:', url, item_url) 
 
         # Download asset
         
@@ -233,6 +253,11 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         return self.downloadSignedItem_FLEX(aux_item, download_dir, url, self.headers)
 
     def getUserCode(self):
+        """Request a Keycloak user code for the device authorisation flow.
+
+        The verification URL is opened in the default browser so the user can
+        complete the FLEX sign-in flow.
+        """
         with Client(base_url=self.keycloak_base_url) as keykoack_client:
             user_code_response: UserCodeResponse | Error | None = generate_user_code(
                 realm=self.default_realm,
@@ -249,7 +274,12 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         return user_code_response
 
     def getToken(self, user_code_response):
-        
+        """Poll Keycloak until the user confirms the device login.
+
+        :param user_code_response: Keycloak response containing the device code
+            and polling interval
+        :returns: token response received from the auth endpoint
+        """
         request_token_response: RequestTokenResponse | Error | None = None
         
         if not request_token_response and isinstance(user_code_response, UserCodeResponse):
@@ -277,6 +307,11 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
 
     def downloadProduct(self, item, save_dir):
+        """Download all assets for a single FLEX STAC item into a directory.
+
+        :param item: STAC item containing downloadable assets
+        :param save_dir: root directory used to save the product payload
+        """
         product_dir = save_dir / item.id
         product_dir.mkdir(exist_ok=True)
         print(f'Downloading product in:', product_dir) 
@@ -313,21 +348,13 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
 
     def getDownloadURL(self, string, collection_id=None, download_base_url=None):
-        """
-        Extracts download URL from a product ID or product URL.
-        
-        Args:
-            string (str): Either a product ID (e.g. "S2A_MSIL2A_...")
-                        or a product URL 
-                        (e.g. "https://discover.flex.pal.maap.eo.esa.int/...").
-            collection_id (str, optional): Collection id to use when a product ID
-                        is provided. If omitted, the original prefix-based
-                        collection mapping is used.
-            download_base_url (str, optional): Base download endpoint. If omitted,
-                        the original FLEX Collaborative Platform endpoint is used.
-        
-        Returns:
-            url
+        """Build the download URL for a FLEX product ID or item URL.
+
+        :param string: product identifier or STAC item URL
+        :param collection_id: explicit collection identifier for product IDs
+        :param download_base_url: base URL used when constructing the signed
+            asset endpoint
+        :returns: resolved download URL for the item
         """
 
         if string.startswith("https:") and "items/" in string: 
@@ -357,7 +384,12 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
 
     def getProduct(self, url, headers):
-        
+        """Fetch and parse a single FLEX STAC item from a product URL.
+
+        :param url: URL pointing to a product or item metadata document
+        :param headers: HTTP headers used for the request
+        :returns: parsed STAC item object, or `None` when the request fails
+        """
         response = requests.get(url, headers=headers)
         
         if response.status_code != 200:
@@ -368,6 +400,11 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
             return pystac.read_dict(response.json())    
 
     def getItem(self, product_ID):
+        """Load a STAC item from either a URL or a FLEX product identifier.
+
+        :param product_ID: product identifier or item URL
+        :returns: parsed `pystac.Item` object
+        """
         if product_ID.startswith("https:"): 
             # URL provided
             item = pystac.read_file(product_ID)
@@ -381,6 +418,15 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
 
 
     def downloadSignedItem_FLEX(self,item, item_dir, url, headers, raise_on_error=False):
+        """Download all assets for a FLEX item after resolving signed URLs.
+
+        :param item: STAC item containing downloadable assets
+        :param item_dir: local directory used to store downloaded files
+        :param url: signed item download base URL
+        :param headers: HTTP headers used for authenticated requests
+        :param raise_on_error: if `True`, raise on failed asset downloads
+        :returns: list of downloaded asset paths
+        """
         downloaded_paths = []
 
         for asset_key, asset in item.get_assets().items():
@@ -405,7 +451,7 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
                 with open(out_name, "wb") as f:
                     f.write(r.content)
                 downloaded_paths.append(out_name)
-                print("  - Downloaded:", out_name)
+                print("  - Download completed:", out_name)
             
             else:
                 message = f"  - Status: {r.status_code}, Body {r.text}"
@@ -417,9 +463,14 @@ class FLEXSTACAPICallHandler(BaseAPICallHandler):
         return downloaded_paths
 
     def get_netcdf_asset_href(self, item):
-        """
-        Return the href of the best matching NetCDF asset from a STAC item.
-        Works even when asset keys differ (data, source_netcdf, product, etc.).
+        """Return the best matching NetCDF asset href from a STAC item.
+
+        The method searches asset media types first, then file extensions and a
+        set of common NetCDF asset names.
+
+        :param item: STAC item dictionary containing asset metadata
+        :returns: href of the best NetCDF asset
+        :raises ValueError: if no NetCDF asset can be identified
         """
         assets = item.get("assets", {})
 

@@ -31,6 +31,10 @@ class TestBaseFileSystem(unittest.TestCase):
         dummy_fs_call_handler = self.DummyFSCallHandler(directory="test")
         assert dummy_fs_call_handler.directory == "test"
 
+    def test_subclass_rejects_missing_directory(self) -> None:
+        with self.assertRaises(ValueError):
+            self.DummyFSCallHandler(directory=None)
+
 
 if __name__ == "__main__":
     unittest.main()
