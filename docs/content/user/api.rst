@@ -74,6 +74,13 @@ Offline (``"eodag_offline"``)
     served by ``perform_query`` -- it returns nothing and warns, naming ``harvest``
     as the fix.
 
+    Re-running ``harvest`` for new arrivals is safe: a product that already has a
+    STAC item (harvested before, or downloaded online) is skipped, never
+    duplicated, unless you pass ``overwrite=True`` to rewrite it. If a
+    long-lived process queried the archive before a ``harvest`` run happened
+    elsewhere, call ``handler.clear_cache()`` (or re-create the handler) so it
+    notices the newly-harvested products.
+
     .. code-block:: yaml
 
         api:

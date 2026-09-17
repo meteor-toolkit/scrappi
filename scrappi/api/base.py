@@ -9,6 +9,7 @@ results and downloading products to a target filesystem.
 """
 
 import datetime as dt
+import math
 import warnings
 
 from abc import ABC, abstractmethod
@@ -97,6 +98,27 @@ class BaseAPICallHandler(ABC):
 
         else:
             raise NotImplementedError("constellation name could not be parsed")
+
+    @staticmethod
+    def normalize_cloud_fraction(value: Optional[float]) -> Optional[float]:
+        """*value* with the USGS/Landsat "cloud cover not calculated" sentinel
+        (``-1``) mapped to ``NaN``, otherwise unchanged.
+
+        Cloud cover can't physically be negative, so a literal ``-1`` left as-is
+        would look like the clearest scene available to anything sorting/filtering
+        on it; ``NaN`` is scrappi's convention for "unknown" here (e.g.
+        :py:meth:`~scrappi.api.offline_query.CompiledQuery.matches` keeps a NaN
+        cloud fraction rather than excluding the product). Shared by
+        :py:meth:`~scrappi.api.eodag.EODAGCallHandler.perform_query` and
+        :py:meth:`~scrappi.api.satellite_offline.SatelliteOfflineCallHandler._build_product_item`
+        so the two providers can't drift on what the sentinel means.
+
+        :param value: a cloud fraction, or ``None``.
+        :return: ``value`` unchanged, ``NaN`` if it was ``-1``, or ``None``.
+        """
+        if value == -1:
+            return math.nan
+        return value
 
     @staticmethod
     def _get_datetime(date_time: Union[dt.datetime, dt.date, str]) -> dt.datetime:

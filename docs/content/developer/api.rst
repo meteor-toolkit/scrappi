@@ -131,7 +131,9 @@ once. Two phases, deliberately kept separate:
   fix.
 * ``harvest(collection, overwrite=False)`` is the comparatively slow, one-off (or
   periodically re-run) step that *builds* that tree for a collection's data files
-  that don't have a STAC item yet. For a product whose footprint/time isn't
+  that don't have a STAC item yet. ``collection`` is required -- there's no STAC
+  tree to discover one from before the first harvest, so it raises ``ValueError``
+  if empty/``None`` rather than guessing. For a product whose footprint/time isn't
   derivable from its filename it reads the product's own manifest via **eoio** --
   a lazy import and optional extra (``pip install 'scrappi[satellite_offline]'``),
   not needed at all for ``perform_query`` or any other scrappi API. eoio's
@@ -142,6 +144,23 @@ once. Two phases, deliberately kept separate:
   parse (returns ``None`` by default -- no mission wired up yet -- falling through
   to eoio; override for a mission whose name plus e.g. a static tile grid fully
   determines footprint + time without opening the file).
+
+  ``harvest`` checks for an existing STAC item across the *whole* ``stac/``
+  tree for the collection, not just the flat path it writes new items at, so
+  re-running it never creates a duplicate for a product an online download
+  already wrote a STAC item for at its own organised, dated path -- that
+  product is skipped (or, with ``overwrite=True``, rewritten in place at
+  wherever its item already is). A single product's metadata extraction
+  failing (corrupt file, unsupported format) is warned and skipped without
+  aborting the rest of the batch; a failure actually writing a STAC item is
+  left to propagate immediately, since it's likely to recur for every
+  remaining product too. Either way whatever succeeded is still committed
+  (``collection.json`` written, caches cleared) rather than lost. Because a
+  handler caches its own archive discovery, a handler instance that queried
+  before an out-of-process (or differently-cached, e.g. via
+  ``APICallHandlerFactory``) ``harvest`` run needs its own ``clear_cache()``
+  call to see the newly-harvested collection -- ``harvest`` clears its own
+  instance's cache automatically, but can't reach into another instance's.
 
 It is otherwise mission-agnostic -- ``product_item_from_stac`` rebuilds any
 mission's item and a ``scrappi.api.offline_query.CompiledQuery`` (the query
@@ -163,7 +182,11 @@ and only then build a filesystem for the survivors. Configuration:
   not a recursive walk -- it runs on every ``get_api_name`` probe;
 * ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
   whole-product directories; ``PRODUCT_NAME_SUFFIXES`` -- the extensions a scene's
-  data may carry that its STAC id does not (never ``.json``).
+  data may carry that its STAC id does not (never ``.json``);
+* ``INDEX_EXCLUDE_DIRNAMES = ("stac",)`` -- when a collection has no separate
+  ``data/`` subdirectory, its data root is the same directory ``harvest`` writes
+  ``stac/`` into; this keeps that output from being walked back in as if it were
+  product data, both by a later ``harvest`` and by an ordinary query.
 
 Known limitations, left as follow-ups: ``harvest`` doesn't build/link a root
 ``catalog.json`` (this handler discovers purely by filesystem glob/walk, never by

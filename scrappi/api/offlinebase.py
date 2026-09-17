@@ -47,6 +47,9 @@ class OfflineArchiveHandler(BaseAPICallHandler):
       carries :py:data:`ARCHIVE_READ_ONLY`);
     - set :py:data:`INDEX_DIRECTORY_SUFFIXES` if whole products are directories
       (``.SAFE`` / ``.SEN3``), so :py:meth:`_index_of` treats each as one entry;
+    - set :py:data:`INDEX_EXCLUDE_DIRNAMES` if the handler writes its own output
+      into the same root it searches for data, so that output is never indexed as
+      if it were a product;
     - set :py:data:`PRODUCT_NAME_SUFFIXES` if a product's ``id`` is its on-disk
       name without an extension it may actually carry (``.zip`` / ``.SAFE``);
     - use :py:meth:`_index_of` (rather than :py:attr:`_archive_index`) with a
@@ -74,6 +77,14 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     #: contributes one entry, not its thousands of granule files). In-situ handlers
     #: leave this empty and are unaffected.
     INDEX_DIRECTORY_SUFFIXES: Tuple[str, ...] = ()
+
+    #: Directory names (exact match, not a suffix) :py:meth:`_index_of` prunes from
+    #: its walk entirely -- never descended into, never indexed. For a handler that
+    #: writes its own output (e.g. a STAC tree) inside the same root it also
+    #: searches for product data, so that output is never mistaken for a product to
+    #: index -- see :py:class:`~scrappi.api.satellite_offline.SatelliteOfflineCallHandler`,
+    #: which sets this to exclude its own ``stac/`` tree. Empty by default.
+    INDEX_EXCLUDE_DIRNAMES: Tuple[str, ...] = ()
 
     #: Container suffixes an archived product's on-disk name may carry that its
     #: ``id`` does not (an id of ``S2A_...`` may sit on disk as ``S2A_....zip`` or
@@ -123,7 +134,9 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     def _index_of(self, root: str) -> Dict[str, str]:
         """``name -> absolute path`` for every file under *root* (and every
         directory whose name ends with one of :py:data:`INDEX_DIRECTORY_SUFFIXES`),
-        from a single :py:func:`os.walk`, cached per *root* on the instance.
+        excluding any directory named exactly one of :py:data:`INDEX_EXCLUDE_DIRNAMES`
+        (and everything beneath it), from a single :py:func:`os.walk`, cached per
+        *root* on the instance.
 
         The cache turns an ``os.walk``-per-product (a real cost on a large
         networked archive) into one walk per root for the life of the handler. It
@@ -144,6 +157,8 @@ class OfflineArchiveHandler(BaseAPICallHandler):
             idx = {}
             if os.path.isdir(root):
                 for dirpath, dirnames, filenames in os.walk(root):
+                    if self.INDEX_EXCLUDE_DIRNAMES:
+                        dirnames[:] = [d for d in dirnames if d not in self.INDEX_EXCLUDE_DIRNAMES]
                     if self.INDEX_DIRECTORY_SUFFIXES:
                         container = [d for d in dirnames if d.endswith(self.INDEX_DIRECTORY_SUFFIXES)]
                         for d in container:

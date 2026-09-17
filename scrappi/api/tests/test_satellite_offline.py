@@ -419,7 +419,7 @@ class TestBuildProductItem(unittest.TestCase):
 
     def test_none_when_neither_fast_path_nor_eoio_has_metadata(self):
         with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=None):
-            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2_MSI_L1C")
+            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2A_TEST", "S2_MSI_L1C")
         self.assertIsNone(product)
 
     def test_fast_path_is_tried_before_eoio(self):
@@ -428,28 +428,46 @@ class TestBuildProductItem(unittest.TestCase):
             unittest.mock.patch.object(self.handler, "_fast_metadata_from_name", return_value=meta),
             unittest.mock.patch.object(self.handler, "_metadata_via_eoio") as eoio_mock,
         ):
-            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2_MSI_L1C")
+            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2A_TEST", "S2_MSI_L1C")
         self.assertIsNotNone(product)
         eoio_mock.assert_not_called()
 
+    def test_incomplete_fast_path_metadata_falls_through_to_eoio(self):
+        """Regression test: a _fast_metadata_from_name override returning a
+        non-empty but incomplete dict (e.g. missing start_time) used to be treated
+        as a real answer (truthy), so meta["start_time"] raised an uncaught
+        KeyError instead of falling through to eoio like missing/None eoio
+        metadata already does."""
+        incomplete = {"geometry": self.geom}  # no start_time
+        complete = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z"}
+        with (
+            unittest.mock.patch.object(self.handler, "_fast_metadata_from_name", return_value=incomplete),
+            unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=complete) as eoio_mock,
+        ):
+            product = self.handler._build_product_item("/archive/S2A_TEST.SAFE", "S2A_TEST", "S2_MSI_L1C")
+        eoio_mock.assert_called_once()
+        self.assertIsNotNone(product)
+
     def test_minus_one_cloud_fraction_is_normalised_to_nan(self):
         """Same USGS/Landsat "not calculated" sentinel EODAGCallHandler.perform_query
-        normalises -- see that fix."""
+        normalises (via the shared BaseAPICallHandler.normalize_cloud_fraction)."""
         meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "cloud_fraction": -1}
         with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
-            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", "S2_MSI_L1C")
+            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", _S2_ID, "S2_MSI_L1C")
         self.assertTrue(math.isnan(product.cloud_fraction))
 
     def test_platform_preferentially_parsed_from_the_recognised_name(self):
         meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "platform": "meta-says-something-else"}
         with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
-            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", "S2_MSI_L1C")
+            product = self.handler._build_product_item(f"/archive/{_S2_ID}.SAFE", _S2_ID, "S2_MSI_L1C")
         self.assertEqual(product.platform, "S2A")
 
     def test_platform_falls_back_to_eoio_metadata_for_an_unrecognised_name(self):
         meta = {"geometry": self.geom, "start_time": "2023-06-07T00:00:00Z", "platform": "WEIRDSAT"}
         with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=meta):
-            product = self.handler._build_product_item("/archive/totally_unrecognised_name", "S2_MSI_L1C")
+            product = self.handler._build_product_item(
+                "/archive/totally_unrecognised_name", "totally_unrecognised_name", "S2_MSI_L1C"
+            )
         self.assertEqual(product.platform, "WEIRDSAT")
 
 
@@ -540,6 +558,152 @@ class TestHarvest(unittest.TestCase):
 
         eoio_mock.assert_not_called()
         self.assertEqual(len(products), 1)
+
+    def test_raises_for_an_empty_or_none_collection(self):
+        with self.assertRaises(ValueError):
+            self.handler.harvest("")
+        with self.assertRaises(ValueError):
+            self.handler.harvest(None)
+
+    def test_warns_and_returns_zero_when_there_is_nothing_to_harvest(self):
+        empty_root = os.path.join(self.root, "LANDSAT_C2L1", "data")
+        os.makedirs(empty_root)
+        with self.assertWarns(UserWarning):
+            n = self.handler.harvest("LANDSAT_C2L1")
+        self.assertEqual(n, 0)
+
+    def test_collection_json_carries_constellation_and_platform(self):
+        """Parity with ProductItem.register_in_filesystem_catalog's own
+        collection.json (an online download's), which sets the same two fields."""
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest("S2_MSI_L1C")
+
+        with open(os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "collection.json")) as f:
+            data = json.load(f)
+        self.assertEqual(data["constellation"], "Sentinel-2")
+        self.assertEqual(data["platform"], "S2A")
+
+    def test_one_bad_product_does_not_abort_the_rest_of_the_batch(self):
+        """Regression test: harvest()'s loop used to have no per-product error
+        handling, so one product's metadata extraction blowing up (a corrupt file,
+        an eoio ImportError encountered mid-batch) killed the whole run instead of
+        being skipped like a malformed STAC item already is at query time."""
+        second_safe = os.path.join(self.coll_dir, "data", "BAD_PRODUCT.SAFE")
+        os.makedirs(second_safe)
+        open(os.path.join(second_safe, "x"), "w").close()
+
+        def side_effect(path):
+            if "BAD_PRODUCT" in path:
+                raise RuntimeError("simulated corrupt manifest")
+            return self.meta
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", side_effect=side_effect):
+            with self.assertWarns(UserWarning):
+                n = self.handler.harvest("S2_MSI_L1C")
+
+        self.assertEqual(n, 1)  # the good product was still harvested
+        self.assertTrue(os.path.exists(os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "items", f"{_S2_ID}.json")))
+
+    def test_cache_is_cleared_even_when_nothing_new_was_harvested(self):
+        """Regression test: the archive-index cache used to only clear when n > 0,
+        so a no-op re-harvest left a stale (empty-of-new-files) data-dir listing
+        cached with no expiry -- a file arriving after that no-op run would become
+        permanently invisible to this handler instance."""
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest("S2_MSI_L1C")  # n=1, populates the data-dir index cache
+            n_noop = self.handler.harvest("S2_MSI_L1C")  # n=0 -- already harvested
+        self.assertEqual(n_noop, 0)
+
+        # a new product arrives on disk after the no-op run
+        new_safe = os.path.join(self.coll_dir, "data", "NEW_PRODUCT.SAFE")
+        os.makedirs(new_safe)
+        open(os.path.join(new_safe, "x"), "w").close()
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            n_next = self.handler.harvest("S2_MSI_L1C")
+
+        self.assertEqual(n_next, 1)  # found, not hidden by a stale cached listing
+
+    def test_does_not_duplicate_an_item_that_already_exists_at_an_organised_path(self):
+        """Regression test: an online download writes its STAC item at an
+        organised, dated path (fs.organise_data defaults True), not the flat path
+        harvest() writes new items at. harvest() used to only check the flat path
+        for "already harvested", so it re-extracted metadata and wrote a *second*,
+        duplicate item for the same id -- and perform_query's recursive walk
+        would then return the same product twice."""
+        dated_item_path = os.path.join(
+            self.coll_dir, "stac", "S2_MSI_L1C", "items", "2023", "06", "07", f"{_S2_ID}.json"
+        )
+        _write_json(dated_item_path, _stac_item(_S2_ID, "S2_MSI_L1C"))
+        _write_json(
+            os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "collection.json"),
+            _collection_json("S2_MSI_L1C"),
+        )
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio") as eoio_mock:
+            n = self.handler.harvest("S2_MSI_L1C")
+
+        self.assertEqual(n, 0)
+        eoio_mock.assert_not_called()
+        flat_item_path = os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "items", f"{_S2_ID}.json")
+        self.assertFalse(os.path.exists(flat_item_path))
+
+        products = self.handler.perform_query(self._query())
+        self.assertEqual(len(products), 1)  # not duplicated
+
+    def test_overwrite_rewrites_the_existing_item_in_place_not_a_duplicate(self):
+        dated_item_path = os.path.join(
+            self.coll_dir, "stac", "S2_MSI_L1C", "items", "2023", "06", "07", f"{_S2_ID}.json"
+        )
+        _write_json(dated_item_path, _stac_item(_S2_ID, "S2_MSI_L1C"))
+        _write_json(
+            os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "collection.json"),
+            _collection_json("S2_MSI_L1C"),
+        )
+
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            n = self.handler.harvest("S2_MSI_L1C", overwrite=True)
+
+        self.assertEqual(n, 1)
+        flat_item_path = os.path.join(self.coll_dir, "stac", "S2_MSI_L1C", "items", f"{_S2_ID}.json")
+        self.assertFalse(os.path.exists(flat_item_path))  # rewritten in place, not a new duplicate
+        with open(dated_item_path) as f:
+            self.assertEqual(json.load(f)["id"], _S2_ID)
+
+
+class TestHarvestWithoutASeparateDataSubdirectory(unittest.TestCase):
+    """<collection_root>/{files directly here, no data/ split}/ + <collection_root>/stac/"""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.coll_dir = os.path.join(self.root, "S2_MSI_L1C")
+        self.safe = os.path.join(self.coll_dir, f"{_S2_ID}.SAFE")
+        os.makedirs(self.safe)
+        open(os.path.join(self.safe, "MTD_MSIL1C.xml"), "w").close()
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=self.root)
+        self.meta = {"geometry": Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]), "start_time": "2023-06-07T10:46:21Z"}
+
+    def test_reharvesting_does_not_walk_its_own_stac_output_as_product_data(self):
+        """Regression test: with no separate data/ subdirectory, _data_dir() falls
+        back to the collection root itself -- the same directory harvest() writes
+        stac/ into. Without excluding that stac/ tree from the data walk, a
+        re-harvest indexed its own item/collection json as if they were candidate
+        products, and (since real archives commonly don't have eoio installed --
+        querying an already-harvested archive is explicitly supported without it)
+        blew up with an uncaught ImportError on the second call."""
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            n_first = self.handler.harvest("S2_MSI_L1C")
+        self.assertEqual(n_first, 1)
+
+        # second call: eoio "not installed" (raises, as the real import does) --
+        # must not even be reached for the handler's own stac/collection json
+        with unittest.mock.patch.object(
+            self.handler, "_metadata_via_eoio", side_effect=ImportError("eoio not installed")
+        ):
+            n_second = self.handler.harvest("S2_MSI_L1C")
+        self.assertEqual(n_second, 0)
 
 
 if __name__ == "__main__":

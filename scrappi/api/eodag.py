@@ -241,15 +241,13 @@ class EODAGCallHandler(BaseAPICallHandler):
             ):
                 prod_dict["properties"]["eodag:quicklook"] = ""
 
-            if (
-                ("eo:cloud_cover" not in prod_dict["properties"].keys())
-                or (prod_dict["properties"]["eo:cloud_cover"] is None)
-                or (prod_dict["properties"]["eo:cloud_cover"] == -1)
-            ):
-                # -1 is USGS/Landsat's convention for "cloud cover not calculated" for a scene;
-                # normalise it to NaN like other missing values, since cloud cover cannot be
-                # negative and a literal -1 would otherwise look like the clearest scene available.
-                prod_dict["properties"]["eo:cloud_cover"] = np.nan
+            # missing/None -> NaN (no value at all); -1 (USGS/Landsat's "not calculated"
+            # sentinel -- see normalize_cloud_fraction) -> NaN too, via the shared helper
+            # every offline/online handler normalises the same sentinel through.
+            cloud_cover = prod_dict["properties"].get("eo:cloud_cover")
+            prod_dict["properties"]["eo:cloud_cover"] = (
+                np.nan if cloud_cover is None else self.normalize_cloud_fraction(cloud_cover)
+            )
 
             # check if platform is set
             if ("platform" in query) and self.get_platform(prod_dict) != query["platform"]:

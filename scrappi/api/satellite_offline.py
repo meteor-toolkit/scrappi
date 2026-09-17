@@ -57,6 +57,21 @@ An archive with **no** ``stac/`` tree at all for a requested collection --
 harvested or otherwise -- is not served by :py:meth:`perform_query`: it returns an
 empty set and warns, naming :py:meth:`harvest` as the fix.
 
+:py:meth:`harvest` looks for an existing STAC item **anywhere** under a
+collection's ``stac/`` tree, not just the flat path it writes new items at, so
+re-running it never duplicates an item an online download already wrote at its
+own organised, dated path -- it's skipped (or overwritten in place with
+``overwrite=True``) instead. A single product's metadata extraction failing (a
+corrupt file, an unsupported format) is warned and skipped without aborting the
+rest of the batch; a failure actually writing a STAC item is let to propagate,
+since that's likely to recur for every remaining product too. Because
+:py:meth:`harvest` and :py:meth:`perform_query` both cache archive discovery on
+``self``, a handler instance that queried before an out-of-process
+:py:meth:`harvest` run (or a *different* cached handler instance, e.g. one
+:py:class:`~scrappi.interface.APICallHandlerFactory` reused) needs its own
+:py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler.clear_cache` call to
+see the newly-harvested collection.
+
 Per-collection roots
 --------------------
 So a query doesn't walk a whole shared archive, each collection is searched under
@@ -75,7 +90,6 @@ from __future__ import annotations
 
 import glob
 import json
-import math
 import os
 import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -126,6 +140,12 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
 
     #: extracted Sentinel scenes are whole-product directories
     INDEX_DIRECTORY_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3")
+
+    #: harvest() writes its own STAC tree into <collection_root>/stac -- the same
+    #: root _data_dir searches when there's no separate data/ subdirectory. Without
+    #: this, a re-harvest (or an ordinary query's _archive_path_for) would walk that
+    #: output back in as if it were product data.
+    INDEX_EXCLUDE_DIRNAMES: Tuple[str, ...] = ("stac",)
 
     #: a STAC item id is the product name without an extension; on disk the data
     #: may carry one of these (never ``.json`` -- that's the item sidecar).
@@ -339,14 +359,22 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         product.filesystem = self._flat_filesystem(pin_dir)
 
     # ------------------------------------------------------------------ download
-    def _data_dir(self, collection: Optional[str]) -> str:
+    def _data_dir(self, collection: Optional[str], *, root: Optional[str] = None) -> str:
         """*collection*'s data subtree: ``<collection_root>/data`` if that exists,
-        else ``<collection_root>`` itself. Shared by :py:meth:`_archive_path_for`
-        (locating an already-indexed product) and :py:meth:`harvest` (finding
-        product files with no STAC item yet) -- the same directory, for the same
-        reason: it's where the actual files are, regardless of whether a STAC tree
-        has been built for them."""
-        root = self._collection_root(collection) if collection else self.archive_path
+        else ``<collection_root>`` itself (which -- see :py:data:`INDEX_EXCLUDE_DIRNAMES`
+        -- excludes this handler's own ``stac/`` output from any walk of it, so a
+        collection with no separate ``data/`` folder is still searched safely).
+        Shared by :py:meth:`_archive_path_for` (locating an already-indexed product)
+        and :py:meth:`harvest` (finding product files with no STAC item yet) -- the
+        same directory, for the same reason: it's where the actual files are,
+        regardless of whether a STAC tree has been built for them.
+
+        :param root: the collection's already-resolved root, if the caller has one
+            (:py:meth:`harvest` does) -- avoids a redundant
+            :py:meth:`_collection_root` call. Resolved from *collection* if omitted.
+        """
+        if root is None:
+            root = self._collection_root(collection) if collection else self.archive_path
         data_dir = os.path.join(root, "data")
         return data_dir if os.path.isdir(data_dir) else root
 
@@ -434,31 +462,41 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             "cloud_fraction": product_md.get("cloudy_pixel_percentage"),
         }
 
-    def _build_product_item(self, path: str, collection: str) -> Optional[ProductItem]:
-        """A :py:class:`~scrappi.product.ProductItem` for the file/directory at
-        *path*, from :py:meth:`_fast_metadata_from_name` if it has an answer, else
-        :py:meth:`_metadata_via_eoio`. ``None`` if neither does."""
-        meta = self._fast_metadata_from_name(path, collection) or self._metadata_via_eoio(path)
-        if not meta:
-            return None
+    @staticmethod
+    def _valid_meta(meta: Optional[Dict[str, Any]]) -> bool:
+        """Whether *meta* actually has the two fields a
+        :py:class:`~scrappi.product.ProductItem` can't do without -- ``geometry``
+        and ``start_time``. Applied to *both* metadata sources so an incomplete
+        :py:meth:`_fast_metadata_from_name` override (a non-empty dict missing
+        ``start_time``, say) is treated the same as incomplete eoio metadata:
+        rejected, rather than reaching ``meta["start_time"]`` in
+        :py:meth:`_build_product_item` and raising ``KeyError``."""
+        return bool(meta) and meta.get("geometry") is not None and bool(meta.get("start_time"))
 
-        pid = self._strip_container_suffix(os.path.basename(path))
+    def _build_product_item(self, path: str, pid: str, collection: str) -> Optional[ProductItem]:
+        """A :py:class:`~scrappi.product.ProductItem` for the file/directory at
+        *path* (with id *pid* -- :py:meth:`harvest` already has it, having derived
+        it from the same on-disk name this method would otherwise recompute), from
+        :py:meth:`_fast_metadata_from_name` if it has a complete answer, else
+        :py:meth:`_metadata_via_eoio`. ``None`` if neither does.
+        """
+        meta = self._fast_metadata_from_name(path, collection)
+        if not self._valid_meta(meta):
+            meta = self._metadata_via_eoio(path)
+        if not self._valid_meta(meta):
+            return None
 
         try:
             platform = self.parse_platform_from_name(pid)
         except NotImplementedError:
             platform = meta.get("platform") or ""
         try:
+            # no metadata source here reports a constellation (distinct from
+            # platform) to fall back to -- unlike platform above, this can only
+            # ever come from the name.
             constellation = self.parse_constellation_from_name(pid)
         except NotImplementedError:
             constellation = ""
-
-        cloud_fraction = meta.get("cloud_fraction")
-        if cloud_fraction == -1:
-            # USGS/Landsat-style "not calculated" sentinel -- see EODAGCallHandler.
-            # perform_query's identical normalisation; cloud cover can't be
-            # negative, so a literal -1 would look like the clearest scene there is.
-            cloud_fraction = math.nan
 
         return ProductItem(
             constellation=constellation,
@@ -468,7 +506,7 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             geometry=meta["geometry"],
             start_time=meta["start_time"],
             stop_time=meta.get("stop_time") or meta["start_time"],
-            cloud_fraction=cloud_fraction,
+            cloud_fraction=self.normalize_cloud_fraction(meta.get("cloud_fraction")),
             url="",
             quicklook="",
             context=self.context,
@@ -512,6 +550,10 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             ),
             license="other",
         )
+        # matches ProductItem.register_in_filesystem_catalog's own collection.json,
+        # so a harvested collection isn't missing fields an online-downloaded one has
+        coll.extra_fields["constellation"] = sample_product.constellation
+        coll.extra_fields["platform"] = sample_product.platform
         coll.save_object(dest_href=path)
 
     def harvest(self, collection: str, *, overwrite: bool = False) -> int:
@@ -532,6 +574,31 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         ``ProductItem.register_in_filesystem_catalog`` writing into a read-only
         archive by accident).
 
+        A per-product metadata-extraction failure (a corrupt file, an unsupported
+        format) is warned and skipped, same as :py:meth:`_load_item` does for a
+        malformed STAC item at query time -- one bad product doesn't abort the
+        whole run. A failure actually *writing* the STAC item (permissions, a full
+        disk) is not caught: it's likely to recur for every remaining product too,
+        so it's let to propagate immediately rather than retried uselessly once per
+        product. Either way, whatever succeeded before the failure is still
+        committed (``collection.json`` written, caches cleared) rather than lost.
+
+        If the same product already has a STAC item **anywhere** under
+        ``<collection_root>/stac/<collection>/`` -- including one an online
+        download wrote at its own organised, dated path, not just the flat path
+        this method writes new items at -- it's treated as already harvested
+        (skipped, or overwritten in place with ``overwrite=True``) rather than
+        harvested again at a second, duplicate location.
+
+        Only run against this handler's own instance cache
+        (:py:meth:`clear_cache`) -- if a *different*, already-constructed
+        ``SatelliteOfflineCallHandler`` (e.g. one cached by
+        :py:class:`~scrappi.api.factory.APICallHandlerFactory` and reused by
+        :py:mod:`scrappi.interface`'s candidate fan-out, its default) queries the
+        same archive afterwards, call ``clear_cache()`` on *that* instance too (or
+        pass ``use_cache=False`` to ``get_api_call_handler``) so it notices the
+        newly-harvested collection.
+
         :param collection: the collection id to harvest. Required, not
             discovered: before any harvesting there is no STAC tree yet for
             :py:meth:`list_collections` to find one in, and a data directory's own
@@ -541,30 +608,64 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         :param overwrite: re-harvest (and overwrite the STAC item for) a product
             that already has one.
         :return: number of STAC items written.
+        :raises ValueError: *collection* is empty/``None``.
         """
+        if not collection:
+            raise ValueError(f"{type(self).__name__}.harvest: collection is required, got {collection!r}")
+
         collection_root = self._collection_root(collection)
-        data_dir = self._data_dir(collection)
+        data_dir = self._data_dir(collection, root=collection_root)
         stac_root = os.path.join(collection_root, "stac")
+
+        candidates = self._index_of(data_dir)
+        if not candidates:
+            warnings.warn(
+                f"{type(self).__name__}.harvest: no candidate product files found under {data_dir!r} "
+                f"for collection {collection!r} -- nothing to harvest"
+            )
+            return 0
+
+        # id -> path of every STAC item *this collection* already has, wherever it
+        # sits within stac_root/<collection>/ (flat, or an online download's
+        # organised/dated layout) -- one bounded walk, reused as both the "already
+        # harvested" check and, for overwrite, where to write back to (never
+        # creating a second, duplicate item for an id that already has one
+        # somewhere else in the tree). Scoped to this collection's own subtree, not
+        # all of stac_root, since collection_root -- and so stac_root -- may be
+        # shared with other collections (see _collection_root's docstring).
+        existing_items = {
+            os.path.basename(p)[: -len(".json")]: p for p in self._stac_item_paths(os.path.join(stac_root, collection))
+        }
 
         sample_product: Optional[ProductItem] = None
         n = 0
-        for name, path in self._index_of(data_dir).items():
-            pid = self._strip_container_suffix(name)
-            item_path = os.path.join(stac_root, collection, "items", f"{pid}.json")
-            if os.path.exists(item_path) and not overwrite:
-                continue
+        try:
+            for name, path in candidates.items():
+                pid = self._strip_container_suffix(name)
+                existing_item_path = existing_items.get(pid)
+                if existing_item_path is not None and not overwrite:
+                    continue
 
-            product = self._build_product_item(path, collection)
-            if product is None:
-                continue
+                try:
+                    product = self._build_product_item(path, pid, collection)
+                except Exception as exc:
+                    warnings.warn(f"{type(self).__name__}.harvest: could not extract metadata for {path!r}: {exc}")
+                    continue
+                if product is None:
+                    continue
 
-            self._write_stac_item(product, item_path, path)
-            sample_product = sample_product or product
-            n += 1
-
-        if sample_product is not None:
-            self._ensure_collection_json(collection, stac_root, sample_product)
-        if n:
+                item_path = existing_item_path or os.path.join(stac_root, collection, "items", f"{pid}.json")
+                self._write_stac_item(product, item_path, path)  # not caught -- see docstring
+                sample_product = sample_product or product
+                n += 1
+        finally:
+            if sample_product is not None:
+                self._ensure_collection_json(collection, stac_root, sample_product)
             # this instance's cached discovery / archive-index walks are now stale
+            # regardless of n (even a zero-new-items run leaves data_dir's listing
+            # cached, which would otherwise hide a file that arrives before the
+            # next harvest() call) or of a mid-run failure (whatever did succeed
+            # before it shouldn't be hidden by a stale cache either)
             self.clear_cache()
+
         return n
