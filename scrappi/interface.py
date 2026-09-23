@@ -6,10 +6,11 @@ download products. The helpers bridge the `ScrappiContext` to concrete
 adapter implementations.
 """
 
+import logging
 import os
+import warnings
 import datetime as dt
 import numpy as np
-import warnings
 
 import shapely
 import shapely.geometry
@@ -53,6 +54,7 @@ platforms = {
 
 Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
+logger = logging.getLogger(__name__)
 
 
 def _candidate_failure_is_recoverable(exc: BaseException) -> bool:
@@ -63,15 +65,18 @@ def _candidate_failure_is_recoverable(exc: BaseException) -> bool:
 
     Recoverable: a site/collection outside this API's own registry
     (``RadcalnetCallHandler.get_files_list`` raises ``ValueError`` for one), an
-    unimplemented operation, or an HTTP 404 (absent) / 5xx (provider transiently
-    down). **Not** recoverable: HTTP 401/403 (bad credentials -- a real config error
-    the user must fix), or anything else (``TypeError``/``AttributeError`` bugs,
-    connection/DNS errors, ...).
+    unimplemented operation, an HTTP 404 (absent) / 5xx (provider transiently down),
+    or a ``FileNotFoundError`` (an offline archive handler's
+    ``OfflineArchiveHandler.download_product`` raises this when the product isn't in
+    its archive -- the local-filesystem analogue of a 404, and the offline handlers'
+    whole point is being tried as a fallback for exactly this). **Not** recoverable:
+    HTTP 401/403 (bad credentials -- a real config error the user must fix), or
+    anything else (``TypeError``/``AttributeError`` bugs, connection/DNS errors, ...).
 
     :param exc: the exception a candidate handler raised.
     :return: ``True`` to try the next candidate, ``False`` to re-raise now.
     """
-    if isinstance(exc, (ValueError, KeyError, NotImplementedError)):
+    if isinstance(exc, (ValueError, KeyError, NotImplementedError, FileNotFoundError)):
         return True
     status = getattr(getattr(exc, "response", None), "status_code", None)
     if status is not None:
@@ -197,8 +202,11 @@ def get_api_name(
                     else:
                         return api
             except Exception as e:
-                warnings.warn(
-                    f"Error occurred for {api} while identifying available apis for collection {collection}: {e}"
+                logger.debug(
+                    "Error occurred for %s while identifying available apis for collection %s: %s",
+                    api,
+                    collection,
+                    e,
                 )
                 pass
 
@@ -224,7 +232,7 @@ def get_api_name(
             except Exception:
                 pass
 
-        warnings.warn("No api was found for the specified collection. Returning context['api']['preferred_api'].")
+        logger.debug("No api was found for the specified collection. Returning context['api']['preferred_api'].")
         return context["api"]["preferred_api"]
 
 
@@ -242,7 +250,7 @@ def list_collections(guess: Optional[str] = None, context: Optional[ScrappiConte
         try:
             products.extend(list(Factory.get_api_call_handler(k, context).list_collections()))
         except Exception:
-            warnings.warn(f"No collections identified for {k} api")
+            logger.debug("No collections identified for %s api", k)
 
     if guess:
         return sorted([i for i in list(set(products)) if any([guess in i, guess.lower() in i, guess.upper() in i])])
@@ -364,8 +372,9 @@ def is_insitu_collection(collection: str) -> bool:
         except Exception:
             pass
     else:
-        warnings.warn(
-            f"Collection {collection} not found in listed collections for any API (some are missing from list for eodag)."
+        logger.debug(
+            "Collection %s not found in listed collections for any API (some are missing from list for eodag).",
+            collection,
         )
 
         return False
@@ -421,7 +430,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
     :return product paths of downloaded products
     """
     if product is None:
-        warnings.warn("no product was provided to download")
+        logger.debug("No product was provided to download")
         return None
 
     if not isinstance(context, ScrappiContext):
@@ -475,19 +484,31 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                     register_flag = False
 
                 if register_flag and isinstance(product, ProductItem):
-                    # prefer product.filesystem; make_fs will handle strings
-                    try:
-                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                    except Exception:
-                        # fallback: try using make_fs with product.filesystem attribute
+                    if getattr(product.filesystem, "read_only", False):
+                        # e.g. an offline archive handler's product.filesystem is pinned
+                        # into the archive itself -- not ours to write a stac/ folder
+                        # into. register_in_filesystem_catalog would raise IOError for
+                        # the same reason; skip quietly rather than let the two-attempt
+                        # fallback below hit it (and log a confusing "failed" message)
+                        # for what is expected, common behaviour for these products.
+                        logger.debug(
+                            "Skipping STAC registration for %r: product.filesystem is read-only",
+                            getattr(product, "id", product),
+                        )
+                    else:
+                        # prefer product.filesystem; make_fs will handle strings
                         try:
-                            fs = make_fs(product.filesystem)
-                            product.register_in_filesystem_catalog(
-                                filesystem=fs,
-                                overwrite=context["fs"]["overwrite_stac_items"],
-                            )
-                        except Exception as e:
-                            warnings.warn(f"Failed to register product in STAC catalog: {e}")
+                            product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                        except Exception:
+                            # fallback: try using make_fs with product.filesystem attribute
+                            try:
+                                fs = make_fs(product.filesystem)
+                                product.register_in_filesystem_catalog(
+                                    filesystem=fs,
+                                    overwrite=context["fs"]["overwrite_stac_items"],
+                                )
+                            except Exception as e:
+                                logger.debug("Failed to register product in STAC catalog: %s", e)
                 # for ProductItemSet we assume individual downloads will have registered themselves
             except Exception:
                 # Do not let registration errors prevent returning the download path

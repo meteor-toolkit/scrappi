@@ -14,7 +14,6 @@ from processor_tools import Context
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import generate_bounding_lat_lon
-from scrappi.fs.localfilesystem import LocalFileSystem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -71,7 +70,13 @@ class HYPERNETSCallHandler(InSituCallHandler):
     _default_geometries: Dict[str, Polygon] = {}
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None, api_key=None):
-        super().__init__(context, HYPERNETS_DEFAULT_ROI)
+        # a fresh copy -- InSituCallHandler.set_roi/set_roi_bounding_box mutate
+        # self.roi_dict in place, and HYPERNETS_DEFAULT_ROI is a module-level dict
+        # shared with HYPERNETSOfflineCallHandler and every other instance of this
+        # class; passing it directly would let one instance's ROI tweak leak into
+        # every other handler in the process (see the identical fix for RadCalNet's
+        # _resolve_site_definitions/_build_default_geometries).
+        super().__init__(context, dict(HYPERNETS_DEFAULT_ROI))
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
         # lazy import of hypernets_api
@@ -229,9 +234,12 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
         # OfflineArchiveHandler resolves self.archive_path (arg -> context["fs"]["path"])
         # and provides download_product / _archive_path_for; InSituCallHandler takes
-        # the roi_dict. No context mutation for organise_data -- perform_query builds
-        # each per-product filesystem flat.
-        super().__init__(context, roi_dict=HYPERNETS_DEFAULT_ROI, archive_path=archive_path)
+        # the roi_dict -- a fresh copy of HYPERNETS_DEFAULT_ROI (see the identical
+        # comment on HYPERNETSCallHandler.__init__: it's a module-level dict shared
+        # with the online handler, and set_roi/set_roi_bounding_box mutate in place).
+        # No context mutation for organise_data -- perform_query builds each
+        # per-product filesystem flat.
+        super().__init__(context, roi_dict=dict(HYPERNETS_DEFAULT_ROI), archive_path=archive_path)
         # lazy import of hypernets_api offline API
         try:
             from hypernets_api import OfflineHYPERNETSAPI
@@ -311,26 +319,23 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
 
         product_list = []
         for prod in hypernets_results:
-            # Flat filesystem pinned to the product's own archive directory: the file
-            # is already there, so organise_data (which would rebuild a reorganised
-            # path from product metadata) must be off for this instance.
-            product_fs = LocalFileSystem(
-                os.path.join(self.api.archive_path, prod["rel_product_dir"]),
-                self.context,
-            )
-            product_fs.organise_data = False
             product_list.append(
                 ProductItem(
                     constellation="HYPERNETS",
                     platform=prod["site_id"],
-                    collection=query["collection"],
+                    collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
                     geometry=self.get_roi_shapely(prod["site_id"]),
                     start_time=self._get_datetime(prod["datetime_start"]),
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),
-                    filesystem=product_fs,
+                    # Flat, read-only (ARCHIVE_READ_ONLY) STACFileSystem pinned to the
+                    # product's own archive directory: the file is already there, so
+                    # organise_data is off; STACFileSystem (not LocalFileSystem) so
+                    # ProductItem.to_stac_item() -- called when a matchup is added to a
+                    # catalogue -- has return_stac_item_path.
+                    filesystem=self._flat_filesystem(os.path.join(self.api.archive_path, prod["rel_product_dir"])),
                     url=prod["sequence_name"],
                     quicklook="",
                     api=self,

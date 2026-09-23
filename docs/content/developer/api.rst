@@ -84,24 +84,116 @@ provides:
   keys named in the class attribute ``ARCHIVE_PATH_CONTEXT_KEYS`` (e.g.
   ``("RadCalNet", "offline_archive_path")``), else ``_default_archive_path()``
   (override it if there is a sensible fixed fallback, otherwise the base raises);
-* ``_archive_index`` -- a cached ``filename -> path`` map from a single walk of the
-  archive, and ``_archive_path_for(product)`` on top of it;
+* ``_index_of(root)`` -- a cached ``name -> path`` map from a single walk of
+  ``root`` (``_archive_index`` is ``_index_of(self.archive_path)``); a directory
+  whose name ends with one of ``INDEX_DIRECTORY_SUFFIXES`` (e.g. ``.SAFE``) is one
+  entry, not its contents. ``_archive_path_for(product)`` matches ``product.id``
+  exactly, then ``id`` + each ``PRODUCT_NAME_SUFFIXES`` entry (empty by default:
+  in-situ ids *are* the filenames). The cache is not invalidated -- call
+  ``clear_cache()`` if the archive is written to during the handler's life (it is
+  reused across queries via ``Factory``'s ``use_cache``);
 * ``_flat_filesystem(dirpath)`` -- a flat-layout ``STACFileSystem`` (``flat=True``:
   no ``<root>/data`` + ``<root>/stac`` split, no organised date tree) to hand each
-  ``ProductItem`` built in ``perform_query`` as its ``filesystem=``;
+  ``ProductItem`` built in ``perform_query`` as its ``filesystem=``. Read-only by
+  default (``ARCHIVE_READ_ONLY``: an offline archive is the user's, not scrappi's
+  to write to); the read-only flag survives ``download_product``'s re-pin;
 * ``download_product`` -- resolves the product locally (no network, no copy) and
   repins its filesystem, so it also works for a product rebuilt from a STAC
   catalogue (which arrives with none).
 
-The subclass implements only ``perform_query`` and ``list_collections``, plus its
-own filename grammar and (for an in-situ one, via
+An in-situ subclass implements only ``perform_query`` and ``list_collections``,
+plus its own filename grammar and (via
 ``InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler)``) its ROI
-registry. A satellite offline handler subclasses ``OfflineArchiveHandler`` directly.
-Register the handler in ``scrappi.api.factory`` after ``"radcalnet"`` /
-``"hypernets"`` so the online source is preferred when it has the data; the
-interface's candidate-API fan-out (``scrappi.interface.perform_query`` /
-``download_product``) then falls through to the offline handler only when the online
-one can't serve a query/download.
+registry.
+
+Register the handler in ``scrappi.api.factory`` after its online sibling so the
+online source is preferred when it has the data; the interface's candidate-API
+fan-out (``scrappi.interface.perform_query`` / ``download_product``) then falls
+through to the offline handler only when the online one can't serve a
+query/download.
+
+Satellite offline handler
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``scrappi.api.satellite_offline.SatelliteOfflineCallHandler`` (registered
+``"eodag_offline"``, after ``"eodag"``) is the satellite counterpart.
+
+A satellite scene's footprint, times and cloud cover aren't in its filename, so
+this handler reads them from a **STAC catalogue tree** -- either the one scrappi
+writes automatically for every product it downloads (when
+``context["fs"]["register_stac_items"]`` is true -- **the default**), or one built
+for an archive scrappi never downloaded by calling ``handler.harvest(collection)``
+once. Two phases, deliberately kept separate:
+
+* ``perform_query`` **never reads a product file** -- only already-built STAC item
+  json (a small ``pystac`` parse, independent of product size/format), so a query
+  stays fast regardless of archive size. An archive with no ``stac/`` tree at all
+  for a requested collection returns empty and warns, naming ``harvest`` as the
+  fix.
+* ``harvest(collection, overwrite=False)`` is the comparatively slow, one-off (or
+  periodically re-run) step that *builds* that tree for a collection's data files
+  that don't have a STAC item yet. ``collection`` is required -- there's no STAC
+  tree to discover one from before the first harvest, so it raises ``ValueError``
+  if empty/``None`` rather than guessing. For a product whose footprint/time isn't
+  derivable from its filename it reads the product's own manifest via **eoio** --
+  a lazy import and optional extra (``pip install 'scrappi[satellite_offline]'``),
+  not needed at all for ``perform_query`` or any other scrappi API. eoio's
+  metadata extractors parse the manifest only (no raster access), so one product
+  is cheap, but it's still a per-product cost -- exactly why it happens once via
+  ``harvest``, not on every query. Before eoio, ``_fast_metadata_from_name(path,
+  collection)`` gets first refusal: a hook for a mission-specific, filename-only
+  parse (returns ``None`` by default -- no mission wired up yet -- falling through
+  to eoio; override for a mission whose name plus e.g. a static tile grid fully
+  determines footprint + time without opening the file).
+
+  ``harvest`` checks for an existing STAC item across the *whole* ``stac/``
+  tree for the collection, not just the flat path it writes new items at, so
+  re-running it never creates a duplicate for a product an online download
+  already wrote a STAC item for at its own organised, dated path -- that
+  product is skipped (or, with ``overwrite=True``, rewritten in place at
+  wherever its item already is). A single product's metadata extraction
+  failing (corrupt file, unsupported format) is warned and skipped without
+  aborting the rest of the batch; a failure actually writing a STAC item is
+  left to propagate immediately, since it's likely to recur for every
+  remaining product too. Either way whatever succeeded is still committed
+  (``collection.json`` written, caches cleared) rather than lost. Because a
+  handler caches its own archive discovery, a handler instance that queried
+  before an out-of-process (or differently-cached, e.g. via
+  ``APICallHandlerFactory``) ``harvest`` run needs its own ``clear_cache()``
+  call to see the newly-harvested collection -- ``harvest`` clears its own
+  instance's cache automatically, but can't reach into another instance's.
+
+It is otherwise mission-agnostic -- ``product_item_from_stac`` rebuilds any
+mission's item and a ``scrappi.api.offline_query.CompiledQuery`` (the query
+geometry / datetimes parsed once, then ``.matches(product)`` per candidate)
+applies the filters client-side, so no per-satellite subclass is needed for
+querying. ``perform_query``: discover the requested collections' roots, walk each
+``<root>/stac`` once (grouping collections that share a root), filter each item,
+and only then build a filesystem for the survivors. Configuration:
+
+* ``context["api"]["offline_archive_path"]`` -- the archive root (or pass
+  ``archive_path=``); no built-in default, an unconfigured handler is inert;
+* ``context["api"]["offline_archive_paths"]`` -- optional ``{collection: path}``
+  overrides. Otherwise each collection is searched under ``<root>/<collection>/``
+  if that directory exists at all (not conditional on ``stac/`` already being
+  there -- ``harvest`` uses this same resolution to find a not-yet-harvested
+  collection's data), else ``<root>`` -- so a query doesn't traverse a
+  multi-terabyte shared archive;
+* ``list_collections`` reads ``stac/*/collection.json`` (a bounded glob, cached),
+  not a recursive walk -- it runs on every ``get_api_name`` probe;
+* ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
+  whole-product directories; ``PRODUCT_NAME_SUFFIXES`` -- the extensions a scene's
+  data may carry that its STAC id does not (never ``.json``);
+* ``INDEX_EXCLUDE_DIRNAMES = ("stac",)`` -- when a collection has no separate
+  ``data/`` subdirectory, its data root is the same directory ``harvest`` writes
+  ``stac/`` into; this keeps that output from being walked back in as if it were
+  product data, both by a later ``harvest`` and by an ordinary query.
+
+Known limitations, left as follow-ups: ``harvest`` doesn't build/link a root
+``catalog.json`` (this handler discovers purely by filesystem glob/walk, never by
+following STAC links, so it isn't needed for querying -- only for STAC-spec
+compliance / other tools reading the same tree); no mission has
+``_fast_metadata_from_name`` wired up yet, so every harvested product currently
+costs an eoio manifest read.
 
 Suggested implementations for abstract methods (using base class methods)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

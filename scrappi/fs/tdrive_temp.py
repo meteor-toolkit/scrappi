@@ -31,6 +31,4 @@ class TdriveTempFileSystem(STACFileSystem):
             path = os.path.join("/mnt/t/data/product_archive_temp")
         else:
             path = os.path.join("T:", "ECO", "EOServer", "data", "product_archive_temp")
-        context["fs"]["organise_data"] = True
-        context["fs"]["read_only"] = False
-        super().__init__(path=path, path_stac=path, context=context)
+        super().__init__(path=path, path_stac=path, context=context, organise_data=True, read_only=False)

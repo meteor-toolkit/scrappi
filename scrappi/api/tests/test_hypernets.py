@@ -1,8 +1,11 @@
 """scrappi.api.tests.test_EODAG - tests for scrappi.api.EODAG"""
 
 import os
+import sys
+import types
 import unittest
-from unittest.mock import patch
+from tempfile import TemporaryDirectory
+from unittest.mock import MagicMock, patch
 from scrappi.api.hypernets import HYPERNETSOfflineCallHandler, HYPERNETSCallHandler
 from scrappi import ScrappiContext
 from shapely.geometry import Polygon
@@ -203,6 +206,135 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
 
             assert len(path) == 1
             assert Path(path[0]) == Path(expected_path)
+
+
+class TestOfflineHYPERNETSCallHandlerRegression(unittest.TestCase):
+    """Regression coverage for HYPERNETSOfflineCallHandler that doesn't need the
+    real (private, GitLab-hosted) hypernets_api package installed -- a fake module
+    is injected into sys.modules for each test, exercising the same __init__ /
+    perform_query code paths a real install would."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.archive_path = self.tmp.name
+        self.addCleanup(self.tmp.cleanup)
+
+        fake_module = types.ModuleType("hypernets_api")
+        self.fake_api = MagicMock()
+        self.fake_api.archive_path = self.archive_path
+        fake_module.OfflineHYPERNETSAPI = MagicMock(return_value=self.fake_api)
+        modules_patcher = patch.dict(sys.modules, {"hypernets_api": fake_module})
+        modules_patcher.start()
+        self.addCleanup(modules_patcher.stop)
+
+    def _write(self, *path_parts):
+        """Create an empty file at os.path.join(self.archive_path, *path_parts),
+        creating any intermediate directories -- content is irrelevant, perform_query
+        only inspects the filename."""
+        full_path = os.path.join(self.archive_path, *path_parts)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w"):
+            pass
+        return full_path
+
+    def test_offline_product_can_be_converted_to_a_stac_item(self):
+        """Regression test: adding an offline-archive HYPERNETS matchup to a
+        catalogue calls ProductItem.to_stac_item(), which needs the product's
+        filesystem to expose return_stac_item_path (a STACFileSystem method).
+        perform_query used to give each product a plain LocalFileSystem, which
+        raised AttributeError -- see the identical fix for
+        RadcalnetOfflineCallHandler."""
+        rel_dir = os.path.join("GHNA", "2023", "10", "31", "SEQ20231031T093131")
+        product_name = "HYPERNETS_L_GHNA_L2A_REF_20231031T0931_20240125T2037_v2.0"
+        file_path = self._write(rel_dir, product_name + ".nc")
+
+        handler = HYPERNETSOfflineCallHandler(archive_path=self.archive_path)
+        self.fake_api.query.return_value = [
+            {
+                "site_id": "GHNA",
+                "product_name": product_name,
+                "rel_product_dir": rel_dir,
+                "datetime_start": "2023-10-31T09:34:09",
+                "datetime_end": "2023-10-31T09:41:59",
+                "sequence_name": "SEQ20231031T093131",
+            }
+        ]
+
+        products = handler.perform_query(
+            {
+                "collection": "L2A_REF",
+                "site": "GHNA",
+                "start_time": "2023-10-31T08:00:00",
+                "stop_time": "2023-11-02T08:00:00",
+            }
+        )
+        self.assertEqual(len(products), 1)
+
+        item = products[0].to_stac_item()
+
+        self.assertEqual(item.id, product_name + ".nc")
+        # the on-disk file still resolves for a (networkless) download
+        self.assertEqual(os.path.normpath(products[0].get_path()), os.path.normpath(file_path))
+        # the archive isn't ours to write to
+        self.assertTrue(products[0].filesystem.read_only)
+
+
+class TestRoiDictIsNotSharedBetweenInstances(unittest.TestCase):
+    """Regression tests: HYPERNETSCallHandler / HYPERNETSOfflineCallHandler used to
+    pass the literal module-level HYPERNETS_DEFAULT_ROI dict straight through as
+    roi_dict. InSituCallHandler.set_roi / set_roi_bounding_box mutate roi_dict in
+    place, so every instance -- online or offline, constructed anywhere in the
+    process -- shared and could corrupt one another's ROI. Uses the same
+    sys.modules-faking trick as TestOfflineHYPERNETSCallHandlerRegression so this
+    runs without the real (private, GitLab-hosted) hypernets_api installed."""
+
+    def setUp(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        self.original_ghna = HYPERNETS_DEFAULT_ROI["GHNA"]
+
+        fake_module = types.ModuleType("hypernets_api")
+        fake_module.HYPERNETSAPI = MagicMock(return_value=MagicMock())
+        fake_module.OfflineHYPERNETSAPI = MagicMock(return_value=MagicMock(archive_path="/tmp"))
+        modules_patcher = patch.dict(sys.modules, {"hypernets_api": fake_module})
+        modules_patcher.start()
+        self.addCleanup(modules_patcher.stop)
+
+        context = ScrappiContext()
+        context["hypernets"] = {"credentials": {"apikey": "key"}}
+        self.context = context
+
+    def tearDown(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        # belt-and-braces: restore the module dict even if a test failed midway,
+        # so a mutation bug in this test doesn't leak into a later, unrelated test
+        HYPERNETS_DEFAULT_ROI["GHNA"] = self.original_ghna
+
+    def test_set_roi_on_one_online_instance_does_not_affect_another(self):
+        a = HYPERNETSCallHandler(self.context)
+        b = HYPERNETSCallHandler(self.context)
+
+        a.set_roi("GHNA", Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]))
+
+        self.assertNotEqual(a.roi_dict["GHNA"], b.roi_dict["GHNA"])
+        self.assertEqual(b.roi_dict["GHNA"], self.original_ghna)
+
+    def test_set_roi_on_offline_instance_does_not_affect_online_instance(self):
+        online = HYPERNETSCallHandler(self.context)
+        offline = HYPERNETSOfflineCallHandler(self.context, archive_path="/tmp")
+
+        offline.set_roi_bounding_box("GHNA", 0.0, 0.0, 50)
+
+        self.assertEqual(online.roi_dict["GHNA"], self.original_ghna)
+
+    def test_neither_instance_mutates_the_module_level_default(self):
+        from scrappi.api.hypernets import HYPERNETS_DEFAULT_ROI
+
+        handler = HYPERNETSCallHandler(self.context)
+        handler.set_roi("GHNA", Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]))
+
+        self.assertEqual(HYPERNETS_DEFAULT_ROI["GHNA"], self.original_ghna)
 
 
 if __name__ == "__main__":

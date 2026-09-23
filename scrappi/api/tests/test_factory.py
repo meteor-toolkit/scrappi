@@ -143,6 +143,5 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         second = self.api_call_handler_factory.get_api_call_handler("eodag", context=ScrappiContext())
         self.assertIs(first, second)
 
-
 if __name__ == "__main__":
     unittest.main()

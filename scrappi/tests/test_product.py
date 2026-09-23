@@ -950,7 +950,7 @@ class TestProductItemSet(unittest.TestCase):
         )
 
         p.plot_geometry(padding_type="rel", padding_val=2, geometry_color="y")
-        plt.show()
+        plt.close("all")
 
 
 # ---------------------------------------------------------------------
@@ -1041,6 +1041,19 @@ class TestStacCatalog(BaseStacTest):
         # Logical asset href
         asset_href = data["assets"]["data"]["href"]
         self.assertTrue(asset_href.startswith("asset://"))
+
+    def test_read_only_filesystem_raises_instead_of_writing(self):
+        """Regression test: register_in_filesystem_catalog() defaults to
+        product.filesystem, which for an offline archive handler is pinned inside
+        the read-only archive itself -- so it must refuse to write there rather than
+        creating a stac/ folder inside the user's archive."""
+        self.fs.read_only = True
+        p = self.make_product("item-1", bounds=(0, 0, 1, 1), start_time="2025-01-01T00:00:00Z")
+
+        with self.assertRaises(IOError):
+            p.register_in_filesystem_catalog()
+
+        self.assertFalse((self.root / "stac").exists())
 
     def test_collection_links_items(self):
         p = self.make_product(

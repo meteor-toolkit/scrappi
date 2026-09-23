@@ -328,6 +328,53 @@ class TestInterface(unittest.TestCase):
             m.assert_called_with(context=context)
             assert m().download_product.call_args[0][0] == self.p
 
+    def test_download_product_skips_stac_registration_for_a_read_only_filesystem(self):
+        """Regression test: an offline handler's product.filesystem is pinned inside
+        its own archive (read-only). download_product used to call
+        product.register_in_filesystem_catalog() on it regardless (the default,
+        context['fs']['register_stac_items'] is True), writing a stac/ folder into
+        the archive itself instead of a separate matchup catalogue."""
+        context = ScrappiContext()
+        self.p.filesystem = mock.Mock(read_only=True)
+        self.p.filesystem.return_path.return_value = ("/some/path", False)
+        m = mock.MagicMock()
+        m().list_collections.return_value = ["S3_EFR"]
+        m().download_product.return_value = "/some/path"
+        with (
+            mock.patch.dict(
+                "scrappi.interface.Factory.api_call_handlers",
+                {"handle1": m},
+                clear=True,
+            ),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1"]),
+            mock.patch.object(self.p, "register_in_filesystem_catalog") as mock_register,
+        ):
+            result = download_product(self.p, context)
+
+        mock_register.assert_not_called()
+        self.assertEqual(result, "/some/path")
+
+    def test_download_product_falls_through_past_a_file_not_found_error(self):
+        """Regression test: OfflineArchiveHandler.download_product raises
+        FileNotFoundError when a product isn't in its archive -- the whole point of
+        trying an offline handler as a fallback candidate. The download_product
+        fan-out must treat that as recoverable and try the next candidate, not
+        abort the whole download."""
+        context = ScrappiContext()
+        h1, h2 = mock.MagicMock(), mock.MagicMock()
+        h1.list_collections.return_value = h2.list_collections.return_value = ["S3_EFR"]
+        h1.download_product.side_effect = FileNotFoundError("not in this archive")
+        h2.download_product.return_value = "/some/path"
+        factory = {"h1": mock.MagicMock(return_value=h1), "h2": mock.MagicMock(return_value=h2)}
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertWarns(UserWarning):
+                result = download_product(self.p, context)
+
+        self.assertEqual(result, "/some/path")
+
     def test_candidate_failure_is_recoverable(self):
         from scrappi.interface import _candidate_failure_is_recoverable
 
@@ -338,6 +385,7 @@ class TestInterface(unittest.TestCase):
         self.assertTrue(_candidate_failure_is_recoverable(ValueError("site unknown")))
         self.assertTrue(_candidate_failure_is_recoverable(KeyError("ERUS")))
         self.assertTrue(_candidate_failure_is_recoverable(NotImplementedError()))
+        self.assertTrue(_candidate_failure_is_recoverable(FileNotFoundError("not in archive")))
         self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(404)))
         self.assertTrue(_candidate_failure_is_recoverable(_HTTPish(503)))
         self.assertFalse(_candidate_failure_is_recoverable(_HTTPish(401)))

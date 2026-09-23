@@ -24,7 +24,6 @@ from processor_tools import Context
 
 from scrappi import ScrappiContext
 from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
-from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
 
@@ -533,21 +532,6 @@ def _default_offline_archive_path() -> str:
     )  # r"\\eoserver", "home", "data", "insitu", "radcalnet", "archive"
 
 
-def _archive_filesystem(dirpath: str, context: ScrappiContext) -> STACFileSystem:
-    """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned to
-    *dirpath* -- the directory a RadCalNet archive file actually sits in.
-
-    Used as the per-product filesystem in
-    :py:meth:`RadcalnetOfflineCallHandler.perform_query`. STACFileSystem (rather than a
-    plain LocalFileSystem) so :py:meth:`~scrappi.product.ProductItem.to_stac_item` --
-    called when the matchup is added to a catalogue -- has ``return_stac_item_path``.
-    ``flat=True`` disables both the ``<root>/data`` + ``<root>/stac`` subdivision and
-    the organised constellation/platform/date tree, so the file resolves at
-    ``<dirpath>/<id>`` regardless of how the archive itself is laid out.
-    """
-    return STACFileSystem(path=dirpath, context=context, flat=True)
-
-
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
     """
     Offline API handler for RadCalNet data.
@@ -675,11 +659,14 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
         start_hour, stop_hour = _daylight_window_hours_for_site(self.DEFAULT_SITE_DEFINITIONS, site)
 
-        # Keep only the newest version of each site/day: an accumulating archive
-        # often holds e.g. GONA01_2022_291_v04.08.output next to ...v04.09.output,
-        # and the online portal exposes only the latest. best[(year, doy)] =
-        # (version_key, filename, dirpath).
-        best: Dict[Tuple[int, int], Tuple[Tuple[int, ...], str, str]] = {}
+        # Keep only the newest version of each site_instrument/day: an accumulating
+        # archive often holds e.g. GONA01_2022_291_v04.08.output next to
+        # ...v04.09.output, and the online portal exposes only the latest. Keyed on
+        # site_instrument too, not just (year, doy) -- a site can carry more than one
+        # instrument code (e.g. after an instrument change/addition), and those are
+        # distinct real products for the same day, not reprocessings of each other.
+        # best[(site_instrument, year, doy)] = (version_key, filename, dirpath).
+        best: Dict[Tuple[str, int, int], Tuple[Tuple[int, ...], str, str]] = {}
         for filename, filepath in self._archive_index.items():
             try:
                 site_instrument, year, doy, version = _parse_rcn_filename(filename)
@@ -692,12 +679,13 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
             if not _check_date_in_range(year, doy, date1, date2):
                 continue
             vkey = _rcn_version_key(version)
-            existing = best.get((year, doy))
+            key = (site_instrument, year, doy)
+            existing = best.get(key)
             if existing is None or vkey > existing[0]:
-                best[(year, doy)] = (vkey, filename, os.path.dirname(filepath))
+                best[key] = (vkey, filename, os.path.dirname(filepath))
 
         product_list = []
-        for (year, doy), (_vkey, filename, dirpath) in best.items():
+        for (_site_instrument, year, doy), (_vkey, filename, dirpath) in best.items():
             product_list.append(
                 ProductItem(
                     constellation="RadCalNet",
@@ -711,7 +699,11 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
                     quicklook="",
                     api=self,
                     context=self.context,
-                    filesystem=_archive_filesystem(dirpath, self.context),
+                    # flat, read-only (ARCHIVE_READ_ONLY) STACFileSystem pinned to the
+                    # file's own directory, so it resolves at <dirpath>/<id> regardless
+                    # of archive layout and ProductItem.to_stac_item() has
+                    # return_stac_item_path when the matchup is added to a catalogue.
+                    filesystem=self._flat_filesystem(dirpath),
                 )
             )
 

@@ -71,6 +71,9 @@ class ScrappiContext(Context):
     def set_preferred_api(self, api: str, remove_other_apis: Optional[bool] = False):
         self["api"]["preferred_api"] = api
 
+    def set_fs(self, filesystem):
+        self["fs"]["path"] = filesystem.directory
+
 
 from scrappi.interface import (
     make_api,

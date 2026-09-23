@@ -485,6 +485,24 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
             ["GONA01_2022_291_v04.10.output", "GONA01_2022_292_v04.09.output"],
         )
 
+    def test_perform_query_keeps_distinct_instruments_on_the_same_site_and_day(self):
+        """Regression test: the newest-version dedup used to key on (year, doy)
+        alone, so two distinct instrument codes at the same site on the same day
+        (e.g. after an instrument change/addition) collided and one was silently
+        dropped as if it were an older reprocessing of the other."""
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA02_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual(
+            sorted(p.id for p in products),
+            ["GONA01_2022_291_v04.09.output", "GONA02_2022_291_v04.09.output"],
+        )
+
     def test_perform_query_returns_empty_for_unregistered_site(self):
         self._write("ZZZZ01_2022_291_v04.09.output")
         handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
@@ -622,6 +640,49 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
         self.assertEqual(item.id, "ERUS01_2023_046_v04.09.input")
         # the on-disk file still resolves for a (networkless) download
         self.assertEqual(os.path.normpath(products[0].get_path()), os.path.normpath(file_path))
+
+    def test_offline_product_filesystem_is_read_only(self):
+        """The archive is the user's, not scrappi's to write to -- see
+        test_registering_offline_product_raises_instead_of_writing_into_the_archive."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        self.assertTrue(product.filesystem.read_only)
+
+    def test_download_product_keeps_the_filesystem_read_only(self):
+        """download_product re-pins product.filesystem; the read-only protection
+        perform_query set must survive that re-pin."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        handler.download_product(product)
+
+        self.assertTrue(product.filesystem.read_only)
+
+    def test_registering_offline_product_raises_instead_of_writing_into_the_archive(self):
+        """Regression test: ProductItem.register_in_filesystem_catalog() defaults to
+        product.filesystem, and an offline handler's product.filesystem is pinned
+        *inside the archive itself* (flat mode). Without a read-only check this
+        silently created a stac/ folder inside the user's RadCalNet archive -- not
+        the matchup catalogue -- every time scrappi.interface.download_product()
+        auto-registered a downloaded product (the default,
+        context['fs']['register_stac_items'] is True)."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        with self.assertRaises(IOError):
+            product.register_in_filesystem_catalog()
+
+        self.assertFalse(os.path.exists(os.path.join(self.archive_path, "GONA", "data", "stac")))
 
 
 if __name__ == "__main__":
