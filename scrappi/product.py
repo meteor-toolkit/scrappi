@@ -101,10 +101,23 @@ class ProductItem:
         self.api_product = api_product
         if not context:
             self.context = ScrappiContext()
+        elif not isinstance(context, ScrappiContext):
+            # A processor_tools Context subclass (e.g. eomatch's own EOMatchContext,
+            # handed through by Matchup.from_stac_item) has a completely different
+            # default schema from scrappi's own -- looking it up directly (as
+            # set_fs/set_api do, via self.context["fs"]/self.context["api"]) returns
+            # None instead of scrappi's own defaults, since Context.__getitem__
+            # returns None (not KeyError) for any key it doesn't itself define, and
+            # set_fs then crashes trying to write self.context["fs"]["path"] into
+            # that None. Normalizes the same way get_api_name/make_api already do
+            # for their own context parameter -- unwraps a Context subclass to its
+            # plain values dict first (see ScrappiContext.__init__), then layers
+            # scrappi's own defaults.yaml underneath.
+            self.context = ScrappiContext(context)
         else:
             self.context = context
-        self.set_api(api, context)
-        self.set_fs(filesystem, context)
+        self.set_api(api, self.context)
+        self.set_fs(filesystem, self.context)
 
     def __str__(self) -> str:
         """Custom __str__"""
