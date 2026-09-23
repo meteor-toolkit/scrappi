@@ -5,7 +5,6 @@ scrappi's ``stac/`` tree plus the data product -- and checks the
 query / download / to_stac_item flow.
 """
 
-import contextlib
 import json
 import math
 import os
@@ -24,56 +23,34 @@ from scrappi.fs.stacfilesystem import STACFileSystem
 
 
 def _fake_eoio_modules(metadata_by_filename: dict) -> dict:
-    """sys.modules entries faking eoio.readers.factory.ReaderFactory and
-    eoio.utils.read_utils.setup_file, so _metadata_via_eoio can be exercised
-    without the real (optional, lazily imported) eoio package installed.
-    get_reader(path) returns a reader class whose instance exposes
-    .mtd.basic_metadata / .mtd.product_metadata from
+    """sys.modules entries faking eoio.read (the one common entry point
+    _metadata_via_eoio calls), so it can be exercised without the real
+    (optional, lazily imported) eoio package installed.
+
     metadata_by_filename[os.path.basename(path)] = (basic, product); a path with
-    no entry makes get_reader raise, like eoio does for an unrecognised product.
-    The fake setup_file is a no-op passthrough (yields path unchanged) -- these
-    tests are about metadata extraction, not extraction-path resolution, which
-    eoio.utils.tests.test_read_utils covers on eoio's own side."""
+    no entry raises, like eoio does for a product no reader recognises. Mirrors
+    eoio's own attach_metadata (eoio/readers/metadata.py): basic is merged
+    straight into the returned "Dataset"'s .attrs, product is nested under
+    attrs["product_metadata"] -- only when read_params requests metadata_level,
+    same as the real thing (attach_metadata is never called at all otherwise)."""
 
-    class _FakeMtd:
-        def __init__(self, basic, product):
-            self.basic_metadata = basic
-            self.product_metadata = product
+    class _FakeDataset:
+        def __init__(self, attrs):
+            self.attrs = attrs
 
-    class _FakeReader:
-        def __init__(self, path):
-            basic, product = metadata_by_filename[os.path.basename(path)]
-            self.mtd = _FakeMtd(basic, product)
-
-    class _FakeReaderFactory:
-        @staticmethod
-        def get_reader(path):
-            if os.path.basename(path) not in metadata_by_filename:
-                raise ValueError(f"no fake eoio reader registered for {path!r}")
-            return _FakeReader
-
-    @contextlib.contextmanager
-    def _fake_setup_file(path, read_params):
-        yield path
+    def _fake_read(path, vars_sel=None, subset=None, read_params=None, *args, **kwargs):
+        if os.path.basename(path) not in metadata_by_filename:
+            raise ValueError(f"no fake eoio reader registered for {path!r}")
+        basic, product = metadata_by_filename[os.path.basename(path)]
+        attrs = {}
+        if read_params and read_params.get("metadata_level"):
+            attrs.update(basic)
+            attrs["product_metadata"] = product
+        return _FakeDataset(attrs)
 
     eoio_pkg = types.ModuleType("eoio")
-    readers_pkg = types.ModuleType("eoio.readers")
-    factory_mod = types.ModuleType("eoio.readers.factory")
-    factory_mod.ReaderFactory = _FakeReaderFactory
-    readers_pkg.factory = factory_mod
-    eoio_pkg.readers = readers_pkg
-    utils_pkg = types.ModuleType("eoio.utils")
-    read_utils_mod = types.ModuleType("eoio.utils.read_utils")
-    read_utils_mod.setup_file = _fake_setup_file
-    utils_pkg.read_utils = read_utils_mod
-    eoio_pkg.utils = utils_pkg
-    return {
-        "eoio": eoio_pkg,
-        "eoio.readers": readers_pkg,
-        "eoio.readers.factory": factory_mod,
-        "eoio.utils": utils_pkg,
-        "eoio.utils.read_utils": read_utils_mod,
-    }
+    eoio_pkg.read = _fake_read
+    return {"eoio": eoio_pkg}
 
 
 def _stac_item(item_id: str, collection: str, *, platform="S2A", cloud=12.0) -> dict:
