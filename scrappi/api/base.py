@@ -79,6 +79,14 @@ class BaseAPICallHandler(ABC):
             return "Aqua"
         elif name[0:3] in ["MCD"]:
             return "Combined"
+        elif name[0:6] == "TH_CAT":
+            # GISTDA THEOS-1 product IDs (e.g. "TH_CAT_<id>_1M_<site>_<date>").
+            # Only one THEOS satellite currently flies, so -- unlike S2A/S2B/S2C
+            # or LS8/LS9, which distinguish sibling satellites within one
+            # constellation -- there's no per-satellite letter/number to keep
+            # separate from the constellation name here; "GISTDA" (see
+            # parse_constellation_from_name below) is both.
+            return "GISTDA"
         else:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -95,6 +103,8 @@ class BaseAPICallHandler(ABC):
             return "MODIS"
         elif name in ["Metop-A", "Metop-B", "Metop-C"]:
             return "Metop"
+        elif name[0:6] == "TH_CAT":
+            return "GISTDA"
 
         else:
             raise NotImplementedError("constellation name could not be parsed")
