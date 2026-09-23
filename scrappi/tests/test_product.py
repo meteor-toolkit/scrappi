@@ -14,6 +14,7 @@ from unittest.mock import patch
 import unittest.mock as mock
 from matplotlib import pyplot as plt
 from shapely.geometry import Polygon, box
+from scrappi import ScrappiContext
 from scrappi.product import (
     ProductItem,
     ProductItemSet,
@@ -239,6 +240,39 @@ class TestProductItem(unittest.TestCase):
         self.assertEqual(p.stop_time, S2_PRODUCT_EXAMPLE["stop_time"])
         self.assertDictEqual(p.prod_dict, S2_PRODUCT_EXAMPLE["prod_dict"])
         self.assertDictEqual(p.filter_dict, S2_PRODUCT_EXAMPLE["filter_dict"])
+
+    def test___init___normalizes_a_processor_tools_context(self):
+        """Regression test: a caller may pass a bare processor_tools.Context (e.g.
+        eomatch's own EOMatchContext, handed through by Matchup.from_stac_item when
+        reconstructing a ProductItem from a saved STAC item) instead of a
+        ScrappiContext. Such a context has a completely different default schema --
+        context["fs"] and context["api"] are undefined and so resolve to None (not
+        KeyError, per Context.__getitem__), and set_fs used to crash writing
+        self.context["fs"]["path"] into that None. ProductItem.__init__ must
+        normalise it into a real ScrappiContext (unwrapping to its values dict and
+        layering scrappi's own defaults.yaml underneath), the same way
+        get_api_name/make_api already do for their own context parameter."""
+        from processor_tools import Context
+
+        context = Context({"platforms": "S2A,GONA", "collections": "S2_MSI_L1C,RCN_BOA"})
+
+        p = ProductItem(
+            constellation=S2_PRODUCT_EXAMPLE["constellation"],
+            platform=S2_PRODUCT_EXAMPLE["platform"],
+            collection=S2_PRODUCT_EXAMPLE["collection"],
+            id=S2_PRODUCT_EXAMPLE["id"],
+            url="",
+            geometry=S2_PRODUCT_EXAMPLE["geometry"],
+            start_time=S2_PRODUCT_EXAMPLE["start_time"],
+            stop_time=S2_PRODUCT_EXAMPLE["stop_time"],
+            prod_dict=S2_PRODUCT_EXAMPLE["prod_dict"],
+            filter_dict=S2_PRODUCT_EXAMPLE["filter_dict"],
+            filesystem=self.tmp_dir_path,
+            context=context,
+        )
+
+        self.assertIsInstance(p.context, ScrappiContext)
+        self.assertEqual(p.context["fs"]["path"], p.filesystem.directory)
 
     def test_to_json(self):
         p_dict = self.p.to_json()
