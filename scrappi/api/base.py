@@ -81,12 +81,16 @@ class BaseAPICallHandler(ABC):
             return "Combined"
         elif name[0:6] == "TH_CAT":
             # GISTDA THEOS-1 product IDs (e.g. "TH_CAT_<id>_1M_<site>_<date>").
-            # Only one THEOS satellite currently flies, so -- unlike S2A/S2B/S2C
-            # or LS8/LS9, which distinguish sibling satellites within one
+            # "THEOS" is the platform/satellite name -- GISTDA is the Thai
+            # *operating agency* (the eoio reader's own "institution"/"source"
+            # metadata, never platform/constellation; see
+            # eoio.readers.gistda_theos.metadata.get_basic_metadata). Only one
+            # THEOS satellite currently flies, so -- unlike S2A/S2B/S2C or
+            # LS8/LS9, which distinguish sibling satellites within one
             # constellation -- there's no per-satellite letter/number to keep
-            # separate from the constellation name here; "GISTDA" (see
+            # separate from the constellation name here; "THEOS" (see
             # parse_constellation_from_name below) is both.
-            return "GISTDA"
+            return "THEOS"
         else:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -104,7 +108,7 @@ class BaseAPICallHandler(ABC):
         elif name in ["Metop-A", "Metop-B", "Metop-C"]:
             return "Metop"
         elif name[0:6] == "TH_CAT":
-            return "GISTDA"
+            return "THEOS"
 
         else:
             raise NotImplementedError("constellation name could not be parsed")

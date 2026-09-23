@@ -216,19 +216,21 @@ class TestBaseAPICallHandler(unittest.TestCase):
             "UNKNOWN_PRODUCT_ID_12345",
         )
 
-    def test_parse_platform_from_name_gistda_theos(self):
+    def test_parse_platform_from_name_theos(self):
         """A real GISTDA THEOS-1 product ID (TH_CAT_<id>_1M_<site>_<date>) resolves
-        to 'GISTDA' -- the value action's own PLATFORM_COLLECTIONS/--platform code
-        uses, and so what Sat2InSituMUFinder's platform filter needs a harvested
-        product's ProductItem.platform to equal."""
+        to 'THEOS' (the satellite/platform name -- GISTDA is the Thai operating
+        agency, not the platform) -- the value action's own
+        PLATFORM_COLLECTIONS/--platform code uses, and so what
+        Sat2InSituMUFinder's platform filter needs a harvested product's
+        ProductItem.platform to equal."""
         dummy_api_call_handler = self.DummyAPICallHandler(context)
         name = "TH_CAT_22021001412034_1_1M_GOBABEB_20220209"
-        self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "GISTDA")
+        self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "THEOS")
 
-    def test_parse_constellation_from_name_gistda_theos(self):
+    def test_parse_constellation_from_name_theos(self):
         dummy_api_call_handler = self.DummyAPICallHandler(context)
         name = "TH_CAT_22021001412034_1_1M_GOBABEB_20220209"
-        self.assertEqual(dummy_api_call_handler.parse_constellation_from_name(name), "GISTDA")
+        self.assertEqual(dummy_api_call_handler.parse_constellation_from_name(name), "THEOS")
 
 
 if __name__ == "__main__":
