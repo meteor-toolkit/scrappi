@@ -438,8 +438,7 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             the reader's metadata is missing a footprint/time.
         """
         try:
-            from eoio.readers.factory import ReaderFactory
-            from eoio.utils.read_utils import setup_file
+            import eoio
         except ImportError as exc:
             raise ImportError(
                 "eoio is required to harvest metadata for products whose footprint/time "
@@ -448,18 +447,22 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             ) from exc
 
         try:
-            # setup_file is eoio's common entry point for extracting an archive before
-            # a reader ever sees it -- the same wrapper eoio.interface.read/
-            # product_options use, not something specific to this method. Needed here
-            # too: PRODUCT_NAME_SUFFIXES lets an archive keep its products zipped (e.g.
-            # THEOS, never pre-extracted), and every eoio reader (get_extension() ""
-            # ones like this handles, same as Landsat) expects an already-extracted
-            # directory -- calling reader_cls(path) directly on a raw archive path, as
-            # this used to, fails for exactly that reason.
-            with setup_file(path, None) as extracted_path:
-                reader_cls = ReaderFactory.get_reader(extracted_path)
-                reader = reader_cls(extracted_path)
-                basic = reader.mtd.basic_metadata
+            # eoio.read is the one common entry point every reader is meant to be
+            # used through -- it already handles archive extraction (and cleanup)
+            # internally, so no setup_file/extraction handling belongs here at all.
+            # vars_sel turns off every raster/mask/aux read (this method never
+            # touches product data, just its manifest -- see the docstring above),
+            # and metadata_level=True is what makes a reader actually attach
+            # metadata to the returned Dataset's .attrs (PRODUCT_NAME_SUFFIXES lets
+            # an archive keep a collection's products zipped -- e.g. THEOS, never
+            # pre-extracted -- which is exactly the case eoio.read's own extraction
+            # handles transparently).
+            ds = eoio.read(
+                path,
+                vars_sel={"meas": None, "mask": None, "aux": None},
+                read_params={"metadata_level": True},
+            )
+            basic = ds.attrs
         except Exception as exc:
             warnings.warn(f"{type(self).__name__}: eoio could not read metadata for {path!r}: {exc}")
             return None
@@ -471,10 +474,7 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             warnings.warn(f"{type(self).__name__}: eoio metadata for {path!r} has no geometry/datetime -- skipped")
             return None
 
-        try:
-            product_md = reader.mtd.product_metadata
-        except Exception:
-            product_md = {}
+        product_md = basic.get("product_metadata") or {}
 
         return {
             "geometry": geometry,
