@@ -64,6 +64,11 @@ _RCN_BUILTIN_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = {
         "longitude": -115.690,
         "default_roi": 500,
     },  # default_roi values are 1/2 side len
+    "GSCN": {
+        "latitude": 36.3977,
+        "longitude": 94.3286,
+        "default_roi": 500,  # 1000 m x 1000 m ROI box
+    },
 }
 
 

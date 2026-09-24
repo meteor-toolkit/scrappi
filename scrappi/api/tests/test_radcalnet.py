@@ -264,7 +264,7 @@ class TestRCNCallHandler(unittest.TestCase):
 
             for test_collection, stated_collection in zip(
                 test_collections_output,
-                ["GONA", "BTCN", "BSCN", "LCFR", "RVUS", "GHNA"],
+                ["GONA", "BTCN", "BSCN", "LCFR", "RVUS", "GSCN", "GHNA"],
             ):
                 self.assertEqual(test_collection, stated_collection)
 
@@ -340,11 +340,19 @@ class TestRCNCallHandler(unittest.TestCase):
                     "latitude_maximum": 38.50150412301871,
                 }
             ),
+            "GSCN": convert_geom_shapely(
+                {
+                    "longitude_minimum": 94.32302673310727,
+                    "latitude_minimum": 36.393193999407984,
+                    "longitude_maximum": 94.33417391034286,
+                    "latitude_maximum": 36.402205737092025,
+                }
+            ),
         }
         self.rcnHandler = RadcalnetCallHandler()
 
         self.rcnHandler._set_Polygons()
-        for site in ["BSCN", "BTCN", "GONA", "LCFR", "RVUS"]:
+        for site in ["BSCN", "BTCN", "GONA", "LCFR", "RVUS", "GSCN"]:
             # test initially failed due to rounding error - test to 5dp
             for i in range(len(shapes[site].bounds)):
                 self.assertAlmostEqual(
