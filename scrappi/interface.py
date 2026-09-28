@@ -221,16 +221,7 @@ def get_api_name(
     :return: name/s of API to use
     """
 
-    if not isinstance(context, ScrappiContext):
-        # A falsy check alone (the old `if not context:`) only catches None/empty --
-        # a non-ScrappiContext object that's still truthy (e.g. an eomatch
-        # EOMatchContext, passed straight through by a caller like
-        # Sat2InSituMUFinder.identify_mu_events) would pass through unwrapped and
-        # crash below on context["api"]["preferred_api"], since it doesn't carry
-        # scrappi's own defaults.yaml (api.preferred_api etc.) the way a real
-        # ScrappiContext does. Same isinstance-based normalisation the API handler
-        # constructors themselves already use (e.g. RadcalnetCallHandler.__init__).
-        context = _ensure_scrappi_context(context)
+    context = _ensure_scrappi_context(context)
 
     preferred_api = ""
     if context["api"]["preferred_api"]:
