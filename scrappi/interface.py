@@ -353,46 +353,49 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 products.append_ProductItemSet(perform_query(query, context))
             return products
 
-
-    api = get_api_name(query["collection"], context=context)
-    api_handler = make_api(api, context)
-    products = api_handler.perform_query(query)
-    if len(products) > 0:
-        return products
+    try:
+        api = get_api_name(query["collection"], context=context)
+        api_handler = make_api(api, context)
+        products = api_handler.perform_query(query)
+        if len(products) > 0:
+            return products
+    except Exception as e:
+        warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
 
     if context["api"]["try_all_apis"]:
         apis = get_api_name(query["collection"], context=context, all_apis=True)
         # remove preferred_api from list of apis to try, as it has already been tried above
         apis = [a for a in apis if a != api]
 
-    # Fan the query out across every candidate API for the collection, in preference
-    # order, returning the first non-empty result. A candidate that raises only
-    # because it can't serve this particular query (see
-    # _candidate_failure_is_recoverable) is skipped so a later candidate still gets a
-    # go; any other error surfaces immediately, and if *every* candidate that ran
-    # bailed that way, the last error is re-raised rather than masquerading as
-    # "no products found".
-    api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
-    n_ran = 0
-    n_recoverable = 0
-    last_exc: Optional[BaseException] = None
-    for api in api_list:
-        n_ran += 1
-        api_handler = make_api(api, context)
-        try:
-            products = api_handler.perform_query(query)
-        except Exception as e:
-            if not _candidate_failure_is_recoverable(e):
-                raise
-            warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
-            n_recoverable += 1
-            last_exc = e
-            continue
-        if len(products) > 0:
-            return products
+        # Fan the query out across every candidate API for the collection, in preference
+        # order, returning the first non-empty result. A candidate that raises only
+        # because it can't serve this particular query (see
+        # _candidate_failure_is_recoverable) is skipped so a later candidate still gets a
+        # go; any other error surfaces immediately, and if *every* candidate that ran
+        # bailed that way, the last error is re-raised rather than masquerading as
+        # "no products found".
+        api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+        n_ran = 0
+        n_recoverable = 0
+        last_exc: Optional[BaseException] = None
+        for api in api_list:
+            n_ran += 1
+            api_handler = make_api(api, context)
+            try:
+                products = api_handler.perform_query(query)
+            except Exception as e:
+                if not _candidate_failure_is_recoverable(e):
+                    raise
+                warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
+                n_recoverable += 1
+                last_exc = e
+                continue
+            if len(products) > 0:
+                return products
 
-    if last_exc is not None and n_recoverable == n_ran:
-        raise last_exc
+        if last_exc is not None and n_recoverable == n_ran:
+            raise last_exc
+        
     return ProductItemSet()
 
 
@@ -503,7 +506,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         api_handler = make_api(api, context=context)
 
     elif product.api:
-        product.set_api()
+        product.set_api(context=context)
         api_handler =  product.api
     else:
         api = get_api_name(product.collection, context=context)
@@ -511,7 +514,6 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         
     download_path = api_handler.download_product(product)
     if download_path is not None:
-        _register_product_in_catalog(product, context)
         return download_path
 
     if context["api"]["try_all_apis"]:

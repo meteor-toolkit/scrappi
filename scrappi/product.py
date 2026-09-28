@@ -107,8 +107,8 @@ class ProductItem:
         else:
             self.context = context
         self.api = api
-        self.set_fs(filesystem)
-        
+        self.filesystem_init = filesystem
+        self.filesystem = None
 
     def __str__(self) -> str:
         """Custom __str__"""
@@ -178,7 +178,7 @@ class ProductItem:
         elif self.filesystem:
             fs = self.filesystem
         else:
-            fs = self.set_fs()
+            fs = self.set_fs(self.filesystem_init)
         if fs is None:
             raise ValueError("No filesystem provided")
 
@@ -324,7 +324,12 @@ class ProductItem:
         filesystem: Optional["STACFileSystem"] = None,
         overwrite: bool = True,
     ) -> str:
-        fs = filesystem or self.filesystem
+        if filesystem:
+            fs = filesystem
+        elif self.filesystem:
+            fs = self.filesystem
+        else:
+            fs = self.set_fs(self.filesystem_init)
         if fs is None:
             raise ValueError("No filesystem provided")
         if getattr(fs, "read_only", False):
@@ -439,7 +444,8 @@ class ProductItem:
 
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
-
+        return self.filesystem
+    
     def set_api(self, api: Optional[str] = None, context: Optional[ScrappiContext] = None):
         """
         set API
@@ -467,7 +473,8 @@ class ProductItem:
         from scrappi.fs.base import BaseFileSystem
 
         resolved_fs: BaseFileSystem = make_fs(new_fs)
-
+        if not self.filesystem:
+            self.set_fs(self.filesystem_init)
         old_path, exists = self.filesystem.return_path(self, True)
         if not exists:
             warnings.warn(
@@ -513,6 +520,8 @@ class ProductItem:
 
         :return: path to filesystem main folder
         """
+        if not self.filesystem:
+            self.set_fs(self.filesystem_init)
         return self.filesystem.return_path(self, False)
 
     def download_product(self, context: Optional[ScrappiContext] = None):

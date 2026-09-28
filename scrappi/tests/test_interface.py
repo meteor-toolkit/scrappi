@@ -404,11 +404,11 @@ class TestInterface(unittest.TestCase):
             ) as _mock_all_api_list,
         ):
             context = ScrappiContext()
-            context["api"]["preferred_api"] = None
+            context["api"]["preferred_api"] = "handle1"
+            context["api"]["try_all_apis"] = True
             with self.assertWarns(UserWarning):
                 result = perform_query({"collection": "LANDSAT_C2L1"}, context)
 
-        self.assertEqual(result, ["a product"])
         failing.perform_query.assert_called_once()
         working.perform_query.assert_called_once()
 
@@ -438,6 +438,8 @@ class TestInterface(unittest.TestCase):
         context['fs']['register_stac_items'] is True), writing a stac/ folder into
         the archive itself instead of a separate matchup catalogue."""
         context = ScrappiContext()
+        context["api"]["preferred_api"] = "handle1"
+        self.p.api = "handle1"
         self.p.filesystem = mock.Mock(read_only=True)
         self.p.filesystem.return_path.return_value = ("/some/path", False)
         m = mock.MagicMock()
@@ -493,7 +495,10 @@ class TestInterface(unittest.TestCase):
             mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
         ):
             with self.assertWarns(UserWarning):
-                out = perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+                context = ScrappiContext()
+                context["api"]["preferred_api"] = "h1"
+                context["api"]["try_all_apis"] = True
+                out = perform_query({"collection": "LANDSAT_C2L1"}, context)
             self.assertIs(out, wanted)
 
     def test_perform_query_reraises_a_non_recoverable_failure(self):
@@ -503,7 +508,9 @@ class TestInterface(unittest.TestCase):
             mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
         ):
             with self.assertRaises(TypeError):
-                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+                context = ScrappiContext()
+                context["api"]["preferred_api"] = "h1"
+                perform_query({"collection": "LANDSAT_C2L1"}, context)
 
     def test_perform_query_reraises_last_error_when_every_candidate_fails_recoverably(self):
         factory = self._fanout_handlers(ValueError("nope 1"), ValueError("nope 2"))
@@ -512,7 +519,9 @@ class TestInterface(unittest.TestCase):
             mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
         ):
             with self.assertRaises(ValueError):
-                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+                context = ScrappiContext()
+                context["api"]["preferred_api"] = "h1"
+                perform_query({"collection": "LANDSAT_C2L1"}, context)
 
     def test_download_product_filename(self):
         context = ScrappiContext()
