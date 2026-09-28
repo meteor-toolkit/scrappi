@@ -87,6 +87,61 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         self.assertIsInstance(eodag_api, EODAGCallHandler)
         self.assertIsNot(radcalnet_api, eodag_api)
 
+    def test_context_aware_call_rebuilds_a_handler_cached_without_context(self):
+        """Regression test: a no-context call (e.g. is_insitu_collection, which only
+        needs a handler to type-check list_collections()) primes the cache with a
+        handler built from scrappi defaults only. A later call that *does* pass a
+        context must not get that context-free handler back on a cache hit -- it must
+        be rebuilt from the given context, so per-run config (credentials, RadCalNet
+        site_definitions, an offline archive path, ...) actually reaches it."""
+        from scrappi import ScrappiContext
+
+        context_free = self.api_call_handler_factory.get_api_call_handler("radcalnet")
+        ctx = ScrappiContext({"marker_for_this_run": "present"})
+        with_context = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+
+        # not the cached context-free instance, and built from the context we passed
+        self.assertIsNot(context_free, with_context)
+        self.assertEqual(with_context.context["marker_for_this_run"], "present")
+        self.assertIsNone(context_free.context.get("marker_for_this_run"))
+
+    def test_same_context_object_reuses_the_cached_handler(self):
+        """Regression test: repeated calls that reuse the *same* context object (the
+        common case within one run -- one context built once, passed to every query)
+        must reuse one handler and its live session, not rebuild from scratch every
+        call. Without this, a batch run issuing many context-aware queries (e.g.
+        Sat2InSituMUFinder's per-event RadCalNet queries) piles up one open session
+        per query -- each pinned alive by every ProductItem it returned via
+        ProductItem.api -- and can exhaust the process's open-file limit."""
+        from scrappi import ScrappiContext
+
+        ctx = ScrappiContext()
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx)
+        self.assertIs(first, second)
+
+    def test_different_context_objects_get_independent_handlers(self):
+        """Two distinct context objects -- even with identical content -- must not
+        share a cached handler: the whole point of keying by context identity (not
+        just name) is that a genuinely different context always gets its own handler."""
+        from scrappi import ScrappiContext
+
+        ctx_a = ScrappiContext()
+        ctx_b = ScrappiContext()
+        first = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx_a)
+        second = self.api_call_handler_factory.get_api_call_handler("radcalnet", context=ctx_b)
+        self.assertIsNot(first, second)
+
+    def test_eodag_handler_is_served_from_cache_regardless_of_context(self):
+        """eodag construction is expensive and its per-run context differences (the
+        preferred provider) are applied at query time, so it stays cached by name even
+        when a context is passed."""
+        from scrappi import ScrappiContext
+
+        first = self.api_call_handler_factory.get_api_call_handler("eodag")
+        second = self.api_call_handler_factory.get_api_call_handler("eodag", context=ScrappiContext())
+        self.assertIs(first, second)
+
 
 if __name__ == "__main__":
     unittest.main()

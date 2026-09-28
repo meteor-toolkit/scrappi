@@ -159,21 +159,13 @@ class STACAPICallHandler(BaseAPICallHandler):
         if not isinstance(product, ProductItem):
             raise NotImplementedError
 
-        # ---- extract asset href from stored STAC dict ----
-        api_prod = product.api_product or product.prod_dict
-        if not api_prod:
-            return None
-
-        assets = api_prod.get("assets", {})
-        if not assets:
-            return None
-
-        # Prefer "data" asset
-        if "data" in assets:
-            href = assets["data"].get("href")
-        else:
-            href = next(iter(assets.values())).get("href")
-
+        # ---- asset href, as already resolved by product_item_from_stac from the
+        # item's own `assets` (preferring "data", falling back to the first
+        # non-image asset) -- not product.api_product/product.prod_dict, which
+        # are None for any product reconstructed from a saved catalogue (no
+        # live provider object, and prod_dict is only ever populated when
+        # store_prod_dict_in_stac is explicitly enabled).
+        href = product.url
         if not href:
             return None
 
