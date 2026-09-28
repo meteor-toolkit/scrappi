@@ -12,7 +12,7 @@ fs:
   use_relative_stac_paths: True
   stac_base_url: 
   data_base_url: 
-  store_prod_dict_in_stac: False
+  store_prod_dict_in_stac: True # Whether to persist each product's provider-native prod_dict into its STAC item's properties, so it survives a catalogue reload (Default: true) -- without this, reloading a product from a saved STAC catalogue can't reconstruct a live EOProduct from prod_dict directly, and download_product falls back to a live re-search against the provider instead (see product_item_from_stac)
   store_filter_dict_in_stac: False
   store_cloud_fraction_in_stac: False
 

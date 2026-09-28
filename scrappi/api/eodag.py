@@ -220,6 +220,12 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
         Return ProductItemSet containing ProductItems that satisfy query
 
+        A product whose metadata is missing required fields (e.g. no start/stop time,
+        or an unparseable product ID) is skipped with a warning rather than aborting
+        the whole query -- one malformed record from a provider (seen e.g. for some
+        USGS Landsat products) shouldn't discard every other product the query would
+        otherwise have returned.
+
         :param query: catalogue query
         :returns: ProductItemSet
         """
@@ -271,8 +277,15 @@ class EODAGCallHandler(BaseAPICallHandler):
 
             collection = query["collection"]
 
+            # store product item -- a single malformed record (e.g. a provider missing
+            # start/stop time metadata for one product) shouldn't discard every other
+            # product the query would otherwise have returned. find_start_time/
+            # find_stop_time raise ValueError when neither of their recognised keys is
+            # present; find_stop_time's LANDSAT_C2L1 branch subscripts "end_datetime"
+            # directly (no existence/None check), raising KeyError if it's absent or
+            # TypeError if it's present but None; get_platform/get_constellation raise
+            # NotImplementedError for an unparseable product ID.
             try:
-                # store product item
                 product_list.append(
                     ProductItem(
                         constellation=self.get_constellation(prod_dict),
@@ -292,8 +305,8 @@ class EODAGCallHandler(BaseAPICallHandler):
                         api_product=prod,
                     )
                 )
-            except Exception as e:
-                log.warning(f"Error creating ProductItem for product {prod_dict['id']}: {e}")
+            except (ValueError, KeyError, TypeError, NotImplementedError) as e:
+                warnings.warn(f"Skipping product {prod_dict.get('id')!r}: {e}")
                 continue
 
         return ProductItemSet(product_list)

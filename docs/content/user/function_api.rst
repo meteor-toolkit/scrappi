@@ -33,6 +33,10 @@ APIs
    api.factory
    api.base
    api.eodag
+   api.insitubase
+   api.offlinebase
+   api.radcalnet_api_client
+   api.hypernets
 
 File System
 ===========
@@ -44,6 +48,7 @@ File System
    fs.factory
    fs.base
    fs.localfilesystem
+   fs.stacfilesystem
    fs.tdrive
 
 Utils
