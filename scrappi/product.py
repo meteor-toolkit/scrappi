@@ -107,7 +107,7 @@ class ProductItem:
         else:
             self.context = context
         self.api = api
-        self.fs = self.set_fs(filesystem)
+        self.set_fs(filesystem)
         
 
     def __str__(self) -> str:

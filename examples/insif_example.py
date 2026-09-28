@@ -13,15 +13,13 @@ example_download_path = os.path.join(
 file_system = make_fs(example_download_path)
 context = ScrappiContext()
 
-INSIFCallHandler(context=context)
-
 if __name__ == "__main__":
     start = "2025-11-01T00:00:00"
     end = "2025-11-02T00:00:00"
     context["api"]["preferred_api"] = "insif"
 
     query = {
-        "collections": ["LHYP_L2B_REF"],  # ["S3_EFR"], ["S2_MSI_L1C"],
+        "collections": ["INSIF_RADIRRREF"],  # ["S3_EFR"], ["S2_MSI_L1C"],
         "site": "GHNA",
         # "geom": site_def[site],
         "start_time": start,
