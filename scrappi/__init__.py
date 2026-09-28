@@ -49,11 +49,20 @@ if not config_init.is_initialised():
 class ScrappiContext(Context):
     default_config: Optional[Union[str, List[Any]]] = None
 
-    def __init__(self, context: Optional[Union[dict, str]] = None):
+    def __init__(self, context: Optional[Union[dict, str, Context]] = None):
         self.default_config = [
             os.path.join(THIS_DIRECTORY, "etc", "defaults.yaml"),
             eodag_config,
         ]
+        # A processor_tools Context passed straight through (e.g. an eomatch
+        # EOMatchContext, handed over by Sat2InSituMUFinder.identify_mu_events ->
+        # get_api_name) must be unwrapped to its plain values dict first. Context.__init__
+        # treats a non-(str|dict) config as a sequence and does ``list(config)`` -- and
+        # ``list()`` on a Context never terminates, because Context.__getitem__ returns
+        # None (not IndexError) for any missing key, including the integer indices the
+        # sequence protocol probes. So the old code hung indefinitely here.
+        if isinstance(context, Context):
+            context = context.config_values
         super(ScrappiContext, self).__init__(context, config_init=config_init)
 
     def set_preferred_provider_all(self, provider: str, remove_other_providers: Optional[bool] = False):
@@ -61,6 +70,9 @@ class ScrappiContext(Context):
 
     def set_preferred_api(self, api: str, remove_other_apis: Optional[bool] = False):
         self["api"]["preferred_api"] = api
+
+    def set_fs(self, filesystem):
+        self["fs"]["path"] = filesystem.directory
 
 
 from scrappi.interface import (
