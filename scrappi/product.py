@@ -770,7 +770,7 @@ class ProductItemSet:
         for p in self:
             p.set_api(api)
 
-    def set_fs(self, filesystem: str, context: Optional[ScrappiContext] = None):
+    def set_fs(self, filesystem: Optional[str] = None, context: Optional[ScrappiContext] = None):
         """
         set filesystem for each product item in the product item set
 

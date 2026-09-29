@@ -16,12 +16,13 @@ import shapely
 import shapely.geometry
 from typing import Optional, Union, List, Dict, Any
 import xarray as xr
+from pyproj import Transformer
 from processor_tools import Context
 from processor_tools.utils.formatters import convert_datetime
 
 from scrappi.api.factory import APICallHandlerFactory
 from scrappi.fs.factory import FSCallHandlerFactory
-from scrappi.utils.utils import generate_bounding_lat_lon
+from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.fs.base import BaseFileSystem
@@ -353,14 +354,26 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 products.append_ProductItemSet(perform_query(query, context))
             return products
 
+    #coordinate system transfer to lat/lon if geom is provided
+    if "geom" in query.keys() and "geom_crs" in query.keys():
+        if query["geom_crs"] != "EPSG:4326":
+            geom = convert_geom_shapely(query["geom"])
+            transformer = Transformer.from_crs(query["geom_crs"], "EPSG:4326", always_xy=True)
+            query["geom"] = shapely.ops.transform(transformer.transform, geom)
+            query["geom_crs"] = "EPSG:4326"
+
+    api = get_api_name(query["collection"], context=context)
+    api_handler = make_api(api, context)
     try:
-        api = get_api_name(query["collection"], context=context)
-        api_handler = make_api(api, context)
         products = api_handler.perform_query(query)
-        if len(products) > 0:
-            return products
-    except Exception as e:
-        warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
+    except Exception as exc:
+        if not context["api"]["try_all_apis"]:
+            raise
+        warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {exc}")
+        products = ProductItemSet()
+
+    if products is not None and len(products) > 0:
+        return products
 
     if context["api"]["try_all_apis"]:
         apis = get_api_name(query["collection"], context=context, all_apis=True)
@@ -390,7 +403,7 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 n_recoverable += 1
                 last_exc = e
                 continue
-            if len(products) > 0:
+            if products is not None and len(products) > 0:
                 return products
 
         if last_exc is not None and n_recoverable == n_ran:
@@ -466,7 +479,46 @@ def update_context_file(context_update: dict):
     context.write_config(path)
     return context
 
+def register_downloaded_product(product: ProductItem, context: Optional[ScrappiContext] = None):
+        try:
+            # Check context setting to decide whether to auto-register
+            register_flag = False
+            try:
+                register_flag = bool(context["fs"]["register_stac_items"])
+            except Exception:
+                register_flag = False
 
+            if register_flag and isinstance(product, ProductItem):
+                if getattr(product.filesystem, "read_only", False):
+                    # e.g. an offline archive handler's product.filesystem is pinned
+                    # into the archive itself -- not ours to write a stac/ folder
+                    # into. register_in_filesystem_catalog would raise IOError for
+                    # the same reason; skip quietly rather than let the two-attempt
+                    # fallback below hit it (and log a confusing "failed" message)
+                    # for what is expected, common behaviour for these products.
+                    logger.debug(
+                        "Skipping STAC registration for %r: product.filesystem is read-only",
+                        getattr(product, "id", product),
+                    )
+                else:
+                    # prefer product.filesystem; make_fs will handle strings
+                    try:
+                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                    except Exception:
+                        # fallback: try using make_fs with product.filesystem attribute
+                        try:
+                            fs = make_fs(product.filesystem)
+                            product.register_in_filesystem_catalog(
+                                filesystem=fs,
+                                overwrite=context["fs"]["overwrite_stac_items"],
+                            )
+                        except Exception as e:
+                            logger.debug("Failed to register product in STAC catalog: %s", e)
+            # for ProductItemSet we assume individual downloads will have registered themselves
+        except Exception:
+            # Do not let registration errors prevent returning the download path
+            pass
+    
 def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None, api: Optional[BaseAPICallHandler] = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
@@ -495,7 +547,9 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
 
     if not isinstance(product, ProductItem):
         raise ValueError("Provided product for download should be a ProductItem or ProductItemSet")
-    
+
+    if product.filesystem is None:
+        product.set_fs(product.filesystem_init, context=context)
     path, exists = product.filesystem.return_path(product, check_exists=True)
 
     if exists:
@@ -514,6 +568,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         
     download_path = api_handler.download_product(product)
     if download_path is not None:
+        register_downloaded_product(product, context=context)
         return download_path
 
     if context["api"]["try_all_apis"]:
@@ -521,72 +576,33 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         apis = [a for a in apis if a != api] # remove preferred_api from list of apis to try, as it has already been tried above
         download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
 
-    # Same fan-out-with-recovery as perform_query: a product may be resolvable only
-    # by a later candidate (e.g. an offline archive handler for a site the online
-    # portal 404s on), so a recoverable failure from an earlier candidate is warned
-    # and skipped rather than aborting the chain -- but a real error (bad
-    # credentials, a bug) surfaces, and if every candidate bailed recoverably the
-    # last error is re-raised instead of returning None.
-    n_ran = 0
-    n_recoverable = 0
-    last_exc: Optional[BaseException] = None
-    for api in download_apis:
-        n_ran += 1
-        api_handler = make_api(api, context=context)
-        try:
-            download_path = api_handler.download_product(product)
-        except Exception as e:
-            if not _candidate_failure_is_recoverable(e):
-                raise
-            warnings.warn(f"Download failed for api {api!r}, product {getattr(product, 'id', product)!r}: {e}")
-            n_recoverable += 1
-            last_exc = e
-            continue
-        if download_path is not None:
-            # After successful download, attempt to register the product in filesystem STAC catalogs
+        # Same fan-out-with-recovery as perform_query: a product may be resolvable only
+        # by a later candidate (e.g. an offline archive handler for a site the online
+        # portal 404s on), so a recoverable failure from an earlier candidate is warned
+        # and skipped rather than aborting the chain -- but a real error (bad
+        # credentials, a bug) surfaces, and if every candidate bailed recoverably the
+        # last error is re-raised instead of returning None.
+        n_ran = 0
+        n_recoverable = 0
+        last_exc: Optional[BaseException] = None
+        for api in download_apis:
+            n_ran += 1
+            api_handler = make_api(api, context=context)
             try:
-                # Check context setting to decide whether to auto-register
-                register_flag = False
-                try:
-                    register_flag = bool(context["fs"]["register_stac_items"])
-                except Exception:
-                    register_flag = False
+                download_path = api_handler.download_product(product)
+            except Exception as e:
+                if not _candidate_failure_is_recoverable(e):
+                    raise
+                warnings.warn(f"Download failed for api {api!r}, product {getattr(product, 'id', product)!r}: {e}")
+                n_recoverable += 1
+                last_exc = e
+                continue
+            if download_path is not None:
+                register_downloaded_product(product, context=context)
+                return download_path
 
-                if register_flag and isinstance(product, ProductItem):
-                    if getattr(product.filesystem, "read_only", False):
-                        # e.g. an offline archive handler's product.filesystem is pinned
-                        # into the archive itself -- not ours to write a stac/ folder
-                        # into. register_in_filesystem_catalog would raise IOError for
-                        # the same reason; skip quietly rather than let the two-attempt
-                        # fallback below hit it (and log a confusing "failed" message)
-                        # for what is expected, common behaviour for these products.
-                        logger.debug(
-                            "Skipping STAC registration for %r: product.filesystem is read-only",
-                            getattr(product, "id", product),
-                        )
-                    else:
-                        # prefer product.filesystem; make_fs will handle strings
-                        try:
-                            product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                        except Exception:
-                            # fallback: try using make_fs with product.filesystem attribute
-                            try:
-                                fs = make_fs(product.filesystem)
-                                product.register_in_filesystem_catalog(
-                                    filesystem=fs,
-                                    overwrite=context["fs"]["overwrite_stac_items"],
-                                )
-                            except Exception as e:
-                                logger.debug("Failed to register product in STAC catalog: %s", e)
-                # for ProductItemSet we assume individual downloads will have registered themselves
-            except Exception:
-                # Do not let registration errors prevent returning the download path
-                pass
-
-            return download_path
-
-    if last_exc is not None and n_recoverable == n_ran:
-        raise last_exc
+        if last_exc is not None and n_recoverable == n_ran:
+            raise last_exc
     return None
 
 

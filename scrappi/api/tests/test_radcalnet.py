@@ -530,6 +530,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
                 {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
             )
         )[0]
+        product.filesystem = product.set_fs(product.filesystem_init)  # ensure it's a LocalFileSystem, not None
         self.assertFalse(product.filesystem.organise_data)
 
     def test_download_product_resolves_existing_file_without_network(self):
@@ -617,6 +618,7 @@ class TestRadcalnetOfflineCallHandler(unittest.TestCase):
             {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
         )[0]
 
+        product.filesystem = product.set_fs(product.filesystem_init)  # ensure it's a LocalFileSystem, not None
         self.assertTrue(product.filesystem.read_only)
 
     def test_download_product_keeps_the_filesystem_read_only(self):

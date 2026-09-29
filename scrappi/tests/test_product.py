@@ -878,7 +878,7 @@ class TestProductItemSet(unittest.TestCase):
 
     def test_set_fs(self):
         ps = ProductItemSet(self.products)
-
+        ps.set_fs()
         assert isinstance(ps[0].filesystem, STACFileSystem)
 
         example_path = os.path.join(

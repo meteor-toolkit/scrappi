@@ -11,8 +11,10 @@ import numpy as np
 import numpy.testing as npt
 
 from unittest import mock
+import shapely
 from shapely.geometry import Point, Polygon
-from scrappi.product import ProductItem
+from shapely import ops
+from scrappi.product import ProductItem, ProductItemSet
 from scrappi.interface import (
     Factory,
     _ensure_scrappi_context,
@@ -501,7 +503,19 @@ class TestInterface(unittest.TestCase):
                 out = perform_query({"collection": "LANDSAT_C2L1"}, context)
             self.assertIs(out, wanted)
 
-    def test_perform_query_reraises_a_non_recoverable_failure(self):
+    def test_perform_query_warns_on_non_recoverable_failure_when_try_all_apis(self):
+        factory = self._fanout_handlers(TypeError("a real bug"), lambda q: None)
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+        ):
+            with self.assertWarns(UserWarning):
+                context = ScrappiContext()
+                context["api"]["preferred_api"] = "h1"
+                context["api"]["try_all_apis"] = True
+                perform_query({"collection": "LANDSAT_C2L1"}, context)
+
+    def test_perform_query_reraises_a_non_recoverable_failure_when_try_all_apis_is_false(self):
         factory = self._fanout_handlers(TypeError("a real bug"), lambda q: None)
         with (
             mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
@@ -510,7 +524,46 @@ class TestInterface(unittest.TestCase):
             with self.assertRaises(TypeError):
                 context = ScrappiContext()
                 context["api"]["preferred_api"] = "h1"
+                context["api"]["try_all_apis"] = False
                 perform_query({"collection": "LANDSAT_C2L1"}, context)
+
+    def test_perform_query_transforms_geom_to_epsg4326(self):
+        h1 = mock.MagicMock()
+        h1.list_collections.return_value = ["LANDSAT_C2L1"]
+
+        factory = {"h1": mock.MagicMock(return_value=h1)}
+        captured = {}
+
+        def _perform_query(query):
+            captured["query"] = query
+            return ProductItemSet()
+
+        h1.perform_query.side_effect = _perform_query
+
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = "h1"
+        context["api"]["try_all_apis"] = False
+
+        query = {
+            "collection": "LANDSAT_C2L1",
+            "geom": Point(1.0, 2.0),
+            "geom_crs": "EPSG:3857",
+        }
+
+        def _transform(x, y, z=None):
+            return (x + 10.0, y + 20.0)
+
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["h1"]),
+            mock.patch("scrappi.interface.convert_geom_shapely", return_value=Point(1.0, 2.0)),
+            mock.patch("scrappi.interface.Transformer.from_crs", return_value=mock.Mock(transform=_transform)),
+        ):
+            perform_query(query, context)
+
+        self.assertEqual(captured["query"]["geom_crs"], "EPSG:4326")
+        self.assertAlmostEqual(captured["query"]["geom"].x, 11.0)
+        self.assertAlmostEqual(captured["query"]["geom"].y, 22.0)
 
     def test_perform_query_reraises_last_error_when_every_candidate_fails_recoverably(self):
         factory = self._fanout_handlers(ValueError("nope 1"), ValueError("nope 2"))
@@ -521,6 +574,7 @@ class TestInterface(unittest.TestCase):
             with self.assertRaises(ValueError):
                 context = ScrappiContext()
                 context["api"]["preferred_api"] = "h1"
+                context["api"]["try_all_apis"] = True
                 perform_query({"collection": "LANDSAT_C2L1"}, context)
 
     def test_download_product_filename(self):

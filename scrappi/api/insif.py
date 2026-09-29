@@ -11,10 +11,11 @@ import shapely
 from shapely.geometry import Polygon
 from typing import Any, Dict, Optional, Union, List
 from processor_tools import Context
+import numpy as np
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import generate_bounding_lat_lon
+from scrappi.utils.utils import generate_bounding_lat_lon, convert_datetime
 from scrappi.fs.localfilesystem import LocalFileSystem
 
 __author__ = [
@@ -22,34 +23,16 @@ __author__ = [
 ]
 __all__ = ["HYPERNETSOfflineCallHandler"]
 
-HYPERNETS_DEFAULT_ROI = {
-    "GHNA": generate_bounding_lat_lon(-23.60153, 15.12589, 100),
-    "WWUK": {
-        "latitude_minimum": 51.77632771952633,
-        "longitude_minimum": -1.3399758460979756,
-        "latitude_maximum": 51.77808426115803,
-        "longitude_maximum": -1.3370120963843524,
-    },
-    "PEAN": [
-        -71.94130941393267,
-        23.3038867960562,
-        -71.93894657967229,
-        23.30663303562398,
-    ],
-    "BASP": Polygon(
-        [
-            [-2.0770842203487048, 39.048247138903605],
-            [-2.0747497502977192, 39.048247138903605],
-            [-2.0747497502977192, 39.05003084892345],
-            [-2.0770842203487048, 39.05003084892345],
-            [-2.0770842203487048, 39.048247138903605],
-        ]
-    ),
-}
+
 
 COLLECTIONS = [
     "INSIF_RADIRRREF",
+    "INSIF_RAD",
+    "INSIF_IRR",
+    "INSIF_REF",
     "INSIF_ALLIDX",
+    "INSIF_FLUO",
+    "INSIF_INDICES"
     "INSIF_RAW",
 ]
 
@@ -105,15 +88,6 @@ class INSIFCallHandler(InSituCallHandler):
         """
         return "INSIF"
 
-    def get_platform(self, collection) -> str:
-        """
-        Function to extract platform identifier
-
-        :param prod_dict: product dictionary
-        :return: platform identifier
-        """
-        return 
-
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
         Function to extract collection identifier
@@ -122,6 +96,25 @@ class INSIFCallHandler(InSituCallHandler):
         :return: collection identifier
         """
         return self.collections
+
+    def get_insif_collection_from_query(self, query):
+        """
+        Function to extract collection identifier from query
+
+        :param query: query dictionary
+        :return: collection identifier
+        """
+        if "collection" in query and "site" in query:
+            if query["collection"] == "INSIF_RADIRRREF" or query["collection"] == "INSIF_RAD" or query["collection"] == "INSIF_IRR" or query["collection"] == "INSIF_REF":
+                return query["site"] + "-proc"
+            elif query["collection"] == "INSIF_ALLIDX" or query["collection"] == "INSIF_FLUO" or query["collection"] == "INSIF_INDICES":
+                return query["site"] + "-idx"
+            elif query["collection"] == "INSIF_RAW":
+                return query["site"] + "-raw"
+            else:
+                raise ValueError("Collection not recognised")
+        else:
+            raise ValueError("No collection or site provided in query")
 
     # def _get_product_type(self, query_collection: str) -> tuple:
     #     """
@@ -173,29 +166,173 @@ class INSIFCallHandler(InSituCallHandler):
 
         return intersecting_collections
 
+    def get_all_variables(self, collection):
+        if collection=="INSIF_RADIRRREF":
+            properties = self.api.get_properties(collection="JB-010-ES-proc-unc", database=self.DATABASE)
+            properties = properties[["column_name", "data_type"]]
+            properties = properties.rename(columns={"column_name": "variable_name"})
+            return list(properties["variable_name"])
+        elif collection=="INSIF_ALLIDX":
+            properties = self.api.get_properties(collection="JB-010-ES-idx", database=self.DATABASE)
+            properties = properties[["column_name", "data_type"]]
+            properties = properties.rename(columns={"column_name": "variable_name"})
+            return list(properties["variable_name"])
+        elif collection=="INSIF_RAW":
+            properties = self.api.get_properties(collection="JB-010-ES-raw", database=self.DATABASE)
+            properties = properties[["column_name", "data_type"]]
+            properties = properties.rename(columns={"column_name": "variable_name"})
+            return list(properties["variable_name"])
+
+    def get_all_uncertainty_variables(self, collection):
+        if collection=="INSIF_RADIRRREF":
+            properties = self.api.get_properties(collection="JB-010-ES-proc-unc", database=self.DATABASE)
+            properties = properties[["column_name", "data_type"]]
+            properties = properties.rename(columns={"column_name": "variable_name"})
+            return list(properties["variable_name"])
+        elif collection=="INSIF_ALLIDX":
+            properties = self.api.get_properties(collection="JB-010-ES-idx-unc", database=self.DATABASE)
+            properties = properties[["column_name", "data_type"]]
+            properties = properties.rename(columns={"column_name": "variable_name"})
+            return list(properties["variable_name"])        
+        elif collection=="INSIF_RAW":
+            return []
+
     def get_default_variables(self, collection):
         if collection=="INSIF_RADIRRREF":
-            return "utc_time,L,E,R,u_systematic_L,u_random_R,u_systematic_R"
+            return ['geometry', 'gps_lat', 'gps_lon', 'inc_rad',
+            'inc_rad_f', 'inc_rad_f_wl', 'inc_rad_wl', 'refl',
+            'refl_f', 'refl_f_wl', 'refl_rad', 'refl_rad_f', 'refl_rad_f_wl',
+            'refl_rad_wl', 'refl_wl', 'utc_time']
+        elif collection=="INSIF_RAD":
+            return ['refl_rad', 'refl_rad_f', 'refl_rad_f_wl',
+            'refl_rad_wl', 'utc_time']
+        elif collection=="INSIF_IRR":
+            return ['inc_rad', 'inc_rad_f', 'inc_rad_f_wl', 'inc_rad_wl',
+            'utc_time']
+        elif collection=="INSIF_REF":
+            return ['refl', 'refl_f', 'refl_f_wl', 'refl_wl', 'utc_time']
         elif collection=="INSIF_ALLIDX":
-            return "utc_time,sfm_fld_o2a,sfm_fld_o2b"
+            return ['apar', 'ari', 'bsf_aod', 'bsf_f_o2a', 'bsf_f_o2b', 'cci', 'check',
+            'chlre', 'cl705', 'created_at', 'cri', 'cvi', 'cyclenr',
+            'day_fract', 'dc', 'dc_full', 'dcl', 'dcl_full', 'dre', 'dre_full',
+            'drl', 'drl_full', 'e_stability', 'e_stability_full', 'ein750',
+            'ein750_full', 'einpar', 'evi', 'fcvi', 'fluo_a', 'fluo_b',
+            'geometry', 'gi', 'gps_cpu', 'gpslat', 'gpslon', 'hin', 'hout',
+            'id', 'index', 'l800', 'lin687', 'lin750', 'lin750_full', 'lin760',
+            'linpar', 'mari', 'mcari2', 'mcri', 'modified_at', 'mtci', 'ndre',
+            'ndvi', 'ndvigreen', 'nirvref', 'pan', 'pri', 'psri', 'r750',
+            'r760', 'redcl', 'rep', 'sfm_conv_a', 'sfm_conv_b', 'sfm_fld_o2a',
+            'sfm_fld_o2b', 'sipi', 'sr', 'sshift', 'sv', 'sv_e', 'sv_e2',
+            'sv_e2_full', 'sv_e_full', 'sv_full', 'sza', 'tcari', 'temp1',
+            'temp2', 'temp3', 'temp4', 'tilt', 'utc_time', 'veg_cpu',
+            'voltage', 'wr_cpu']
+        elif collection=="INSIF_FLUO":
+            return ['bsf_aod', 'bsf_f_o2a', 'bsf_f_o2b', 'fluo_a', 'fluo_b',
+            'sfm_conv_a', 'sfm_conv_b', 'sfm_fld_o2a',
+            'sfm_fld_o2b']
+        elif collection=="INSIF_INDICES":
+            return ['apar', 'ari', 'cci',
+            'chlre', 'cl705', 'cri', 'cvi',
+            'ein750','ein750_full', 'einpar', 'evi', 'fcvi', 
+            'gi', 'l800', 'lin687', 'lin750', 'lin750_full', 'lin760',
+            'linpar', 'mari', 'mcari2', 'mcri', 'mtci', 'ndre',
+            'ndvi', 'ndvigreen', 'nirvref', 'pan', 'pri', 'psri', 'r750',
+            'r760', 'redcl', 'rep', 'sfm_conv_a', 'sfm_conv_b', 'sfm_fld_o2a',
+            'sfm_fld_o2b', 'sipi', 'sr', 'sshift', 'sv', 'sv_e', 'sv_e2',
+            'sv_e2_full', 'sv_e_full', 'sv_full', 'sza', 'tcari', 'temp1',
+            'temp2', 'temp3', 'temp4', 'tilt', 'utc_time', 'veg_cpu',
+            'voltage', 'wr_cpu']
         elif collection=="INSIF_RAW":
-            return "utc_time,data"
+            return ['chamber_humidity', 'chamber_temp[c]', 'check', 'cooling_active',
+            'created_at', 'cycle_duration[ms]', 'cycleno', 'dc_veg', 'dc_wr',
+            'flox_identifier', 'geometry', 'gps_cpu', 'gps_date', 'gps_lat',
+            'gps_lon', 'gps_time_utc', 'heating_active', 'id', 'it_veg[us]',
+            'it_wr[us]', 'local_datetime', 'mainboard_humidity',
+            'mainboard_temp[c]', 'modified_at', 'multical', 'ptu_pan',
+            'ptu_tilt', 'qepro_ccd[c]', 'qepro_frame[c]', 'temp0', 'temp1',
+            'temp2', 'utc_datetime', 'veg', 'veg_cpu', 'voltage', 'wr', 'wr2',
+            'wr2_cpu', 'wr_cpu']
+        else:
+            raise ValueError("Collection not recognised")
+
+    def get_default_uncertainty_variables(self, collection):
+        if collection=="INSIF_RADIRRREF":
+            return ['idx_id',
+            'inc_rad_f_unc_random', 'inc_rad_f_unc_system_corrle',
+            'inc_rad_f_unc_system_indeple',
+            'inc_rad_unc_random', 'inc_rad_unc_system_corrle',
+            'inc_rad_unc_system_indeple',
+            'refl_f_unc_random', 'refl_f_unc_system_corrle',
+            'refl_f_unc_system_indeple',
+            'refl_rad_f_unc_random', 'refl_rad_f_unc_system',
+            'refl_rad_f_unc_system_corrle', 'refl_rad_f_unc_system_indeple',
+            'refl_rad_unc_random',
+            'refl_rad_unc_system_corrle', 'refl_rad_unc_system_indeple',
+            'refl_unc_random', 'refl_unc_system_corrle',
+            'refl_unc_system_indeple', 'utc_time', 'wavelength',
+            'wavelength_unc']
+        elif collection=="INSIF_ALLIDX":
+            return ['created_at', 'geometry', 'idx_id', 'modified_at', 'u_apar',
+            'u_apar_random', 'u_apar_systematic', 'u_ari', 'u_ari_random',
+            'u_ari_systematic', 'u_bsf_aod', 'u_bsf_f_o2a', 'u_bsf_f_o2b',
+            'u_cci', 'u_cci_random', 'u_cci_systematic', 'u_chlre',
+            'u_chlre_random', 'u_chlre_systematic', 'u_cl705',
+            'u_cl705_random', 'u_cl705_systematic', 'u_cri', 'u_cri_random',
+            'u_cri_systematic', 'u_cvi', 'u_cvi_random', 'u_cvi_systematic',
+            'u_dc', 'u_dc_full', 'u_dc_full_random', 'u_dc_random', 'u_dcl',
+            'u_dcl_full', 'u_dcl_full_random', 'u_dcl_random', 'u_dre',
+            'u_dre_full', 'u_drl', 'u_drl_full', 'u_e2in750_full_random',
+            'u_e2in750_full_systematic', 'u_e2in750_random',
+            'u_e2in750_systematic', 'u_e_stability', 'u_e_stability_full',
+            'u_ein750', 'u_ein750_full', 'u_ein750_full_random',
+            'u_ein750_full_systematic', 'u_ein750_random',
+            'u_ein750_systematic', 'u_einpar', 'u_einpar_random',
+            'u_einpar_systematic', 'u_evi', 'u_evi_random', 'u_evi_systematic',
+            'u_fcvi', 'u_fcvi_random', 'u_fcvi_systematic', 'u_fluo_a',
+            'u_fluo_a_random', 'u_fluo_a_systematic', 'u_fluo_b',
+            'u_fluo_b_random', 'u_fluo_b_systematic', 'u_gi', 'u_gi_random',
+            'u_gi_systematic', 'u_gps_cpu', 'u_l800', 'u_l800_random',
+            'u_l800_systematic', 'u_lin687', 'u_lin687_random',
+            'u_lin687_systematic', 'u_lin750', 'u_lin750_full',
+            'u_lin750_full_random', 'u_lin750_full_systematic',
+            'u_lin750_random', 'u_lin750_systematic', 'u_lin760',
+            'u_lin760_random', 'u_lin760_systematic', 'u_linpar',
+            'u_linpar_random', 'u_linpar_systematic', 'u_mari',
+            'u_mari_random', 'u_mari_systematic', 'u_mcari2',
+            'u_mcari2_random', 'u_mcari2_systematic', 'u_mtci',
+            'u_mtci_random', 'u_mtci_systematic', 'u_ndre', 'u_ndre_random',
+            'u_ndre_systematic', 'u_ndvi', 'u_ndvi_random',
+            'u_ndvi_systematic', 'u_ndvigreen', 'u_ndvigreen_random',
+            'u_ndvigreen_systematic', 'u_nirvref', 'u_nirvref_random',
+            'u_nirvref_systematic', 'u_pri', 'u_pri_random',
+            'u_pri_systematic', 'u_psri', 'u_psri_random', 'u_psri_systematic',
+            'u_r750', 'u_r760', 'u_r_true_a_random', 'u_r_true_a_systematic',
+            'u_r_true_b_random', 'u_r_true_b_systematic', 'u_redcl',
+            'u_redcl_random', 'u_redcl_systematic', 'u_rep', 'u_rep_random',
+            'u_rep_systematic', 'u_sfm_conv_a', 'u_sfm_conv_b',
+            'u_sfm_fld_o2a', 'u_sfm_fld_o2a_random',
+            'u_sfm_fld_o2a_systematic', 'u_sfm_fld_o2b',
+            'u_sfm_fld_o2b_random', 'u_sfm_fld_o2b_systematic', 'u_sipi',
+            'u_sipi_random', 'u_sipi_systematic', 'u_sr_random',
+            'u_sr_systematic', 'u_sshift', 'u_sv', 'u_sv_e', 'u_sv_e2',
+            'u_sv_e2_full', 'u_sv_e_full', 'u_sv_full', 'u_tcari',
+            'u_tcari_random', 'u_tcari_systematic', 'u_veg_cpu', 'u_wr_cpu',
+            'utc_time']
+        elif collection=="INSIF_RAW":
+            return []
         else:
             raise ValueError("Collection not recognised")
 
     def _perform_query(self, query):
-        if "variables" not in query:
-            variables = self.get_default_variables(query["collection"])
-        variables = ""
-        variables += "utc_time,sfm_fld_o2a,sfm_fld_o2b"
+        variables_str = "utc_time, geometry"
 
         where_str = ""
         where_str = "utc_time > '%s'::timestamp AND utc_time < '%s'::timestamp"%(query["start_time"],query["stop_time"])
 
-        insif_collection = "JB-010-ES-idx"
+        insif_collection = self.get_insif_collection_from_query(query)
 
         results = self.api.get_collection_pg(insif_collection,
-                                      select=variables,
+                                      select=variables_str,
                                       where=where_str,
                                       database=self.DATABASE)
         return results
@@ -216,52 +353,152 @@ class INSIFCallHandler(InSituCallHandler):
 
         insif_results = self._perform_query(query)
 
-        product_list = []
-        for feature in insif_results["features"]:
-            props = feature["properties"]
-            asset = feature["assets"]["data"]
+        #convert geometry to be the intersection of the geometries in the results
+        geometry_shapely = shapely.ops.unary_union(insif_results["geometry"]) 
+        start_time=self._get_datetime(insif_results["utc_time"].min())
+        stop_time=self._get_datetime(insif_results["utc_time"].max())
 
-            href = asset["href"]
-            product_name = href.split("/")[-1]
-
-            product_list.append(
-                ProductItem(
-                    constellation="HYPERNETS",
-                    platform=props["site_id"],
-                    collection="LHYP_" + query["collection"],
-                    id=product_name,
-                    geometry=self.get_roi_shapely(props["site_id"]),
-                    start_time=self._get_datetime(props["start_datetime"]),
-                    stop_time=self._get_datetime(props["end_datetime"]),
-                    prod_dict=props,
-                    url=href,
+        prod = ProductItem(
+                    constellation="INSIF",
+                    platform=query["site"],
+                    collection=query["collection"],
+                    id=self.generate_product_id(collection=query["collection"], site=query["site"], start_time=start_time, stop_time=stop_time),
+                    geometry= geometry_shapely,
+                    start_time=start_time,
+                    stop_time=stop_time,
+                    prod_dict=query,
+                    url=query.get("url", ""),
                     quicklook="",
                     api=self,
                     context=self.context,
                 )
-            )
+            
+        return ProductItemSet([prod])
 
-        return ProductItemSet(product_list)
+    def generate_product_id(self, collection, site, start_time, stop_time):
+        """
+        Generate a product id based on site, collection and results
+
+        :param site: site name
+        :param collection: collection name
+        :param start_time: start time of the product
+        :param stop_time: stop time of the product
+        :return: product id
+        """
+        return f"{collection}_{site}_{start_time.strftime('%Y%m%dT%H%M%S')}_{stop_time.strftime('%Y%m%dT%H%M%S')}.nc"
+
+    def generate_file(self, query):
+
+        if "variables" not in query:
+            variables = self.get_default_variables(query["collection"])
+        
+        else:
+            variables = [var for var in query["variables"] if var in self.get_all_variables(query["collection"])]
+
+        variables_str = ",".join(variables)
+
+        where_str = ""
+        where_str = "utc_time > '%s'::timestamp AND utc_time < '%s'::timestamp"%(query["start_time"],query["stop_time"])
+
+        insif_collection = self.get_insif_collection_from_query(query)
+
+        results = self.api.get_collection_pg(insif_collection,
+                                        select=variables_str,
+                                        where=where_str,
+                                        database=self.DATABASE)
+
+        if self.context["insif"]["include_uncertainty"]:  
+            if "variables" not in query:
+                variables = self.get_default_uncertainty_variables(query["collection"])
+            
+            else:
+                variables = [var for var in query["variables"] if var in self.get_all_uncertainty_variables(query["collection"])]
+            
+            variables_str = ",".join(variables)      
+            results_unc = self.api.get_collection_pg(insif_collection+"-unc",
+                                        select=variables_str,
+                                        where=where_str,
+                                        database=self.DATABASE)
+            # append results pandas dataframe with results_unc pandas dataframe
+            if results_unc is not None and len(results_unc) > 0:
+                results = results.merge(results_unc, on="utc_time", how="left")
+        
+        return self.make_xarray_dataset(results)
+
+    def make_xarray_dataset(self, results):
+        """
+        Convert the results of a query to an xarray dataset
+
+        :param results: results of a query
+        :return: xarray datasetl
+        """
+        import xarray as xr
+        import pandas as pd
+
+        df = results.copy()
+        df = df.drop(columns=["geometry"])
+
+        # Ensure utc_time is the DataFrame index so xarray treats it as the
+        # primary dimension/coordinate (avoids ambiguity where 'utc_time' could
+        # otherwise appear both as a data variable and as a coordinate).
+        if "utc_time" in df.columns:
+            df = df.set_index("utc_time")
+
+        ds = xr.Dataset.from_dataframe(df)
+
+        # If a data variable named 'utc_time' still exists, promote it to a
+        # coordinate to avoid xarray merge ambiguity.
+        if "utc_time" not in ds.coords and "utc_time" in ds.data_vars:
+            ds = ds.set_coords("utc_time")
+
+        ds = ds.assign_coords(utc_time=np.array([convert_datetime(t) for t in ds["utc_time"].values],dtype="datetime64[ns]"))
+
+        #set wavelength dimensions
+        ds = ds.assign_coords(wavelength=np.array(ds["refl_wl"].values[0],dtype="float64"))
+        ds = ds.assign_coords(wavelength_full=np.array(ds["refl_f_wl"].values[0],dtype="float64"))
+
+        # reshape all the variables to have dimensions (time, wavelength) or (time, wavelength_full) as appropriate
+        for var in ds.data_vars:
+            if ds[var].dtype == "O":
+                if var in ["refl_wl", "refl_f_wl"]:
+                    continue
+                elif var in ["refl", "refl_rad", "inc_rad"]:
+                    values = np.array([vals for vals in ds[var].values], dtype="float64")
+                    ds[var] = xr.DataArray(values, dims=["utc_time", "wavelength"], coords={"wavelength": ds["wavelength"], "utc_time": ds["utc_time"]})        
+                elif var in ["refl_f", "refl_rad_f", "inc_rad_f"]:
+                    values = np.array([vals for vals in ds[var].values], dtype="float64")
+                    ds[var] = xr.DataArray(values, dims=["utc_time", "wavelength_full"], coords={"wavelength_full": ds["wavelength_full"], "utc_time": ds["utc_time"]})
+                else:
+                    ds = ds.drop_vars(var)  # drop any other variables that are not in the default variable list
+
+        return ds
 
     def download_file(
         self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
     ) -> Optional[Union[list, str]]:
         """
-        Download the file at URL into dest using class credentials for basic auth
-        :param prod: HYPERNETS ProductItem
+        Download the file matching the productitem variables into destination folder. If the file already exists, it will not be downloaded again.
+        :param prod: INSIF ProductItem
         :param dest: destination folder for downloaded file
         """
         if not isinstance(prod, ProductItem):
             raise TypeError("prod must be a ProductItem")
         if dest is None:
             raise ValueError("dest must be provided")
-        dest_str = str(dest)
-        href: str = prod.url or ""
 
-        if not os.path.exists(os.path.dirname(dest_str)):
-            os.makedirs(os.path.dirname(dest_str))
+        if hasattr(prod, "prod_dict") and prod.prod_dict is not None:
+            query = prod.prod_dict
 
-        self.api.client.download_asset(href, os.path.dirname(dest_str))
+        else:
+            query = {
+                "site": prod.platform,
+                "collection": prod.collection,
+                "start_time": prod.start_time,
+                "stop_time": prod.stop_time,
+            }
 
-        return os.path.join(dest_str, os.path.basename(href))
-
+        ds = self.generate_file(query)
+        if not os.path.exists(os.path.dirname(dest)):
+            os.makedirs(os.path.dirname(dest))
+        ds.to_netcdf(dest)
+        return dest

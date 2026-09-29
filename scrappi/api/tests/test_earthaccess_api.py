@@ -482,7 +482,7 @@ class TestEarthaccessCallHandler(unittest.TestCase):
                 prod_dict={},
                 filesystem=example_path,
             )
-
+            product.filesystem = product.set_fs(product.filesystem_init)  # ensure it's a LocalFileSystem, not None
             with mock.patch.object(product.filesystem, "return_path", return_value=("/path/to/prod", True)):
                 result = handler.download_product(product)
                 self.assertEqual(result, "/path/to/prod")

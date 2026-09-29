@@ -67,6 +67,7 @@ insif:
   credentials:
     username:
     password:
+  include_uncertainty: True
 
 earthaccess:
   credentials:
