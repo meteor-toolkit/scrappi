@@ -17,6 +17,7 @@ from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import generate_bounding_lat_lon, convert_datetime
 from scrappi.fs.localfilesystem import LocalFileSystem
+from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -46,13 +47,14 @@ class INSIFCallHandler(InSituCallHandler):
     """
 
     name = "insif"
-    sites: List[str] = list(HYPERNETS_DEFAULT_ROI.keys())
-    DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
     collections: List[str] = COLLECTIONS
     _default_geometries: Dict[str, Polygon] = {}
 
     def __init__(self, context: Optional[Union[str, List, Context]] = None):
-        super().__init__(context, HYPERNETS_DEFAULT_ROI)
+        if isinstance(context, ScrappiContext):
+            self.context = context
+        else:
+            self.context = ScrappiContext(context)
         # lazy import of GeoDBClient
         try:
             from xcube_geodb.core.geodb import GeoDBClient
@@ -78,6 +80,10 @@ class INSIFCallHandler(InSituCallHandler):
             
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("xcube_geodb package is required to use GeoDBClient: %s" % e)
+
+        self.sites=self.list_sites()
+        self.DEFAULT_SITE_DEFINITIONS = self._generate_roi_dict()
+        super().__init__(context, self.DEFAULT_SITE_DEFINITIONS)
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
@@ -146,6 +152,12 @@ class INSIFCallHandler(InSituCallHandler):
         :return: list of site names
         """
         return [col for col in list(self.api.get_my_collections(self.DATABASE)["collection"]) if "-proc" in col]
+
+    def _generate_roi_dict(self) -> dict:
+        roi_dict={}
+        for site in self.sites:
+            roi_dict[site] = generate_bounding_lat_lon(-23.60153, 15.12589, 100)
+        return roi_dict
 
     def get_sites_from_roi(self, roi):
         # get metadata of all collections and filter out those who don't intersect
