@@ -195,10 +195,21 @@ def convert_geom_shapely(geom: Any) -> Any:
     :param geom:
     :returns:
     """
-    geom = convert_geom(
-        geom
-    )  # this returns shapely or dictionary with "longitude_minimum", "longitude_maximum", "latitude_minimum", "latitude_maximum"
-    if isinstance(geom, dict):
+    if isinstance(geom, tuple):
+            geom = list(geom)
+    
+    if isinstance(geom, list):
+        return Polygon(
+            (
+                (geom[1], geom[0]),
+                (geom[3], geom[0]),
+                (geom[3], geom[2]),
+                (geom[1], geom[2]),
+                (geom[1], geom[0]),
+            )
+        )
+
+    elif isinstance(geom, dict):
         return Polygon(
             (
                 (geom["longitude_minimum"], geom["latitude_minimum"]),
@@ -216,6 +227,18 @@ def convert_geom_shapely(geom: Any) -> Any:
         ),
     ):
         return geom
+
+    else:
+        try:
+            return shapely.wkt.loads(geom)
+        except shapely.errors.WKTReadingError:
+            raise ValueError("""Incorrect "geom" query format. 
+                            Please choose from: 
+                                shapely geometry object,
+                                Well-Known-Text string (wkt str)
+                                dict("latitude_minimum": val,  "longitude_minimum": val, "latitude_maximum": val, "longitude_maximum": val),
+                                list(latitude_minimum, longitude_minimum, latitude_maximum, longitude_maximum)
+                            """)
         
 
 def convert_geom_list(geom: Any) -> Any:

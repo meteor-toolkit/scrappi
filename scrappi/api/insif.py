@@ -12,6 +12,7 @@ from shapely.geometry import Polygon
 from typing import Any, Dict, Optional, Union, List
 from processor_tools import Context
 import numpy as np
+import warnings
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
@@ -110,7 +111,7 @@ class INSIFCallHandler(InSituCallHandler):
         :param query: query dictionary
         :return: collection identifier
         """
-        if "collection" in query and "site" in query:
+        if "collection" in query and "flox_sn" in query:
             if query["collection"] == "INSIF_RADIRRREF" or query["collection"] == "INSIF_RAD" or query["collection"] == "INSIF_IRR" or query["collection"] == "INSIF_REF":
                 return query["site"] + "-proc"
             elif query["collection"] == "INSIF_ALLIDX" or query["collection"] == "INSIF_FLUO" or query["collection"] == "INSIF_INDICES":
@@ -269,20 +270,43 @@ class INSIFCallHandler(InSituCallHandler):
 
     def get_default_uncertainty_variables(self, collection):
         if collection=="INSIF_RADIRRREF":
-            return ['idx_id',
-            'inc_rad_f_unc_random', 'inc_rad_f_unc_system_corrle',
-            'inc_rad_f_unc_system_indeple',
-            'inc_rad_unc_random', 'inc_rad_unc_system_corrle',
-            'inc_rad_unc_system_indeple',
-            'refl_f_unc_random', 'refl_f_unc_system_corrle',
-            'refl_f_unc_system_indeple',
-            'refl_rad_f_unc_random', 'refl_rad_f_unc_system',
-            'refl_rad_f_unc_system_corrle', 'refl_rad_f_unc_system_indeple',
-            'refl_rad_unc_random',
-            'refl_rad_unc_system_corrle', 'refl_rad_unc_system_indeple',
-            'refl_unc_random', 'refl_unc_system_corrle',
-            'refl_unc_system_indeple', 'utc_time', 'wavelength',
-            'wavelength_unc']
+                    return ['idx_id',
+                    'inc_rad_f_unc_random', 'inc_rad_f_unc_system_corrle',
+                    'inc_rad_f_unc_system_indeple',
+                    'inc_rad_unc_random', 'inc_rad_unc_system_corrle',
+                    'inc_rad_unc_system_indeple',
+                    'refl_f_unc_random', 'refl_f_unc_system_corrle',
+                    'refl_f_unc_system_indeple',
+                    'refl_rad_f_unc_random', 'refl_rad_f_unc_system',
+                    'refl_rad_f_unc_system_corrle', 'refl_rad_f_unc_system_indeple',
+                    'refl_rad_unc_random',
+                    'refl_rad_unc_system_corrle', 'refl_rad_unc_system_indeple',
+                    'refl_unc_random', 'refl_unc_system_corrle',
+                    'refl_unc_system_indeple', 'utc_time', 'wavelength',
+                    'wavelength_unc']
+        elif collection=="INSIF_RAD":
+                    return ['idx_id',
+                    'inc_rad_f_unc_random', 'inc_rad_f_unc_system_corrle',
+                    'inc_rad_f_unc_system_indeple',
+                    'inc_rad_unc_random', 'inc_rad_unc_system_corrle',
+                    'inc_rad_unc_system_indeple',
+                    'utc_time', 'wavelength',
+                    'wavelength_unc']
+        elif collection=="INSIF_IRR":
+                    return ['idx_id',
+                    'refl_rad_f_unc_random', 'refl_rad_f_unc_system',
+                    'refl_rad_f_unc_system_corrle', 'refl_rad_f_unc_system_indeple',
+                    'refl_rad_unc_random',
+                    'refl_rad_unc_system_corrle', 'refl_rad_unc_system_indeple',
+                    'utc_time', 'wavelength',
+                    'wavelength_unc']
+        if collection=="INSIF_RADIRRREF":
+                    return ['idx_id',
+                    'refl_f_unc_random', 'refl_f_unc_system_corrle',
+                    'refl_f_unc_system_indeple',
+                    'refl_unc_random', 'refl_unc_system_corrle',
+                    'refl_unc_system_indeple', 'utc_time', 'wavelength',
+                    'wavelength_unc']
         elif collection=="INSIF_ALLIDX":
             return ['created_at', 'geometry', 'idx_id', 'modified_at', 'u_apar',
             'u_apar_random', 'u_apar_systematic', 'u_ari', 'u_ari_random',
@@ -434,7 +458,8 @@ class INSIFCallHandler(InSituCallHandler):
             # append results pandas dataframe with results_unc pandas dataframe
             if results_unc is not None and len(results_unc) > 0:
                 results = results.merge(results_unc, on="utc_time", how="left")
-        
+            else:
+                warnings.warn("No uncertainties were found in the database for this collection.")
         return self.make_xarray_dataset(results)
 
     def make_xarray_dataset(self, results):
@@ -472,9 +497,7 @@ class INSIFCallHandler(InSituCallHandler):
         # reshape all the variables to have dimensions (time, wavelength) or (time, wavelength_full) as appropriate
         for var in ds.data_vars:
             if ds[var].dtype == "O":
-                if var in ["refl_wl", "refl_f_wl"]:
-                    continue
-                elif var in ["refl", "refl_rad", "inc_rad"]:
+                if var in ["refl", "refl_rad", "inc_rad"]:
                     values = np.array([vals for vals in ds[var].values], dtype="float64")
                     ds[var] = xr.DataArray(values, dims=["utc_time", "wavelength"], coords={"wavelength": ds["wavelength"], "utc_time": ds["utc_time"]})        
                 elif var in ["refl_f", "refl_rad_f", "inc_rad_f"]:
