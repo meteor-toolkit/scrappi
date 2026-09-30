@@ -433,6 +433,8 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
                 _register_product_in_catalog(product, context)
                 return download_path
 
+    warnings.warn("Product download failed with api: %s"%api)
+
 
 def _register_product_in_catalog(product: ProductItem, context: ScrappiContext):
     """

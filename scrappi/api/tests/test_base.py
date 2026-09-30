@@ -149,7 +149,7 @@ class TestBaseAPICallHandler(unittest.TestCase):
 
     def test_get_geom_wktstr_error_1(self):
         input_geom = "POLY ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        self.assertRaises(, self.DummyAPICallHandler._get_geom, input_geom)
+        self.assertRaises(ValueError, self.DummyAPICallHandler._get_geom, input_geom)
 
     def test_get_geom_wktstr_error_2(self):
         input_geom = "Random string of characters 468t52*&^*£)IWRbi"
