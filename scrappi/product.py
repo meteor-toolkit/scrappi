@@ -107,8 +107,8 @@ class ProductItem:
         else:
             self.context = context
         self.api = api
-        self.fs = self.set_fs(filesystem)
-        
+        self.filesystem_init = filesystem
+        self.filesystem = None
 
     def __str__(self) -> str:
         """Custom __str__"""
@@ -178,7 +178,7 @@ class ProductItem:
         elif self.filesystem:
             fs = self.filesystem
         else:
-            fs = self.set_fs()
+            fs = self.set_fs(self.filesystem_init)
         if fs is None:
             raise ValueError("No filesystem provided")
 
@@ -324,9 +324,21 @@ class ProductItem:
         filesystem: Optional["STACFileSystem"] = None,
         overwrite: bool = True,
     ) -> str:
-        fs = filesystem or self.filesystem
+        if filesystem:
+            fs = filesystem
+        elif self.filesystem:
+            fs = self.filesystem
+        else:
+            fs = self.set_fs(self.filesystem_init)
         if fs is None:
             raise ValueError("No filesystem provided")
+        if getattr(fs, "read_only", False):
+            raise IOError(
+                f"Cannot register product {self.id!r} in a filesystem STAC catalog: the "
+                f"filesystem is read-only (e.g. an offline archive handler's own data "
+                f"directory -- not ours to write into). Pass a different filesystem (e.g. "
+                f"a matchup catalogue) as `filesystem=` to register it there instead."
+            )
 
         # Filesystem locations (only used for writing)
         stac_root = Path(fs.stac_root)
@@ -432,7 +444,8 @@ class ProductItem:
 
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
-
+        return self.filesystem
+    
     def set_api(self, api: Optional[str] = None, context: Optional[ScrappiContext] = None):
         """
         set API
@@ -460,7 +473,8 @@ class ProductItem:
         from scrappi.fs.base import BaseFileSystem
 
         resolved_fs: BaseFileSystem = make_fs(new_fs)
-
+        if not self.filesystem:
+            self.set_fs(self.filesystem_init)
         old_path, exists = self.filesystem.return_path(self, True)
         if not exists:
             warnings.warn(
@@ -506,6 +520,8 @@ class ProductItem:
 
         :return: path to filesystem main folder
         """
+        if not self.filesystem:
+            self.set_fs(self.filesystem_init)
         return self.filesystem.return_path(self, False)
 
     def download_product(self, context: Optional[ScrappiContext] = None):
@@ -754,7 +770,7 @@ class ProductItemSet:
         for p in self:
             p.set_api(api)
 
-    def set_fs(self, filesystem: str, context: Optional[ScrappiContext] = None):
+    def set_fs(self, filesystem: Optional[str] = None, context: Optional[ScrappiContext] = None):
         """
         set filesystem for each product item in the product item set
 

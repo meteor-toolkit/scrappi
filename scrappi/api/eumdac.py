@@ -425,6 +425,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
             return None
 
         elif isinstance(product, ProductItem):
+            if product.filesystem is None:
+                product.set_fs(product.filesystem_init, context=product.context)        
             path, exists = product.filesystem.return_path(product, check_exists=True)
 
             if exists:

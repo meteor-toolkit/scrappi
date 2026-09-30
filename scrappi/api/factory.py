@@ -15,15 +15,28 @@ __author__ = [
 __all__ = ["APICallHandlerFactory"]
 
 
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Tuple, Union
+
+from processor_tools import context
 from scrappi import ScrappiContext
 from scrappi.api.eodag import EODAGCallHandler
-from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
+from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
 from scrappi.api.aws import AWSCallHandler
 
-all_api_list = ["eodag", "earthaccess", "hypernets", "hypernets_offline", "radcalnet", "stac", "eumdac", "aws"]
+all_api_list = [
+    "eodag",
+    "earthaccess",
+    "hypernets",
+    "hypernets_offline",
+    "radcalnet",
+    "radcalnet_offline",
+    "eumdac",
+    "aws",
+    "insif", 
+    "stac",
+]
 
 # API call handlers by name
 API_CALL_HANDLERS = {
@@ -32,6 +45,7 @@ API_CALL_HANDLERS = {
     # "eumdac": EUMDACCallHandler,  #handled separately below to allow lazy import
     # "hypernets": HYPERNETSCallHandler, #handled separately below to allow lazy import
     "radcalnet": RadcalnetCallHandler,
+    "radcalnet_offline": RadcalnetOfflineCallHandler,
     "stac": STACAPICallHandler,
     "aws": AWSCallHandler,
 }
@@ -41,9 +55,12 @@ class APICallHandlerFactory:
     def __init__(self):
         self.api_call_handlers = API_CALL_HANDLERS
         self.all_api_list = all_api_list
-        # name (e.g. "eodag", or "eodag:some_provider") -> handler instance,
-        # for get_api_call_handler(..., use_cache=True) -- see its docstring.
-        self._handler_cache: Dict[str, BaseAPICallHandler] = {}
+        # Cache key -> (context reference, handler instance), for
+        # get_api_call_handler(..., use_cache=True) -- see its docstring. The stored
+        # context reference is never read back for its own sake, only to (a) keep the
+        # context object alive for as long as its handler is cached (see the identity
+        # check below) and (b) let clear_cache() drop entries regardless of key shape.
+        self._handler_cache: Dict[Any, Tuple[Optional[ScrappiContext], BaseAPICallHandler]] = {}
 
     def get_api_call_handler(
         self, name: Union[str, BaseAPICallHandler], context: Optional[ScrappiContext] = None, use_cache: bool = True
@@ -53,30 +70,51 @@ class APICallHandlerFactory:
 
         :param name: selected API (e.g. ``"eodag"``)
         :param context: optional `ScrappiContext` to pass to the handler
-        :param use_cache: if ``True`` (default), reuse a previously built handler for
-            the same *name* instead of constructing a new one on every call. This
-            matters most for ``"eodag"``: its handler's ``__init__`` builds a fresh
-            ``eodag.EODataAccessGateway``, which reads and prunes every provider
-            config on every construction -- a few hundred ms each time, dominating
-            callers (e.g. ``is_insitu_collection``) that resolve a handler by name
-            repeatedly. A cached handler keeps whatever *context* it was first built
-            with -- pass ``use_cache=False`` (or call :py:meth:`clear_cache` first)
-            if you need a handler rebuilt from a specific, possibly different,
-            *context* (e.g. different credentials).
+        :param use_cache: if ``True`` (default), a previously built handler may be reused
+            instead of constructing a new one. ``"eodag"`` is cached by name alone,
+            regardless of *context*: its ``__init__`` builds a fresh
+            ``eodag.EODataAccessGateway``, which reads and prunes every provider config on
+            every construction -- a few hundred ms each time -- and its per-run context
+            differences (the preferred provider) are applied at query time, not
+            construction. Every other handler is cheap to build and *is*
+            context-sensitive (credentials, RadCalNet ``site_definitions``, an offline
+            archive path, ...), so it's cached by ``(name, id(context))`` instead: a
+            *different* context object always gets its own freshly built handler (so a
+            context-free handler built by e.g. ``is_insitu_collection()`` -- which only
+            needs to type-check ``list_collections()`` -- is never handed back to a
+            later, context-aware caller), but repeated calls within one run that reuse
+            the *same* context object (the common case -- one context built once and
+            passed to every query) reuse one handler and its live session instead of
+            rebuilding, and re-authenticating, on every single call. Pass
+            ``use_cache=False`` to force a rebuild in every case.
         :return: instance of a `BaseAPICallHandler` subclass
         """
         if isinstance(name, BaseAPICallHandler):
             return name
 
+        # eodag: cache by name alone, regardless of context (see above). Everything
+        # else: cache by (name, identity of context) -- a different context object
+        # always misses, but the same one reused across calls hits.
+        is_eodag = name.split(":")[0].lower() == "eodag"
+        cache_key = name if is_eodag else (name, id(context))
+
         if use_cache:
-            cached = self._handler_cache.get(name)
+            cached = self._handler_cache.get(cache_key)
             if cached is not None:
-                return cached
+                cached_context, handler = cached
+                # For the non-eodag, identity-keyed case, id() values can be recycled
+                # once an object is garbage collected -- confirm identity (not just a
+                # matching id()) before trusting the hit. Storing *context* in the cache
+                # entry (below) also prevents this by keeping it alive for as long as
+                # its handler is cached. Always true for eodag, served regardless of
+                # context by design (see above).
+                if is_eodag or cached_context is context:
+                    return handler
 
         handler = self._build_api_call_handler(name, context)
 
         if use_cache:
-            self._handler_cache[name] = handler
+            self._handler_cache[cache_key] = (context, handler)
 
         return handler
 
@@ -105,6 +143,11 @@ class APICallHandlerFactory:
             from scrappi.api.hypernets import HYPERNETSOfflineCallHandler
 
             return HYPERNETSOfflineCallHandler(context=context)
+
+        elif name.lower() == "insif":
+            from scrappi.api.insif import INSIFCallHandler
+
+            return INSIFCallHandler(context=context)
 
         elif name.lower() == "earthaccess":
             from scrappi.api.earthaccess_api import EarthaccessCallHandler
