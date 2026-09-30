@@ -1251,7 +1251,7 @@ def product_item_from_stac(
     # assets -> choose data and quicklook if available
     url = ""
     quicklook = ""
-    api = "stac"
+    api = None
     if hasattr(item, "assets"):
         assets = item.assets
         # pick data asset

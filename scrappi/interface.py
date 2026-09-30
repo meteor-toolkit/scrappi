@@ -603,6 +603,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
 
         if last_exc is not None and n_recoverable == n_ran:
             raise last_exc
+        
     return None
 
 
