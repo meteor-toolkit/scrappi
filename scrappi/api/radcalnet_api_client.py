@@ -587,7 +587,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
         # Same instance-level, config-mergeable site registry as RadcalnetCallHandler
         # (see _resolve_site_definitions) -- a site only ever available offline still
-        # needs a registered ROI for get_roi_shapely() to resolve it.
+        # needs a registered ROI for get_roi() to resolve it.
         self.DEFAULT_SITE_DEFINITIONS = _resolve_site_definitions(context)
         self._default_geometries = _build_default_geometries(self.DEFAULT_SITE_DEFINITIONS)
         # OfflineArchiveHandler resolves self.archive_path (arg -> context ->

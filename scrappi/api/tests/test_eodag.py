@@ -131,31 +131,20 @@ class TestEODAGCallHandler(unittest.TestCase):
             "longitude_maximum": 160,
         }
 
-        output_geom = {
-            "latmin": 40,
-            "lonmin": 120,
-            "latmax": 60,
-            "lonmax": 160,
-        }
+        output_geom = Polygon([[120, 40], [160, 40], [160, 60], [120, 60]])
 
-        with mock.patch("scrappi.api.base.BaseAPICallHandler._get_geom") as geom_mock:
-            geom_mock.return_value = input_geom
-            self.assertEqual(self.eodag_call_handler._set_geom(input_geom), output_geom)
+        self.assertEqual(self.eodag_call_handler._set_geom(input_geom), output_geom)
 
     def test_set_geom_shapely(self):
         input_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
 
-        with mock.patch("scrappi.api.base.BaseAPICallHandler._get_geom") as geom_mock:
-            geom_mock.return_value = input_geom
-            self.assertEqual(self.eodag_call_handler._set_geom(input_geom), input_geom)
+        self.assertEqual(self.eodag_call_handler._set_geom(input_geom), input_geom)
 
     def test_set_geom_wktstr(self):
         input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
         output_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
 
-        with mock.patch("scrappi.api.base.BaseAPICallHandler._get_geom") as geom_mock:
-            geom_mock.return_value = input_geom
-            self.assertEqual(self.eodag_call_handler._set_geom(input_geom), output_geom)
+        self.assertEqual(self.eodag_call_handler._set_geom(input_geom), output_geom)
 
     @mock.patch("scrappi.api.base.BaseAPICallHandler._get_product_type", return_value="output")
     def test_set_product_type(self, mock_product):

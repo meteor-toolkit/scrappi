@@ -253,7 +253,7 @@ class TestRCNCallHandler(unittest.TestCase):
         error now names the site, lists the known ones, and points at the config."""
         handler = RadcalnetCallHandler()
         with self.assertRaises(KeyError) as ctx:
-            handler.get_roi_shapely("ERUS")
+            handler.get_roi("ERUS")
         message = str(ctx.exception)
         self.assertIn("ERUS", message)
         self.assertIn("site_definitions", message)

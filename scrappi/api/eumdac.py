@@ -72,31 +72,40 @@ class EUMDACCallHandler(BaseAPICallHandler):
         self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
     ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
         """
-        Convert input geometries to ones suited to the apis query format
-        EUMDAC accepts either a bbox or Polygon, but these are different arguments in the query.
-        For simplicity, this function will return a bbox (str) if a dict is provided, and a Polygon if a shapely geometry is provided.
+        Convert the input geometry to the provider-specific format.
+
+        The canonical internal form is a validated shapely geometry, but EUMDAC
+        still accepts a bbox string for dict/list inputs and a polygon object for
+        shapely/WKT inputs. The serialization decision is therefore based on the
+        original input type, while the conversion to bounds occurs only once.
 
         :param geom: geometry to convert
         :return: geometry in accepted eumdac format
         """
+        geom_input = geom
         geom = self._get_geom(geom)
-        if isinstance(geom, dict):
-            return "{lon_min}, {lat_min}, {lon_max}, {lat_max}".format(
-                lon_min=geom["longitude_minimum"],
-                lat_min=geom["latitude_minimum"],
-                lon_max=geom["longitude_maximum"],
-                lat_max=geom["latitude_maximum"],
-            )
-        else:
-            if not isinstance(
-                geom,
-                (
-                    shapely.geometry.base.BaseGeometry,
-                    shapely.geometry.base.BaseMultipartGeometry,
-                ),
-            ):
-                geom = shapely.wkt.loads(geom)
+        if isinstance(
+            geom_input,
+            (
+                shapely.geometry.base.BaseGeometry,
+                shapely.geometry.base.BaseMultipartGeometry,
+            ),
+        ):
             return geom
+        if isinstance(geom_input, str):
+            return shapely.wkt.loads(geom_input)
+
+        bbox = self._get_geom_bbox_dict(geom)
+
+        def _fmt(v):
+            return int(v) if isinstance(v, float) and v.is_integer() else v
+
+        return "{lon_min}, {lat_min}, {lon_max}, {lat_max}".format(
+            lon_min=_fmt(bbox["longitude_minimum"]),
+            lat_min=_fmt(bbox["latitude_minimum"]),
+            lon_max=_fmt(bbox["longitude_maximum"]),
+            lat_max=_fmt(bbox["latitude_maximum"]),
+        )
 
     def _format_query(self, query: dict) -> dict:
         """

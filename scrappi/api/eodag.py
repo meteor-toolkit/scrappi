@@ -117,30 +117,31 @@ class EODAGCallHandler(BaseAPICallHandler):
         self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
     ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
         """
-        Convert input geometries to ones suited to the apis query format
-        All accepted geometries work for eodag api
+        Convert the internal normalized geometry into the provider-specific format.
+
+        ``_get_geom`` already validates and returns a shapely geometry, so here we
+        only do the final EODAG serialization step.
 
         :param geom: geometry to convert
         :return: geometry in accepted eodag format
         """
         geom = self._get_geom(geom)
-        if isinstance(geom, dict):
-            return {
-                "lonmin": geom["longitude_minimum"],
-                "latmin": geom["latitude_minimum"],
-                "lonmax": geom["longitude_maximum"],
-                "latmax": geom["latitude_maximum"],
-            }
-        else:
-            if not isinstance(
-                geom,
-                (
-                    shapely.geometry.base.BaseGeometry,
-                    shapely.geometry.base.BaseMultipartGeometry,
-                ),
-            ):
-                geom = shapely.wkt.loads(geom)
+        if isinstance(
+            geom,
+            (
+                shapely.geometry.base.BaseGeometry,
+                shapely.geometry.base.BaseMultipartGeometry,
+            ),
+        ):
             return geom
+
+        bbox = self._get_geom_bbox_dict(geom)
+        return {
+            "lonmin": bbox["longitude_minimum"],
+            "latmin": bbox["latitude_minimum"],
+            "lonmax": bbox["longitude_maximum"],
+            "latmax": bbox["latitude_maximum"],
+        }
 
     def _set_product_type(self, collection: str) -> str:
         """

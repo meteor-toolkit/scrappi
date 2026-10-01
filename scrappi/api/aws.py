@@ -135,8 +135,7 @@ class AWSCallHandler(BaseAPICallHandler):
         return self.buckets[collection]
 
     def _set_geom(self, geom, collection) -> List[List[str]]:
-        
-        min_lat, min_lon, max_lat, max_lon = convert_geom_list(geom)
+        min_lon, min_lat, max_lon, max_lat = self._get_geom_bounds(geom)
 
         tile_size = 3 if "WorldCover" in collection else 1
 
