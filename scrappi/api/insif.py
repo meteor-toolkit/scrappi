@@ -34,7 +34,7 @@ COLLECTIONS = [
     "INSIF_REF",
     "INSIF_ALLIDX",
     "INSIF_FLUO",
-    "INSIF_INDICES"
+    "INSIF_INDICES",
     "INSIF_RAW",
 ]
 
@@ -82,7 +82,7 @@ class INSIFCallHandler(InSituCallHandler):
         except Exception as e:  # pragma: no cover - environment dependent
             raise RuntimeError("xcube_geodb package is required to use GeoDBClient: %s" % e)
 
-        self.sites=self.list_sites()
+        self.site_meta=self.metadata_sites()
         self.DEFAULT_SITE_DEFINITIONS = self._generate_roi_dict()
         super().__init__(context, self.DEFAULT_SITE_DEFINITIONS)
 
@@ -104,24 +104,75 @@ class INSIFCallHandler(InSituCallHandler):
         """
         return self.collections
 
-    def get_insif_collection_from_query(self, query):
+    def get_insif_collections_from_query(self, query)-> List[str]:
         """
         Function to extract collection identifier from query
 
         :param query: query dictionary
         :return: collection identifier
         """
-        if "collection" in query and "flox_sn" in query:
+        flox_sn = None
+
+        if "flox_sn" in query:
+            if isinstance(query["flox_sn"], list):
+                flox_sn = query["flox_sn"]
+            else:
+                flox_sn = [query["flox_sn"]]
+
+        elif "site" in query:
+            flox_sn = self.get_flox_sn_from_site(query["site"], query.get("start_time"), query.get("stop_time"))
+            if "flox_sn" in query and query["flox_sn"] != flox_sn:
+                raise ValueError(
+                    "Query site '{}' does not match provided flox_sn '{}'".format(
+                        query["site"], query["flox_sn"]
+                    )
+                )
+
+        elif "geom" in query:
+            intersecting_flox_sn = self.get_flox_sn_from_roi(query["geom"])
+            if len(intersecting_flox_sn) == 0:
+                raise ValueError(
+                    "No collections found intersecting provided geometry"
+                )
+            flox_sn = intersecting_flox_sn
+
+        if flox_sn is None:
+            raise ValueError("No collection or site provided in query")
+
+        if "collection" in query:
             if query["collection"] == "INSIF_RADIRRREF" or query["collection"] == "INSIF_RAD" or query["collection"] == "INSIF_IRR" or query["collection"] == "INSIF_REF":
-                return query["site"] + "-proc"
+                return [f"{site}-proc" for site in flox_sn]
             elif query["collection"] == "INSIF_ALLIDX" or query["collection"] == "INSIF_FLUO" or query["collection"] == "INSIF_INDICES":
-                return query["site"] + "-idx"
+                return [f"{site}-idx" for site in flox_sn]
             elif query["collection"] == "INSIF_RAW":
-                return query["site"] + "-raw"
+                return [f"{site}-raw" for site in flox_sn]
             else:
                 raise ValueError("Collection not recognised")
         else:
             raise ValueError("No collection or site provided in query")
+
+    def get_flox_sn_from_site(self, site, start_time=None, stop_time=None):
+        """
+        Function to extract flox_sn from site
+
+        :param site: site identifier
+        :param start_time: optional start time for the query
+        :param stop_time: optional stop time for the query
+        :return: flox_sn identifier
+        """
+        flox_sn_list = []
+        for flox_sn in self.site_meta.keys():
+            site_periods = self.site_meta[flox_sn]
+            for site_data in site_periods:
+                if site_data["site_id"] == site:
+                    if self.check_datetime_overlap(site_data, start_time, stop_time):
+                        flox_sn_list.append(flox_sn)
+                    
+        if len(flox_sn_list) == 0:
+            raise ValueError("No flox_sn found for site {}".format(site))
+        elif len(flox_sn_list) > 1:
+            raise NotImplementedError("Multiple flox_sn ({}) found for site {} within query period. This functionality is not yet implemented. please separate your query by date or flox_sn.".format(flox_sn_list, site))
+        return flox_sn_list
 
     # def _get_product_type(self, query_collection: str) -> tuple:
     #     """
@@ -146,38 +197,72 @@ class INSIFCallHandler(InSituCallHandler):
     #             )
     #         )
 
-    def list_sites(self) -> list:
+    def metadata_sites(self) -> list:
         """
         Return list of sites available in API
 
         :return: list of site names
         """
-        return [col for col in list(self.api.get_my_collections(self.DATABASE)["collection"]) if "-proc" in col]
+        sites={}
+        for col in list(self.api.get_my_collections(self.DATABASE)["collection"]):
+             if col.endswith("-raw"):
+                md = self.api.get_metadata(collection=col, database=self.DATABASE)
+                sites[col.split("-")[0]] = [{"site_id": col, "site_name": col, "spatial_extent": md.spatial_extent, "start_date": "2026-09-01", "end_date": None}]
+
+        return sites
 
     def _generate_roi_dict(self) -> dict:
         roi_dict={}
-        for site in self.sites:
-            roi_dict[site] = generate_bounding_lat_lon(-23.60153, 15.12589, 100)
+        for flox_sn in self.site_meta.keys():
+            site_periods = self.site_meta[flox_sn]
+            for site_data in site_periods:
+                site = site_data["site_id"]
+                roi = site_data["spatial_extent"]
+                if site in roi_dict and roi_dict[site] != roi:
+                    warnings.warn(
+                        f"Multiple ROIs found for site {site}. Using the last one found."
+                    )
+                
+                roi_dict[site] = roi
+
         return roi_dict
 
-    def get_sites_from_roi(self, roi):
-        # get metadata of all collections and filter out those who don't intersect
-        intersecting_collections = []
-        collection_names = [col for col in list(self.api.get_my_collections(self.DATABASE)["collection"]) if col.endswith("-raw")]
+    def get_flox_sn_from_roi(self, roi, start_time=None, stop_time=None):
+        intersecting_flox_sn = []
+        for flox_sn in self.site_meta.keys():
+            site_periods = self.site_meta[flox_sn]
+            for site_data in site_periods:
+                site = site_data["site_id"]
+                site_roi = site_data["spatial_extent"]
+                col_bb = shapely.box(site_roi[0][0], site_roi[0][1], site_roi[0][2], site_roi[0][3])
+                if col_bb.intersects(roi):
+                    if self.check_datetime_overlap(site_data, start_time, stop_time):
+                        intersecting_flox_sn.append(flox_sn)
 
-        for col in collection_names:
-            md = self.api.get_metadata(collection=col, database=self.DATABASE)
-            if len(md.spatial_extent) > 1:
-                # Collection does not have a valid bounding box yet
-                continue
-            else:
-                col_bb = shapely.box(md.spatial_extent[0][0], md.spatial_extent[0][1], md.spatial_extent[0][2],
-                                    md.spatial_extent[0][3])
+        return intersecting_flox_sn
 
-            if col_bb.intersects(roi):
-                intersecting_collections.append(col)
+    def check_datetime_overlap(self, site_data, start_time=None, stop_time=None):
+        """
+        Check if the provided start_time and stop_time overlap with the site periods
 
-        return intersecting_collections
+        :param site_data: site data dictionary containing start_date and end_date
+        :param start_time: optional start time for the query
+        :param stop_time: optional stop time for the query
+        :return: True if overlap, False otherwise
+        """
+        if start_time is not None:
+            if site_data["end_date"] is not None:
+                site_end_time = convert_datetime(site_data["end_date"])
+                start_time_dt = convert_datetime(start_time)
+                if start_time_dt > site_end_time:
+                    return False
+        if stop_time is not None:
+            if site_data["start_date"] is not None:
+                site_start_time = convert_datetime(site_data["start_date"])
+                stop_time_dt = convert_datetime(stop_time)
+                if stop_time_dt < site_start_time:
+                    return False
+        return True
 
     def get_all_variables(self, collection):
         if collection=="INSIF_RADIRRREF":
@@ -365,12 +450,20 @@ class INSIFCallHandler(InSituCallHandler):
         where_str = ""
         where_str = "utc_time > '%s'::timestamp AND utc_time < '%s'::timestamp"%(query["start_time"],query["stop_time"])
 
-        insif_collection = self.get_insif_collection_from_query(query)
+        insif_collection_list = self.get_insif_collections_from_query(query)
 
-        results = self.api.get_collection_pg(insif_collection,
+        results = self.api.get_collection_pg(insif_collection_list[0],
                                       select=variables_str,
                                       where=where_str,
                                       database=self.DATABASE)
+        if len(insif_collection_list) > 1:
+            for insif_collection in insif_collection_list[1:]:
+                results_temp = self.api.get_collection_pg(insif_collection,
+                                      select=variables_str,
+                                      where=where_str,
+                                      database=self.DATABASE)
+                results = results.append(results_temp, ignore_index=True)
+            
         return results
 
     def perform_query(
