@@ -12,7 +12,7 @@ from typing import Optional, Union, List, Any
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.offlinebase import OfflineArchiveHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import convert_geom_shapely, convert_geom, generate_bounding_lat_lon
+from scrappi.utils.utils import convert_geom_shapely, convert_geom_and_check, generate_bounding_lat_lon
 from scrappi.fs.base import BaseFileSystem
 from processor_tools import Context
 
@@ -53,11 +53,8 @@ class InSituCallHandler(BaseAPICallHandler):
                 f"context['RadCalNet']['site_definitions']."
             ) from None
 
-    def get_roi_shapely(self, site: str):
-        return convert_geom_shapely(self._roi_or_raise(site))
-
     def get_roi(self, site: str):
-        return convert_geom(self._roi_or_raise(site))
+        return convert_geom_and_check(self._roi_or_raise(site))
 
     def set_roi(self, site: str, geom: Any):
         self.roi_dict[site] = geom

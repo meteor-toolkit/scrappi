@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     query = {
         "collections": ["INSIF_RADIRRREF"],  # ["S3_EFR"], ["S2_MSI_L1C"],
-        "site": "JB-010-ES",
+        "flox_sn": "JB-010-ES",
         # "geom": site_def[site],
         "start_time": start,
         "stop_time": end,

@@ -339,6 +339,14 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     """
     context = _ensure_scrappi_context(context)
 
+    #coordinate system transfer to lat/lon if geom_crs is provided
+    if "geom" in query.keys() and "geom_crs" in query.keys():
+        if query["geom_crs"] != "EPSG:4326":
+            geom = convert_geom_shapely(query["geom"])
+            transformer = Transformer.from_crs(query["geom_crs"], "EPSG:4326", always_xy=True)
+            query["geom"] = shapely.ops.transform(transformer.transform, geom)
+            query["geom_crs"] = "EPSG:4326"
+
     # if multiple collections are provided, run query for each and combine results
     if "collections" in query.keys():
         if isinstance(query["collections"], str):
@@ -353,14 +361,6 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 query["collection"] = collections[icol]
                 products.append_ProductItemSet(perform_query(query, context))
             return products
-
-    #coordinate system transfer to lat/lon if geom is provided
-    if "geom" in query.keys() and "geom_crs" in query.keys():
-        if query["geom_crs"] != "EPSG:4326":
-            geom = convert_geom_shapely(query["geom"])
-            transformer = Transformer.from_crs(query["geom_crs"], "EPSG:4326", always_xy=True)
-            query["geom"] = shapely.ops.transform(transformer.transform, geom)
-            query["geom_crs"] = "EPSG:4326"
 
     api = get_api_name(query["collection"], context=context)
     api_handler = make_api(api, context)

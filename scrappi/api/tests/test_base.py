@@ -108,13 +108,8 @@ class TestBaseAPICallHandler(unittest.TestCase):
         self,
     ):  # longitude_minimum, latitude_minimum, longitude_maximum, longitude_maximum
         input_geom = [40, 120, 60, 140]
-        output_geom = {
-            "latitude_minimum": 40,
-            "longitude_minimum": 120,
-            "latitude_maximum": 60,
-            "longitude_maximum": 140,
-        }
-        self.assertEqual(self.DummyAPICallHandler._get_geom(input_geom), output_geom)
+        output_geom = Polygon([(120, 40), (140, 40), (140, 60), (120, 60), (120, 40)])
+        self.assertTrue(self.DummyAPICallHandler._get_geom(input_geom).equals(output_geom))
 
     def test_get_geom_list_error(self):
         input_geom = [120, 40, 140, 60]
@@ -127,7 +122,8 @@ class TestBaseAPICallHandler(unittest.TestCase):
             "latitude_maximum": 60,
             "longitude_maximum": 140,
         }
-        self.assertEqual(self.DummyAPICallHandler._get_geom(input_geom), input_geom)
+        expected = Polygon([(120, 40), (140, 40), (140, 60), (120, 60), (120, 40)])
+        self.assertTrue(self.DummyAPICallHandler._get_geom(input_geom).equals(expected))
 
     def test_get_geom_dict_error(self):
         input_geom = {"LAT_AND_LON": 23498293}

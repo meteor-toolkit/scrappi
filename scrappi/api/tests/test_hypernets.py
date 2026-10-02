@@ -73,9 +73,9 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
     def test_get_roi(self):
         if self.hypernets_call_handler is None:
             self.skipTest("HYPERNETSOfflineCallHandler not available")
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        poly_roi = self.hypernets_call_handler.get_roi("BASP")
+        poly_roi = self.hypernets_call_handler.get_roi("WWUK")
+        poly_roi = self.hypernets_call_handler.get_roi("GHNA")
         # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
         # local Azimuthal Equidistant projection produces a true 200m x 200m
         # square (verified geodesically) -- these coordinates differ from
@@ -94,7 +94,7 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
             abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
             for i in range(len(poly_roi.bounds))
         )
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
+        poly_roi = self.hypernets_call_handler.get_roi("PEAN")
         poly_test = Polygon(
             [
                 [23.3038867960562, -71.93894657967229],
@@ -145,9 +145,9 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
         if self.hypernets_call_handler is None:
             self.skipTest("HYPERNETSCallHandler not available")
 
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("BASP")
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("WWUK")
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("GHNA")
+        poly_roi = self.hypernets_call_handler.get_roi("BASP")
+        poly_roi = self.hypernets_call_handler.get_roi("WWUK")
+        poly_roi = self.hypernets_call_handler.get_roi("GHNA")
         # GHNA's ROI is generated via generate_bounding_lat_lon, whose default
         # local Azimuthal Equidistant projection produces a true 200m x 200m
         # square (verified geodesically) -- these coordinates differ from
@@ -166,7 +166,7 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
             abs(poly_roi.bounds[i] - poly_test.bounds[i]) <= 1e-6
             for i in range(len(poly_roi.bounds))
         )
-        poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
+        poly_roi = self.hypernets_call_handler.get_roi("PEAN")
         poly_test = Polygon(
             [
                 [23.3038867960562, -71.93894657967229],
