@@ -10,6 +10,7 @@ results and downloading products to a target filesystem.
 
 import datetime as dt
 import math
+import re
 import warnings
 
 from abc import ABC, abstractmethod
@@ -30,6 +31,10 @@ __author__ = [
     "Mattea Goalen <mattea.goalen@npl.co.uk>",
 ]
 __all__ = ["BaseAPICallHandler"]
+
+
+#: Planet scene id at the start of a name: <YYYYMMDD>_<HHMMSS>_<2-digit>_<4-hex-digit satellite id>
+_PLANET_SCENE_ID = re.compile(r"^\d{8}_\d{6}_\d{2}_[0-9a-f]{4}(?:_|$)")
 
 
 class BaseAPICallHandler(ABC):
@@ -91,6 +96,13 @@ class BaseAPICallHandler(ABC):
             # separate from the constellation name here; "THEOS" (see
             # parse_constellation_from_name below) is both.
             return "THEOS"
+        elif _PLANET_SCENE_ID.match(name):
+            # Planet SuperDove scene names (<date>_<time>_<ss>_<satellite-id>, e.g.
+            # "20250108_092601_62_251b_3B_AnalyticMS_8b_clip"). The trailing 4-hex-digit
+            # satellite id differs per spacecraft, but action treats the whole constellation
+            # as one platform (a single SRF covers every satellite, and the platform list
+            # is fixed ahead of a run), so -- as for THEOS -- one constant for all of them.
+            return "SuperDove"
         else:
             raise NotImplementedError("platform name could not be parsed")
 
@@ -109,6 +121,8 @@ class BaseAPICallHandler(ABC):
             return "Metop"
         elif name[0:6] == "TH_CAT":
             return "THEOS"
+        elif _PLANET_SCENE_ID.match(name):
+            return "PlanetScope"
 
         else:
             raise NotImplementedError("constellation name could not be parsed")

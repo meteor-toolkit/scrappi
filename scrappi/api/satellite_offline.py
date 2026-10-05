@@ -91,6 +91,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -149,7 +150,18 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
 
     #: a STAC item id is the product name without an extension; on disk the data
     #: may carry one of these (never ``.json`` -- that's the item sidecar).
-    PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3", ".zip", ".nc", ".tar.gz", ".tar")
+    PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3", ".zip", ".nc", ".tar.gz", ".tar", ".tif")
+
+    #: collection -> regex (matched against a file's bare name) that a file must match to be a
+    #: product *to harvest*. :py:meth:`harvest` indexes every file under a collection's data
+    #: directory, which for a collection delivered as several files per product (e.g. Planet
+    #: SuperDove: image tif + udm2 mask tif + xml + json) would otherwise try, and warn about,
+    #: each sidecar. A collection not listed here treats every file as a candidate, as before.
+    PRODUCT_FILE_PATTERNS: Dict[str, "re.Pattern[str]"] = {
+        # the 8-band analytic image only -- clipped or full scene, not the surface-reflectance
+        # ("AnalyticMS_SR_8b") variant, the udm2 mask, or any sidecar
+        "PLANET_SUPERDOVE": re.compile(r"^\d{8}_\d{6}_\d{2}_[0-9a-f]{4}_3B_AnalyticMS_8b(?:_clip)?\.tif\Z"),
+    }
 
     def _default_archive_path(self) -> str:
         """No built-in default -- there is no sensible NPL-wide "all satellite
@@ -408,6 +420,12 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
     # (carrying ARCHIVE_READ_ONLY), and returns the path -- no network.
 
     # ------------------------------------------------------------------ harvest
+    def _is_product_file(self, name: str, collection: str) -> bool:
+        """Whether the on-disk file *name* is a product :py:meth:`harvest` should build a STAC
+        item for -- see :py:data:`PRODUCT_FILE_PATTERNS`."""
+        pattern = self.PRODUCT_FILE_PATTERNS.get(collection)
+        return pattern is None or bool(pattern.match(name))
+
     def _strip_container_suffix(self, name: str) -> str:
         """*name* with a single trailing :py:data:`PRODUCT_NAME_SUFFIXES` entry
         removed (longest match first, so ``.tar.gz`` wins over ``.tar``) -- a STAC
@@ -475,13 +493,17 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             return None
 
         product_md = basic.get("product_metadata") or {}
+        # S2 reports cloudy_pixel_percentage; Planet (and other readers) cloud_area_fraction
+        cloud_fraction = product_md.get("cloudy_pixel_percentage")
+        if cloud_fraction is None:
+            cloud_fraction = product_md.get("cloud_area_fraction")
 
         return {
             "geometry": geometry,
             "start_time": start_time,
             "stop_time": product_md.get("sensing_time") or start_time,
             "platform": basic.get("platform"),
-            "cloud_fraction": product_md.get("cloudy_pixel_percentage"),
+            "cloud_fraction": cloud_fraction,
         }
 
     @staticmethod
@@ -639,7 +661,7 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         data_dir = self._data_dir(collection, root=collection_root)
         stac_root = os.path.join(collection_root, "stac")
 
-        candidates = self._index_of(data_dir)
+        candidates = {n: p for n, p in self._index_of(data_dir).items() if self._is_product_file(n, collection)}
         if not candidates:
             warnings.warn(
                 f"{type(self).__name__}.harvest: no candidate product files found under {data_dir!r} "

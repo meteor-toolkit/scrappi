@@ -387,6 +387,18 @@ class TestMetadataViaEoio(unittest.TestCase):
         self.assertEqual(meta["platform"], "S2A")
         self.assertEqual(meta["cloud_fraction"], 12.0)
 
+    def test_cloud_fraction_falls_back_to_cloud_area_fraction(self):
+        """Readers other than S2 (e.g. Planet's) report cloud_area_fraction; a legitimate 0
+        must be kept, not treated as missing."""
+        geom = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
+        basic = {"platform": "251b", "product_datetime": "2025-01-08T09:26:01", "footprint": {"geometry": geom}}
+        for reported in (0, 35.0):
+            with unittest.mock.patch.dict(
+                sys.modules, _fake_eoio_modules({"X.tif": (basic, {"cloud_area_fraction": reported})})
+            ):
+                meta = self.handler._metadata_via_eoio("/archive/X.tif")
+            self.assertEqual(meta["cloud_fraction"], reported)
+
     def test_warns_and_returns_none_when_eoio_has_no_reader_for_the_product(self):
         with unittest.mock.patch.dict(sys.modules, _fake_eoio_modules({})):
             with self.assertWarns(UserWarning):
@@ -466,6 +478,71 @@ class TestBuildProductItem(unittest.TestCase):
                 "/archive/totally_unrecognised_name", "totally_unrecognised_name", "S2_MSI_L1C"
             )
         self.assertEqual(product.platform, "WEIRDSAT")
+
+
+_PLANET_ID = "20250108_092601_62_251b_3B_AnalyticMS_8b_clip"
+
+
+class TestHarvestPlanetSuperDove(unittest.TestCase):
+    """A SuperDove scene is several files (image tif, udm2 mask tif, xml, json): only the
+    8-band analytic image is a product."""
+
+    COLLECTION = "PLANET_SUPERDOVE"
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.data = os.path.join(self.root, self.COLLECTION, "data", "GONA-JAN25", "PSScene")
+        os.makedirs(self.data)
+        scene = "20250108_092601_62_251b"
+        self.files = [
+            f"{scene}_3B_AnalyticMS_8b_clip.tif",  # the product
+            f"{scene}_3B_udm2_clip.tif",
+            f"{scene}_3B_AnalyticMS_8b_metadata_clip.xml",
+            f"{scene}_metadata.json",
+            f"{scene}.json",
+            "20250109_092601_62_251b_3B_AnalyticMS_SR_8b_clip.tif",  # surface reflectance: not wanted
+        ]
+        for f in self.files:
+            open(os.path.join(self.data, f), "w").close()
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=self.root)
+        self.meta = {
+            "geometry": Polygon([(15.1, -23.6), (15.13, -23.6), (15.13, -23.59), (15.1, -23.59)]),
+            "start_time": "2025-01-08T09:26:01",
+            "platform": "251b",
+            "cloud_fraction": 0,
+        }
+
+    def test_only_the_analytic_image_is_harvested(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta) as m:
+            n = self.handler.harvest(self.COLLECTION)
+
+        self.assertEqual(n, 1)
+        m.assert_called_once()
+        self.assertTrue(m.call_args.args[0].endswith("_3B_AnalyticMS_8b_clip.tif"))
+
+    def test_item_id_has_no_tif_extension_and_platform_is_the_constellation(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest(self.COLLECTION)
+        products = self.handler.perform_query(
+            {"collection": self.COLLECTION, "start_time": datetime(2025, 1, 1), "stop_time": datetime(2025, 2, 1)}
+        )
+        self.assertEqual([p.id for p in products], [_PLANET_ID])
+        self.assertEqual(products[0].platform, "SuperDove")
+        self.assertEqual(products[0].constellation, "PlanetScope")
+
+    def test_product_resolves_to_its_tif_in_the_archive(self):
+        with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta):
+            self.handler.harvest(self.COLLECTION)
+        (product,) = self.handler.perform_query(
+            {"collection": self.COLLECTION, "start_time": datetime(2025, 1, 1), "stop_time": datetime(2025, 2, 1)}
+        )
+        path = self.handler.download_product(product)
+        self.assertEqual(os.path.basename(path), f"{_PLANET_ID}.tif")
+
+    def test_collection_without_a_pattern_still_harvests_every_file(self):
+        self.assertTrue(self.handler._is_product_file("anything.at.all", "S2_MSI_L1C"))
 
 
 class TestHarvest(unittest.TestCase):
