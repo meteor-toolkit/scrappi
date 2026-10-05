@@ -232,6 +232,27 @@ class TestBaseAPICallHandler(unittest.TestCase):
         name = "TH_CAT_22021001412034_1_1M_GOBABEB_20220209"
         self.assertEqual(dummy_api_call_handler.parse_constellation_from_name(name), "THEOS")
 
+    def test_parse_platform_from_name_planet_superdove(self):
+        """Planet scene names carry a per-satellite hex id, but the whole SuperDove
+        constellation is one platform ("SuperDove" -- what action's --platform code is)."""
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for name in (
+            "20250108_092601_62_251b",
+            "20250108_092601_62_251b_3B_AnalyticMS_8b_clip",
+            "20220401_084707_00_2477_3B_AnalyticMS_8b",
+        ):
+            self.assertEqual(dummy_api_call_handler.parse_platform_from_name(name), "SuperDove", name)
+
+    def test_parse_constellation_from_name_planet_superdove(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        name = "20250108_092601_62_251b_3B_AnalyticMS_8b_clip"
+        self.assertEqual(dummy_api_call_handler.parse_constellation_from_name(name), "PlanetScope")
+
+    def test_planet_name_pattern_does_not_swallow_other_names(self):
+        dummy_api_call_handler = self.DummyAPICallHandler(context)
+        for name in ("2025_timeseries_gobabeb", "20250108_092601_62_zzzz", "UNKNOWN_PRODUCT_ID_12345"):
+            self.assertRaises(NotImplementedError, dummy_api_call_handler.parse_platform_from_name, name)
+
 
 if __name__ == "__main__":
     unittest.main()
