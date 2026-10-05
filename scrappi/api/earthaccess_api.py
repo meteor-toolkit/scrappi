@@ -185,7 +185,10 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
             # check shape of geometry
             if "SpatialExtent" in prod_dict.keys():
-                prod_geom = unary_union(shape(granule_list[i].__geo_interface__))
+                try:
+                    prod_geom = unary_union(shape(granule_list[i].__geo_interface__))
+                except shapely.errors.GEOSException:
+                    prod_geom = unary_union([j for j in shape(granule_list[i].__geo_interface__).geoms if j.area<1])
 
             if "RelatedUrls" in prod_dict.keys():
                 url = granule_list[i].data_links()[0]
@@ -373,7 +376,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
         elif isinstance(product, ProductItem):
             path, exists = product.filesystem.return_path(product, check_exists=True)
             
-            aux_cols = self.context["earthaccess"]["auxiliary_collections"].get(product.collection, None)
+            aux_cols = self.context["earthaccess"].get("auxiliary_collections", {}).get(product.collection, None)
             if aux_cols:
                 for c in aux_cols:
                     try:

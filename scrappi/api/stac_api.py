@@ -77,6 +77,14 @@ class STACAPICallHandler(BaseAPICallHandler):
         geom_filter = query.get("geom")
         if geom_filter is not None:
             geom_filter = self._get_geom(geom_filter)
+            if isinstance(geom_filter, dict):
+                geom_filter = shapely.geometry.Polygon([
+                    (geom_filter["longitude_minimum"], geom_filter["latitude_minimum"]),
+                    (geom_filter["longitude_maximum"], geom_filter["latitude_minimum"]),
+                    (geom_filter["longitude_maximum"], geom_filter["latitude_maximum"]),
+                    (geom_filter["longitude_minimum"], geom_filter["latitude_maximum"]),
+                    (geom_filter["longitude_minimum"], geom_filter["latitude_minimum"]),
+                ])
 
         start_time = self._get_datetime(query["start_time"]) if "start_time" in query else None
         stop_time = self._get_datetime(query["stop_time"]) if "stop_time" in query else None

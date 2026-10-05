@@ -590,7 +590,10 @@ class ProductItem:
             #     projection = ax._projection_init[1]["projection"]
 
         # Draw geometry
-        geo_ax.add_geometries(self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color)
+        try:
+            geo_ax.add_geometries(self.geometry.exterior, crs=projection, alpha=0.4, color=geometry_color)
+        except AttributeError:
+            geo_ax.add_geometries([g.exterior for g in self.geometry.geoms], crs=projection, alpha=0.4, color=geometry_color)
 
         plt.tight_layout()
 
