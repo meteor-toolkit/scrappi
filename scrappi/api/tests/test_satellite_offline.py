@@ -852,9 +852,24 @@ class TestGenericProductDiscovery(unittest.TestCase):
     def test_a_recorded_location_outside_the_data_dir_is_ignored(self):
         with self.read_for, self.meta_for:
             self.handler.harvest("CONSTELLR_HIVE")
+        with open(self._item_path()) as f:
+            item = json.load(f)
+        item["properties"]["scrappi:archive_path"] = "../../../etc"
+        with open(self._item_path(), "w") as f:
+            json.dump(item, f)
+        self.handler.clear_cache()
         (p,) = self.handler.perform_query(self._query())
-        p.prod_dict["properties"]["scrappi:archive_path"] = "../../../etc"
         self.assertIsNone(self.handler._recorded_path(p, os.path.join(self.coll_dir, "data")))
+
+    def test_a_product_rebuilt_elsewhere_still_resolves_by_id(self):
+        """eomatch rebuilds products from its own catalogue (no scrappi:archive_path, possibly no
+        prod_dict) before asking the handler to download them."""
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        (p,) = self.handler.perform_query(self._query())
+        p.prod_dict = None
+        path = self.handler.download_product(p)
+        self.assertEqual(os.path.normpath(path), os.path.normpath(self.product))
 
     def test_a_non_product_directory_that_matches_a_reader_by_accident_is_searched(self):
         """eoio's factory patterns are loose (e.g. any name containing "nc"): a folder it claims,
