@@ -177,6 +177,8 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         super().clear_cache()
         self.__dict__.pop("_collections_cache", None)
         self.__dict__.pop("_collection_roots_cache", None)
+        self.__dict__.pop("_recorded_cache", None)
+        self.__dict__.pop("_recorded_scanned", None)
 
     @property
     def _configured(self) -> bool:
@@ -345,6 +347,10 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
                 product = self._load_item(item_path, collections)
                 if product is None or not compiled.matches(product):
                     continue
+                # remembered even when empty (an online download's item), so that isn't rescanned
+                self.__dict__.setdefault("_recorded_cache", {}).setdefault(product.collection, {})[product.id] = (
+                    self._read_recorded(item_path) or ""
+                )
                 self._pin_filesystem(product)
                 products.append(product)
 
@@ -403,15 +409,41 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         data_dir = os.path.join(root, "data")
         return data_dir if os.path.isdir(data_dir) else root
 
+    def _read_recorded(self, item_path: str) -> Optional[str]:
+        """The :py:data:`ARCHIVE_PATH_PROPERTY` in the STAC item json at *item_path*, if any."""
+        try:
+            with open(item_path) as f:
+                relative = (json.load(f).get("properties") or {}).get(ARCHIVE_PATH_PROPERTY)
+        except (OSError, ValueError):
+            return None
+        return str(relative) if relative else None
+
+    def _recorded_relpath(self, collection: str, pid: str) -> Optional[str]:
+        """Where :py:meth:`harvest` recorded product *pid* of *collection*, relative to the data
+        directory. Read from the item json under the collection's ``stac/`` tree -- not from the
+        :py:class:`ProductItem`, which may have been rebuilt from another catalogue (eomatch's)
+        and carry none of it. :py:meth:`perform_query` fills the cache for the products it returns;
+        otherwise one bounded walk of the collection's items fills it for all of them. Cached (see
+        :py:meth:`clear_cache`)."""
+        cache: Dict[str, Dict[str, str]] = self.__dict__.setdefault("_recorded_cache", {})
+        scanned: Set[str] = self.__dict__.setdefault("_recorded_scanned", set())
+        known = cache.setdefault(collection, {})
+        if pid not in known and collection not in scanned:
+            stac_dir = os.path.join(self._collection_root(collection), "stac", collection)
+            for item_path in self._stac_item_paths(stac_dir):
+                relative = self._read_recorded(item_path)
+                if relative:
+                    known[os.path.basename(item_path)[: -len(".json")]] = relative
+            scanned.add(collection)
+        return known.get(pid) or None
+
     def _recorded_path(self, product: ProductItem, data_dir: str) -> Optional[str]:
-        """The location :py:meth:`harvest` recorded in *product*'s STAC item
-        (:py:data:`ARCHIVE_PATH_PROPERTY`), if it is set, stays inside *data_dir* and
-        still exists; else ``None``."""
-        properties = (product.prod_dict or {}).get("properties") or {}
-        relative = properties.get(ARCHIVE_PATH_PROPERTY)
+        """The location :py:meth:`harvest` recorded for *product* (see :py:meth:`_recorded_relpath`),
+        if there is one, it stays inside *data_dir* and it still exists; else ``None``."""
+        relative = self._recorded_relpath(getattr(product, "collection", None) or "", product.id)
         if not relative:
             return None
-        path = os.path.normpath(os.path.join(data_dir, *str(relative).split("/")))
+        path = os.path.normpath(os.path.join(data_dir, *relative.split("/")))
         inside = os.path.commonpath([os.path.abspath(path), os.path.abspath(data_dir)]) == os.path.abspath(data_dir)
         return path if inside and os.path.exists(path) else None
 
