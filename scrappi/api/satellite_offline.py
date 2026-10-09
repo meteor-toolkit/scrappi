@@ -38,6 +38,13 @@ acquisition time, no raster access -- so harvesting one product is a small,
 bounded cost, but it is still a per-product cost, which is exactly why it happens
 once (:py:meth:`harvest`) rather than on every :py:meth:`perform_query`.
 
+Which entries of a data directory are products is not configured per collection either:
+:py:meth:`harvest` asks eoio's reader factory (:py:meth:`_has_eoio_reader`), so a file or a
+plain directory that eoio can read is a product -- a directory is one product, its contents
+are not walked -- and anything else is ignored. Each item records the product's location
+relative to the data directory (:py:data:`ARCHIVE_PATH_PROPERTY`), so a query resolves it
+exactly instead of guessing an on-disk name from the id.
+
 Before reaching for eoio, :py:meth:`_fast_metadata_from_name` gets first refusal:
 a hook for a mission-specific *filename-only* parse (no file read at all), the
 same shape as the in-situ offline handlers deriving everything from a filename
@@ -91,7 +98,6 @@ from __future__ import annotations
 import glob
 import json
 import os
-import re
 import warnings
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -106,6 +112,12 @@ __all__ = ["SatelliteOfflineCallHandler"]
 
 #: json filenames that are catalogue nodes, not product items
 _NON_ITEM_JSON = frozenset({"catalog.json", "collection.json"})
+
+#: STAC item property harvest records a product's location in: its path relative to the
+#: collection's data directory (POSIX separators), whatever the product is -- a file, an
+#: extracted directory with or without a ``.SAFE``-style suffix. Queries resolve a product by
+#: this rather than by guessing an on-disk name from its id.
+ARCHIVE_PATH_PROPERTY = "scrappi:archive_path"
 
 
 def _collection_of(item_path: str) -> Optional[str]:
@@ -151,17 +163,6 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
     #: a STAC item id is the product name without an extension; on disk the data
     #: may carry one of these (never ``.json`` -- that's the item sidecar).
     PRODUCT_NAME_SUFFIXES: Tuple[str, ...] = (".SAFE", ".SEN3", ".zip", ".nc", ".tar.gz", ".tar", ".tif")
-
-    #: collection -> regex (matched against a file's bare name) that a file must match to be a
-    #: product *to harvest*. :py:meth:`harvest` indexes every file under a collection's data
-    #: directory, which for a collection delivered as several files per product (e.g. Planet
-    #: SuperDove: image tif + udm2 mask tif + xml + json) would otherwise try, and warn about,
-    #: each sidecar. A collection not listed here treats every file as a candidate, as before.
-    PRODUCT_FILE_PATTERNS: Dict[str, "re.Pattern[str]"] = {
-        # the 8-band analytic image only -- clipped or full scene, not the surface-reflectance
-        # ("AnalyticMS_SR_8b") variant, the udm2 mask, or any sidecar
-        "PLANET_SUPERDOVE": re.compile(r"^\d{8}_\d{6}_\d{2}_[0-9a-f]{4}_3B_AnalyticMS_8b(?:_clip)?\.tif\Z"),
-    }
 
     def _default_archive_path(self) -> str:
         """No built-in default -- there is no sensible NPL-wide "all satellite
@@ -402,29 +403,72 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         data_dir = os.path.join(root, "data")
         return data_dir if os.path.isdir(data_dir) else root
 
-    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
-        """Locate *product*'s data file, scoped to its collection's data subtree
-        rather than the whole archive. Matching (bare id, id + a container suffix
-        from :py:data:`PRODUCT_NAME_SUFFIXES`, ``.SAFE`` / ``.SEN3`` directories) is
-        the base's
-        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_in_index`.
+    def _recorded_path(self, product: ProductItem, data_dir: str) -> Optional[str]:
+        """The location :py:meth:`harvest` recorded in *product*'s STAC item
+        (:py:data:`ARCHIVE_PATH_PROPERTY`), if it is set, stays inside *data_dir* and
+        still exists; else ``None``."""
+        properties = (product.prod_dict or {}).get("properties") or {}
+        relative = properties.get(ARCHIVE_PATH_PROPERTY)
+        if not relative:
+            return None
+        path = os.path.normpath(os.path.join(data_dir, *str(relative).split("/")))
+        inside = os.path.commonpath([os.path.abspath(path), os.path.abspath(data_dir)]) == os.path.abspath(data_dir)
+        return path if inside and os.path.exists(path) else None
 
-        TODO: if a real archive's id <-> on-disk-name mapping needs more than the
-        suffix logic, resolve via the STAC item's ``data`` asset href instead.
+    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
+        """Locate *product*'s data file or directory, scoped to its collection's data
+        subtree rather than the whole archive.
+
+        First the location :py:meth:`harvest` recorded in the product's STAC item
+        (:py:data:`ARCHIVE_PATH_PROPERTY`) -- exact for any product layout, and no walk
+        of the archive. Items without it (written by an online download, or by an older
+        harvest) fall back to name matching: bare id, id + a container suffix from
+        :py:data:`PRODUCT_NAME_SUFFIXES`, ``.SAFE`` / ``.SEN3`` directories
+        (the base's
+        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_in_index`).
         """
         collection = getattr(product, "collection", None)
-        return self._resolve_in_index(product, self._index_of(self._data_dir(collection)))
+        data_dir = self._data_dir(collection)
+        recorded = self._recorded_path(product, data_dir)
+        if recorded is not None:
+            return recorded
+        return self._resolve_in_index(product, self._index_of(data_dir))
 
     # download_product is inherited from OfflineArchiveHandler: it calls
     # _archive_path_for (above), re-pins product.filesystem via _flat_filesystem
     # (carrying ARCHIVE_READ_ONLY), and returns the path -- no network.
 
     # ------------------------------------------------------------------ harvest
-    def _is_product_file(self, name: str, collection: str) -> bool:
-        """Whether the on-disk file *name* is a product :py:meth:`harvest` should build a STAC
-        item for -- see :py:data:`PRODUCT_FILE_PATTERNS`."""
-        pattern = self.PRODUCT_FILE_PATTERNS.get(collection)
-        return pattern is None or bool(pattern.match(name))
+    def _has_eoio_reader(self, name: str) -> bool:
+        """Whether eoio has a reader for a product called *name* -- the single source of truth for
+        which products exist, so a new mission needs no edit here once eoio can read it. Decided
+        from the name alone (eoio's reader factory), without opening anything.
+
+        :raises ImportError: eoio isn't installed -- ``pip install 'scrappi[satellite_offline]'``.
+        """
+        try:
+            from eoio.readers.factory import ReaderFactory
+        except ImportError as exc:
+            raise ImportError(
+                "eoio is required to harvest an archive: it decides which files and directories are "
+                "products. Install it with: pip install 'scrappi[satellite_offline]'"
+            ) from exc
+        try:
+            ReaderFactory.get_reader(name)
+        except ValueError:  # the factory's "no known product format"
+            return False
+        except Exception as exc:  # a reader that cannot be imported; don't let it abort the batch
+            warnings.warn(f"{type(self).__name__}: eoio reader lookup for {name!r} failed: {exc}")
+            return False
+        return True
+
+    def _is_product(self, name: str, is_dir: bool) -> bool:
+        """Whether the on-disk entry *name* is a product :py:meth:`harvest` should build a STAC
+        item for: a ``.SAFE``-style container directory (no eoio needed to say so), or anything
+        eoio has a reader for -- see :py:meth:`_has_eoio_reader`."""
+        if is_dir and name.endswith(self.INDEX_DIRECTORY_SUFFIXES):
+            return True
+        return self._has_eoio_reader(name)
 
     def _strip_container_suffix(self, name: str) -> str:
         """*name* with a single trailing :py:data:`PRODUCT_NAME_SUFFIXES` entry
@@ -503,6 +547,7 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             "start_time": start_time,
             "stop_time": product_md.get("sensing_time") or start_time,
             "platform": basic.get("platform"),
+            "constellation": basic.get("constellation"),
             "cloud_fraction": cloud_fraction,
         }
 
@@ -535,12 +580,9 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         except NotImplementedError:
             platform = meta.get("platform") or ""
         try:
-            # no metadata source here reports a constellation (distinct from
-            # platform) to fall back to -- unlike platform above, this can only
-            # ever come from the name.
             constellation = self.parse_constellation_from_name(pid)
         except NotImplementedError:
-            constellation = ""
+            constellation = meta.get("constellation") or ""
 
         return ProductItem(
             constellation=constellation,
@@ -556,14 +598,17 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
             context=self.context,
         )
 
-    def _write_stac_item(self, product: ProductItem, item_path: str, source_path: str) -> None:
+    def _write_stac_item(self, product: ProductItem, item_path: str, source_path: str, data_dir: str) -> None:
         """Write *product* as a STAC item json at *item_path*. The item is built
         via a flat filesystem pinned to *source_path*'s own directory (so its asset
         href resolves correctly there), independent of where *item_path* itself
         sits -- :py:meth:`_pin_filesystem` re-locates the data file by id at query
-        time regardless, so that href is informational, not load-bearing."""
+        time regardless, so that href is informational, not load-bearing. What a query
+        does rely on is the :py:data:`ARCHIVE_PATH_PROPERTY` recorded here, relative to
+        *data_dir*."""
         fs = self._flat_filesystem(os.path.dirname(source_path), read_only=True)
         item = product.to_new_stac_item(fs)
+        item.properties[ARCHIVE_PATH_PROPERTY] = os.path.relpath(source_path, data_dir).replace(os.sep, "/")
         os.makedirs(os.path.dirname(item_path), exist_ok=True)
         item.save_object(dest_href=item_path)
 
@@ -606,9 +651,11 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
 
         A one-off (or periodically re-run) maintenance step -- **not** run
         automatically during :py:meth:`perform_query`, which only ever reads an
-        already-built index; see the module docstring. May import ``eoio`` (lazily,
-        only for a product :py:meth:`_fast_metadata_from_name` can't handle) --
-        install with ``pip install 'scrappi[satellite_offline]'``.
+        already-built index; see the module docstring. Imports ``eoio`` lazily, to
+        recognise which entries are products and (unless
+        :py:meth:`_fast_metadata_from_name` can answer) to read their metadata --
+        install with ``pip install 'scrappi[satellite_offline]'``. Re-harvesting an
+        archive whose products all have items already does not need it.
 
         Deliberately bypasses :py:data:`~scrappi.api.offlinebase.OfflineArchiveHandler.ARCHIVE_READ_ONLY`:
         writing the STAC tree is this method's entire job, an explicit call the
@@ -661,14 +708,6 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         data_dir = self._data_dir(collection, root=collection_root)
         stac_root = os.path.join(collection_root, "stac")
 
-        candidates = {n: p for n, p in self._index_of(data_dir).items() if self._is_product_file(n, collection)}
-        if not candidates:
-            warnings.warn(
-                f"{type(self).__name__}.harvest: no candidate product files found under {data_dir!r} "
-                f"for collection {collection!r} -- nothing to harvest"
-            )
-            return 0
-
         # id -> path of every STAC item *this collection* already has, wherever it
         # sits within stac_root/<collection>/ (flat, or an online download's
         # organised/dated layout) -- one bounded walk, reused as both the "already
@@ -682,26 +721,79 @@ class SatelliteOfflineCallHandler(OfflineArchiveHandler):
         }
 
         sample_product: Optional[ProductItem] = None
-        n = 0
+        n = 0  # items written
+        found = 0  # products recognised, whether or not they needed an item
+        seen: Set[str] = set()
+        eoio_missing: Optional[ImportError] = None
+
+        def handle(name: str, path: str, is_dir: bool) -> bool:
+            """Harvest the entry *path* if it is a product. Returns ``False`` only when the
+            walk should look inside it instead: a directory that is not a product, or whose
+            metadata could not be read (a directory name can match a reader's pattern by
+            accident)."""
+            nonlocal sample_product, n, found, eoio_missing
+            pid = self._strip_container_suffix(name)
+            if pid in seen:
+                return True  # same product twice in the archive -- the first one wins
+            existing_item_path = existing_items.get(pid)
+            if existing_item_path is not None and not overwrite:
+                seen.add(pid)
+                found += 1
+                return True
+            try:
+                is_product = self._is_product(name, is_dir)
+            except ImportError as exc:  # can't tell what is a product; reported once the walk is done
+                eoio_missing = exc
+                return False
+            if not is_product:
+                return False
+            seen.add(pid)
+            found += 1
+            # a .SAFE-style container is opaque; any other directory is searched if it yields nothing
+            descend = is_dir and not name.endswith(self.INDEX_DIRECTORY_SUFFIXES)
+
+            try:
+                product = self._build_product_item(path, pid, collection)
+            except Exception as exc:
+                warnings.warn(f"{type(self).__name__}.harvest: could not extract metadata for {path!r}: {exc}")
+                return not descend
+            if product is None:
+                return not descend
+
+            item_path = existing_item_path or os.path.join(stac_root, collection, "items", f"{pid}.json")
+            self._write_stac_item(product, item_path, path, data_dir)  # not caught -- see docstring
+            sample_product = sample_product or product
+            n += 1
+            return True
+
         try:
-            for name, path in candidates.items():
-                pid = self._strip_container_suffix(name)
-                existing_item_path = existing_items.get(pid)
-                if existing_item_path is not None and not overwrite:
-                    continue
-
+            pending = [data_dir]
+            while pending:
+                directory = pending.pop(0)
                 try:
-                    product = self._build_product_item(path, pid, collection)
-                except Exception as exc:
-                    warnings.warn(f"{type(self).__name__}.harvest: could not extract metadata for {path!r}: {exc}")
+                    entries = sorted(os.scandir(directory), key=lambda e: e.name)
+                except OSError:
                     continue
-                if product is None:
-                    continue
-
-                item_path = existing_item_path or os.path.join(stac_root, collection, "items", f"{pid}.json")
-                self._write_stac_item(product, item_path, path)  # not caught -- see docstring
-                sample_product = sample_product or product
-                n += 1
+                for entry in entries:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    if is_dir and entry.name in self.INDEX_EXCLUDE_DIRNAMES:
+                        continue
+                    if not (is_dir or entry.is_file()):
+                        continue
+                    if not handle(entry.name, entry.path, is_dir) and is_dir:
+                        pending.append(entry.path)
+            if eoio_missing is not None:
+                if not found:
+                    raise eoio_missing
+                warnings.warn(
+                    f"{type(self).__name__}.harvest: eoio is not installed, so products without a STAC item "
+                    f"yet could not be recognised under {data_dir!r} (already-harvested ones are unaffected)"
+                )
+            elif not found:
+                warnings.warn(
+                    f"{type(self).__name__}.harvest: no product eoio can read found under {data_dir!r} "
+                    f"for collection {collection!r} -- nothing to harvest"
+                )
         finally:
             if sample_product is not None:
                 self._ensure_collection_json(collection, stac_root, sample_product)
