@@ -180,6 +180,19 @@ and only then build a filesystem for the survivors. Configuration:
   multi-terabyte shared archive;
 * ``list_collections`` reads ``stac/*/collection.json`` (a bounded glob, cached),
   not a recursive walk -- it runs on every ``get_api_name`` probe;
+* ``harvest`` needs no per-collection configuration: a file or directory in the data
+  tree is a product if eoio's ``ReaderFactory`` has a reader for its name (decided
+  from the name alone, nothing is opened), and a matching directory is one product
+  whose contents are not walked -- so a mission delivered as a plain directory
+  (constellr ``HIVE_L1C_*``) or as several files per product (Planet: image, mask,
+  xml) is handled once eoio can read it. Anything eoio has no reader for is skipped
+  silently. The factory's patterns are loose, so a directory it claims but whose
+  metadata cannot be read is searched instead of skipped. Platform and constellation
+  come from the product name when ``parse_platform_from_name`` recognises it, else from
+  eoio's metadata. Each harvested item records where the product is
+  (``scrappi:archive_path``, relative to the data directory), which is what
+  ``_archive_path_for`` resolves first; items without it fall back to name matching.
+  eoio is only needed to harvest products that have no item yet;
 * ``INDEX_DIRECTORY_SUFFIXES = (".SAFE", ".SEN3")`` -- extracted scenes are
   whole-product directories; ``PRODUCT_NAME_SUFFIXES`` -- the extensions a scene's
   data may carry that its STAC id does not (never ``.json``);

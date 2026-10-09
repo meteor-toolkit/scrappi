@@ -8,6 +8,7 @@ query / download / to_stac_item flow.
 import json
 import math
 import os
+import re
 import sys
 import types
 import unittest
@@ -485,7 +486,7 @@ _PLANET_ID = "20250108_092601_62_251b_3B_AnalyticMS_8b_clip"
 
 class TestHarvestPlanetSuperDove(unittest.TestCase):
     """A SuperDove scene is several files (image tif, udm2 mask tif, xml, json): only the
-    8-band analytic image is a product."""
+    8-band analytic image is a product -- eoio's reader factory says which, nothing here does."""
 
     COLLECTION = "PLANET_SUPERDOVE"
 
@@ -502,7 +503,6 @@ class TestHarvestPlanetSuperDove(unittest.TestCase):
             f"{scene}_3B_AnalyticMS_8b_metadata_clip.xml",
             f"{scene}_metadata.json",
             f"{scene}.json",
-            "20250109_092601_62_251b_3B_AnalyticMS_SR_8b_clip.tif",  # surface reflectance: not wanted
         ]
         for f in self.files:
             open(os.path.join(self.data, f), "w").close()
@@ -513,6 +513,14 @@ class TestHarvestPlanetSuperDove(unittest.TestCase):
             "platform": "251b",
             "cloud_fraction": 0,
         }
+        # eoio's planetscope pattern (eoio.readers.factory)
+        self.reader_for = unittest.mock.patch.object(
+            self.handler,
+            "_has_eoio_reader",
+            side_effect=lambda name: bool(re.search(r".*AnalyticMS.*8b.*.tif\Z", name)),
+        )
+        self.reader_for.start()
+        self.addCleanup(self.reader_for.stop)
 
     def test_only_the_analytic_image_is_harvested(self):
         with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta) as m:
@@ -540,9 +548,6 @@ class TestHarvestPlanetSuperDove(unittest.TestCase):
         )
         path = self.handler.download_product(product)
         self.assertEqual(os.path.basename(path), f"{_PLANET_ID}.tif")
-
-    def test_collection_without_a_pattern_still_harvests_every_file(self):
-        self.assertTrue(self.handler._is_product_file("anything.at.all", "S2_MSI_L1C"))
 
 
 class TestHarvest(unittest.TestCase):
@@ -778,6 +783,139 @@ class TestHarvestWithoutASeparateDataSubdirectory(unittest.TestCase):
         ):
             n_second = self.handler.harvest("S2_MSI_L1C")
         self.assertEqual(n_second, 0)
+
+
+_HIVE_ID = "HIVE_L1C_SBA02_20260703T115605Z_A715C2314D_20260903T142658Z"
+
+
+class TestGenericProductDiscovery(unittest.TestCase):
+    """harvest() decides what a product is by asking eoio (not a per-collection table), and records
+    where it found it so a query resolves it exactly -- whatever the product's layout."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        self.coll_dir = os.path.join(self.root, "CONSTELLR_HIVE")
+        self.site_dir = os.path.join(self.coll_dir, "data", "gobabeb")
+        self.product = os.path.join(self.site_dir, _HIVE_ID)  # a plain directory: no .SAFE-style suffix
+        os.makedirs(self.product)
+        for name in ("vnir02.tiff", "vnir02_qa.tiff", "metadata.json"):
+            open(os.path.join(self.product, name), "w").close()
+        self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path=self.root)
+        self.meta = {
+            "geometry": Polygon([(0, 0), (2, 0), (2, 2), (0, 2)]),
+            "start_time": "2026-07-03T11:56:05",
+            "platform": "Skybee",
+            "constellation": "HIVE",
+            "cloud_fraction": 60.1,
+        }
+        self.read_for = unittest.mock.patch.object(
+            self.handler, "_has_eoio_reader", side_effect=lambda name: name.startswith("HIVE_L1C_")
+        )
+        self.meta_for = unittest.mock.patch.object(self.handler, "_metadata_via_eoio", return_value=self.meta)
+
+    def _query(self):
+        return {"collection": "CONSTELLR_HIVE", "start_time": datetime(2026, 7, 1), "stop_time": datetime(2026, 7, 31)}
+
+    def _item_path(self):
+        return os.path.join(self.coll_dir, "stac", "CONSTELLR_HIVE", "items", f"{_HIVE_ID}.json")
+
+    def test_a_directory_product_is_one_product_not_its_files(self):
+        with self.read_for, self.meta_for as read_meta:
+            n = self.handler.harvest("CONSTELLR_HIVE")
+        self.assertEqual(n, 1)
+        self.assertEqual([c.args[0] for c in read_meta.call_args_list], [self.product])
+        self.assertTrue(os.path.exists(self._item_path()))
+
+    def test_platform_and_constellation_come_from_eoio_when_the_name_is_not_recognised(self):
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        (p,) = self.handler.perform_query(self._query())
+        self.assertEqual((p.platform, p.constellation), ("Skybee", "HIVE"))
+        self.assertEqual(p.cloud_fraction, 60.1)
+
+    def test_item_records_the_product_location_relative_to_the_data_dir(self):
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        with open(self._item_path()) as f:
+            self.assertEqual(json.load(f)["properties"]["scrappi:archive_path"], f"gobabeb/{_HIVE_ID}")
+
+    def test_download_resolves_the_directory_from_the_recorded_location(self):
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        (p,) = self.handler.perform_query(self._query())
+        with unittest.mock.patch.object(self.handler, "_index_of", side_effect=AssertionError("walked")):
+            path = self.handler.download_product(p)
+        self.assertEqual(os.path.normpath(path), os.path.normpath(self.product))
+
+    def test_a_recorded_location_outside_the_data_dir_is_ignored(self):
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        (p,) = self.handler.perform_query(self._query())
+        p.prod_dict["properties"]["scrappi:archive_path"] = "../../../etc"
+        self.assertIsNone(self.handler._recorded_path(p, os.path.join(self.coll_dir, "data")))
+
+    def test_a_non_product_directory_that_matches_a_reader_by_accident_is_searched(self):
+        """eoio's factory patterns are loose (e.g. any name containing "nc"): a folder it claims,
+        whose metadata can't be read, is walked into rather than skipped with its contents."""
+        wrapper = os.path.join(self.coll_dir, "data", "lancaster")
+        os.makedirs(wrapper)
+        os.rename(self.site_dir, os.path.join(wrapper, "gobabeb"))
+        has_reader = lambda name: name.startswith("HIVE_L1C_") or name == "lancaster"  # noqa: E731
+
+        def meta_for(path):
+            return self.meta if os.path.basename(path).startswith("HIVE_L1C_") else None
+
+        with unittest.mock.patch.object(self.handler, "_has_eoio_reader", side_effect=has_reader):
+            with unittest.mock.patch.object(self.handler, "_metadata_via_eoio", side_effect=meta_for):
+                n = self.handler.harvest("CONSTELLR_HIVE")
+        self.assertEqual(n, 1)
+
+    def test_files_and_directories_eoio_has_no_reader_for_are_ignored_silently(self):
+        open(os.path.join(self.site_dir, "notes.txt"), "w").close()
+        os.makedirs(os.path.join(self.site_dir, "scratch"))
+        with self.read_for, self.meta_for as read_meta:
+            with unittest.mock.patch("warnings.warn") as warn:
+                n = self.handler.harvest("CONSTELLR_HIVE")
+        self.assertEqual(n, 1)
+        self.assertEqual(read_meta.call_count, 1)
+        warn.assert_not_called()
+
+    def test_a_file_product_is_found_too(self):
+        os.rename(self.product, os.path.join(self.site_dir, "scene_x"))
+        scene = os.path.join(self.site_dir, "SCENE_1_8b.tif")
+        open(scene, "w").close()
+        with unittest.mock.patch.object(self.handler, "_has_eoio_reader", side_effect=lambda n: n.endswith("8b.tif")):
+            with self.meta_for:
+                n = self.handler.harvest("CONSTELLR_HIVE")
+        self.assertEqual(n, 1)
+        (p,) = self.handler.perform_query(self._query())
+        self.assertEqual(os.path.normpath(self.handler.download_product(p)), os.path.normpath(scene))
+
+    def test_nothing_eoio_can_read_warns(self):
+        with unittest.mock.patch.object(self.handler, "_has_eoio_reader", return_value=False):
+            with self.assertWarns(UserWarning):
+                self.assertEqual(self.handler.harvest("CONSTELLR_HIVE"), 0)
+
+    def test_reharvest_does_not_need_eoio(self):
+        with self.read_for, self.meta_for:
+            self.handler.harvest("CONSTELLR_HIVE")
+        with unittest.mock.patch.dict(sys.modules, {"eoio": None, "eoio.readers": None, "eoio.readers.factory": None}):
+            self.assertEqual(self.handler.harvest("CONSTELLR_HIVE"), 0)
+
+    def test_missing_eoio_is_a_clear_import_error(self):
+        with unittest.mock.patch.dict(sys.modules, {"eoio": None, "eoio.readers": None, "eoio.readers.factory": None}):
+            with self.assertRaisesRegex(ImportError, "scrappi\\[satellite_offline\\]"):
+                self.handler.harvest("CONSTELLR_HIVE")
+
+    def test_uses_eoios_own_reader_factory(self):
+        try:
+            from eoio.readers.factory import ReaderFactory  # noqa: F401
+        except ImportError:
+            self.skipTest("eoio not installed")
+        self.assertTrue(self.handler._has_eoio_reader(f"{_S2_ID}.SAFE"))
+        self.assertFalse(self.handler._has_eoio_reader("notes.txt"))
 
 
 if __name__ == "__main__":
