@@ -10,12 +10,12 @@ example_download_path = os.path.join(
     os.path.dirname(__file__),
     "downloaded_data",
 )
-file_system = make_fs(example_download_path)
+file_system = make_fs("t-drive")
 context = ScrappiContext()
 
 if __name__ == "__main__":
-    start = "2025-11-01T00:00:00"
-    end = "2025-11-02T00:00:00"
+    start = "2026-10-04T00:00:00"
+    end = "2026-10-05T00:00:00"
     context["api"]["preferred_api"] = "insif"
 
     query = {

@@ -13,6 +13,9 @@ from typing import Any, Dict, Optional, Union, List
 from processor_tools import Context
 import numpy as np
 import warnings
+import xarray as xr
+import pandas as pd
+from pathlib import Path
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
@@ -75,8 +78,6 @@ class INSIFCallHandler(InSituCallHandler):
                                 server_port=server_port)
             geodb.whoami
 
-            print(list(geodb.get_my_collections(self.DATABASE)["collection"]))
-
             self.api = geodb
             
         except Exception as e:  # pragma: no cover - environment dependent
@@ -138,6 +139,8 @@ class INSIFCallHandler(InSituCallHandler):
 
         if flox_sn is None:
             raise ValueError("No collection or site provided in query")
+        if not isinstance(flox_sn, list):
+            flox_sn = [flox_sn]
 
         if "collection" in query:
             if query["collection"] == "INSIF_RADIRRREF" or query["collection"] == "INSIF_RAD" or query["collection"] == "INSIF_IRR" or query["collection"] == "INSIF_REF":
@@ -174,6 +177,31 @@ class INSIFCallHandler(InSituCallHandler):
             raise NotImplementedError("Multiple flox_sn ({}) found for site {} within query period. This functionality is not yet implemented. please separate your query by date or flox_sn.".format(flox_sn_list, site))
         return flox_sn_list
 
+    def get_site_from_flox_sn(self, flox_sn, start_time=None, stop_time=None):
+        """
+        Function to extract site from flox_sn
+
+        :param flox_sn: flox_sn identifier
+        :param start_time: optional start time for the query
+        :param stop_time: optional stop time for the query
+        :return: site identifier
+        """
+        if flox_sn not in self.site_meta:
+            raise ValueError("No site found for flox_sn {}".format(flox_sn))
+        
+        site_periods = self.site_meta[flox_sn]
+        matching_sites = []
+        for site_data in site_periods:
+            if self.check_datetime_overlap(site_data, start_time, stop_time):
+                matching_sites.append(site_data["site_id"])
+        
+        if len(matching_sites) == 0:
+            raise ValueError("No site found for flox_sn {} within query period".format(flox_sn))
+        elif len(matching_sites) > 1:
+            raise NotImplementedError("Multiple sites ({}) found for flox_sn {} within query period. This functionality is not yet implemented. please separate your query by date or site.".format(matching_sites, flox_sn))
+        
+        return matching_sites[0]
+
     # def _get_product_type(self, query_collection: str) -> tuple:
     #     """
     #     Get the product type associated with collection.
@@ -207,7 +235,7 @@ class INSIFCallHandler(InSituCallHandler):
         for col in list(self.api.get_my_collections(self.DATABASE)["collection"]):
              if col.endswith("-raw"):
                 md = self.api.get_metadata(collection=col, database=self.DATABASE)
-                sites[col.split("-")[0]] = [{"site_id": col, "site_name": col, "spatial_extent": md.spatial_extent, "start_date": "2026-09-01", "end_date": None}]
+                sites[col[:-4]] = [{"site_id": col[:-4], "site_name": col[:-4], "spatial_extent": md.spatial_extent, "start_date": "2023-09-01", "end_date": None}]
 
         return sites
 
@@ -369,6 +397,11 @@ class INSIFCallHandler(InSituCallHandler):
                     'refl_unc_random', 'refl_unc_system_corrle',
                     'refl_unc_system_indeple', 'utc_time', 'wavelength',
                     'wavelength_unc']
+                    # return ['idx_id',
+                    # 'inc_rad_f_unc',
+                    # 'inc_rad_unc',
+                    # 'refl_f_unc', 'refl_rad_f_unc', 'refl_rad_unc', 'refl_unc',
+                    # 'utc_time', 'wavelength']
         elif collection=="INSIF_RAD":
                     return ['idx_id',
                     'inc_rad_f_unc_random', 'inc_rad_f_unc_system_corrle',
@@ -444,7 +477,11 @@ class INSIFCallHandler(InSituCallHandler):
         else:
             raise ValueError("Collection not recognised")
 
-    def _perform_query(self, query):
+    def _perform_query(self, query)-> Any:
+        """internal function to perform query and return results as pandas dataframe
+        :param query: catalogue query
+        :returns: pandas dataframe with results
+        """
         variables_str = "utc_time, geometry"
 
         where_str = ""
@@ -462,7 +499,7 @@ class INSIFCallHandler(InSituCallHandler):
                                       select=variables_str,
                                       where=where_str,
                                       database=self.DATABASE)
-                results = results.append(results_temp, ignore_index=True)
+                results = results.merge(results_temp, on="utc_time", how="left")
             
         return results
 
@@ -482,6 +519,9 @@ class INSIFCallHandler(InSituCallHandler):
 
         insif_results = self._perform_query(query)
 
+        if "site" not in query.keys():
+            query["site"] = self.get_site_from_flox_sn(query["flox_sn"], query.get("start_time"), query.get("stop_time"))
+        
         #convert geometry to be the intersection of the geometries in the results
         geometry_shapely = shapely.ops.unary_union(insif_results["geometry"]) 
         start_time=self._get_datetime(insif_results["utc_time"].min())
@@ -529,12 +569,25 @@ class INSIFCallHandler(InSituCallHandler):
         where_str = ""
         where_str = "utc_time > '%s'::timestamp AND utc_time < '%s'::timestamp"%(query["start_time"],query["stop_time"])
 
-        insif_collection = self.get_insif_collection_from_query(query)
+        insif_collection = self.get_insif_collections_from_query(query)[0]
 
         results = self.api.get_collection_pg(insif_collection,
                                         select=variables_str,
                                         where=where_str,
+                                        limit=500,
                                         database=self.DATABASE)
+        n=1
+        while True:
+            results_add = self.api.get_collection_pg(insif_collection,
+                                                    select=variables_str,
+                                                    where=where_str,
+                                                    limit=500,
+                                                    offset=n*len(results),
+                                                    database=self.DATABASE)
+            if results_add is None or len(results_add) == 0:
+                break
+            results = results.merge(results_add, on="utc_time", how="left")
+            n+=1
 
         if self.context["insif"]["include_uncertainty"]:  
             if "variables" not in query:
@@ -547,7 +600,21 @@ class INSIFCallHandler(InSituCallHandler):
             results_unc = self.api.get_collection_pg(insif_collection+"-unc",
                                         select=variables_str,
                                         where=where_str,
+                                        limit=500,
                                         database=self.DATABASE)
+
+            n=1
+            while True:
+                results_add = self.api.get_collection_pg(insif_collection+"-unc",
+                                                        select=variables_str,
+                                                        where=where_str,
+                                                        limit=500,
+                                                        offset=n*len(results_unc),
+                                                        database=self.DATABASE)
+                if results_add is None or len(results_add) == 0:
+                    break
+                results_unc = results_unc.merge(results_add, on="utc_time", how="left")
+                n+=1
             # append results pandas dataframe with results_unc pandas dataframe
             if results_unc is not None and len(results_unc) > 0:
                 results = results.merge(results_unc, on="utc_time", how="left")
@@ -556,48 +623,217 @@ class INSIFCallHandler(InSituCallHandler):
         return self.make_xarray_dataset(results)
 
     def make_xarray_dataset(self, results):
-        """
-        Convert the results of a query to an xarray dataset
+        """Build an xarray dataset directly from the dataframe columns.
 
-        :param results: results of a query
-        :return: xarray datasetl
+        The dataset schema is not loaded from the NetCDF template anymore. Instead,
+        every variable present in the results dataframe is kept as a data variable,
+        and the variable attributes are set from a small hard-coded registry based on
+        the canonical INSIF template metadata. Missing ``err_corr`` variables are
+        appended automatically as ones.
         """
-        import xarray as xr
-        import pandas as pd
+        if results is None or results.empty:
+            raise ValueError("No INSIF records available for the selected query window.")
 
         df = results.copy()
-        df = df.drop(columns=["geometry"])
+        if "geometry" in df.columns:
+            df = df.drop(columns=["geometry"])
+        if "utc_time" not in df.columns:
+            raise ValueError("INSIF results must include a utc_time column.")
 
-        # Ensure utc_time is the DataFrame index so xarray treats it as the
-        # primary dimension/coordinate (avoids ambiguity where 'utc_time' could
-        # otherwise appear both as a data variable and as a coordinate).
-        if "utc_time" in df.columns:
-            df = df.set_index("utc_time")
+        df = df.dropna(subset=["utc_time"]).copy()
+        if df.empty:
+            raise ValueError("INSIF results contain no valid utc_time values.")
 
-        ds = xr.Dataset.from_dataframe(df)
+        df["utc_time"] = pd.to_datetime(df["utc_time"], errors="coerce")
+        df = df.dropna(subset=["utc_time"]).copy()
+        if df.empty:
+            raise ValueError("INSIF results contain no valid utc_time values.")
 
-        # If a data variable named 'utc_time' still exists, promote it to a
-        # coordinate to avoid xarray merge ambiguity.
-        if "utc_time" not in ds.coords and "utc_time" in ds.data_vars:
-            ds = ds.set_coords("utc_time")
+        time_values = (pd.to_datetime(df["utc_time"], utc=True).astype("int64") // 1_000_000_000).astype(np.int64)
 
-        ds = ds.assign_coords(utc_time=np.array([convert_datetime(t) for t in ds["utc_time"].values],dtype="datetime64[ns]"))
+        variable_attrs = {
+            "inc_rad": {"long_name": "Incoming (downwelling) radiance for FLUO sensor", "standard_name": "incoming_radiance_fluo", "units": "W m^-2 nm", "unc_comps": ["inc_rad_unc_random", "inc_rad_unc_system_indeple", "inc_rad_unc_system_corrle"]},
+            "refl_rad": {"long_name": "Reflected (upwelling) radiance for FLUO sensor", "standard_name": "reflected_radiance_fluo", "units": "W m^-2 nm sr^-1", "unc_comps": ["refl_rad_unc_random", "refl_rad_unc_system_indeple", "refl_rad_unc_system_corrle"]},
+            "refl": {"long_name": "Apparent reflectance for FLUO sensor", "standard_name": "apparent_reflectance_fluo", "units": "", "unc_comps": ["refl_unc_random", "refl_unc_systematic"]},
+            "inc_rad_f": {"long_name": "Incoming (downwelling) radiance for FULL sensor", "standard_name": "incoming_radiance_full", "units": "W m^-2 nm", "unc_comps": ["inc_rad_f_unc_random", "inc_rad_f_unc_system_indeple", "inc_rad_f_unc_system_corrle"]},
+            "refl_rad_f": {"long_name": "Reflected (upwelling) radiance for FULL sensor", "standard_name": "reflected_radiance_full", "units": "W m^-2 nm sr^-1", "unc_comps": ["refl_rad_f_unc_random", "refl_rad_f_unc_system_indeple", "refl_rad_f_unc_system_corrle"]},
+            "refl_f": {"long_name": "Apparent reflectance for FULL sensor", "standard_name": "apparent_reflectance_full", "units": "", "unc_comps": ["refl_f_unc_random","refl_f_unc_systematic"]},
+        }
+        variable_attrs_unc_comps = {       
+            "inc_rad_unc_random": {"long_name": "Uncertainty in incoming (downwelling) radiance with random error correlation for FLUO sensor", "standard_name": "uncertainty_incoming_radiance_random", "units": "W m^-2 nm"},
+            "inc_rad_unc_system_indeple": {"long_name": "Uncertainty in incoming (downwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FLUO sensor", "standard_name": "uncertainty_incoming_radiance_systematic_indeple", "units": "W m^-2 nm"},
+            "inc_rad_unc_system_corrle": {"long_name": "Uncertainty in incoming (downwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FLUO sensor", "standard_name": "uncertainty_incoming_radiance_systematic_corrle", "units": "W m^-2 nm"},
+            "refl_rad_unc_random": {"long_name": "Uncertainty in reflected (upwelling) radiance with random error correlation for FLUO sensor", "standard_name": "uncertainty_reflected_radiance_random", "units": "W m^-2 nm sr^-1"},
+            "refl_rad_unc_system_indeple": {"long_name": "Uncertainty in reflected (upwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FLUO sensor", "standard_name": "uncertainty_reflected_radiance_systematic_indeple", "units": "W m^-2 nm sr^-1"},
+            "refl_rad_unc_system_corrle": {"long_name": "Uncertainty in reflected (upwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FLUO sensor", "standard_name": "uncertainty_reflected_radiance_systematic_corrle", "units": "W m^-2 nm sr^-1"},
+            "refl_unc_random": {"long_name": "Uncertainty in apparent reflectance with random error correlation for FLUO sensor", "standard_name": "uncertainty_apparent_reflectance_random", "units": ""},
+            "refl_unc_systematic": {"long_name": "Uncertainty in apparent reflectance with systematic temporal error correlation for FLUO sensor", "standard_name": "uncertainty_apparent_reflectance_systematic", "units": ""},
+            "inc_rad_f_unc_random": {"long_name": "Uncertainty in incoming (downwelling) radiance with random error correlation for FULL sensor", "standard_name": "uncertainty_incoming_radiance_random", "units": "W m^-2 nm"},
+            "inc_rad_f_unc_system_indeple": {"long_name": "Uncertainty in incoming (downwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FULL sensor", "standard_name": "uncertainty_incoming_radiance_systematic_indeple", "units": "W m^-2 nm"},
+            "inc_rad_f_unc_system_corrle": {"long_name": "Uncertainty in incoming (downwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FULL sensor", "standard_name": "uncertainty_incoming_radiance_systematic_corrle", "units": "W m^-2 nm"},
+            "refl_rad_f_unc_random": {"long_name": "Uncertainty in reflected (upwelling) radiance with random error correlation for FULL sensor", "standard_name": "uncertainty_reflected_radiance_random", "units": "W m^-2 nm sr^-1"},
+            "refl_rad_f_unc_system_indeple": {"long_name": "Uncertainty in reflected (upwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FULL sensor", "standard_name": "uncertainty_reflected_radiance_systematic_indeple", "units": "W m^-2 nm sr^-1"},
+            "refl_rad_f_unc_system_corrle": {"long_name": "Uncertainty in reflected (upwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FULL sensor", "standard_name": "uncertainty_reflected_radiance_systematic_corrle", "units": "W m^-2 nm sr^-1"},
+            "refl_f_unc_random": {"long_name": "Uncertainty in apparent reflectance with random error correlation for FULL sensor", "standard_name": "uncertainty_apparent_reflectance_random", "units": ""},
+            "refl_f_unc_systematic": {"long_name": "Uncertainty in apparent reflectance with systematic temporal error correlation for FULL sensor", "standard_name": "uncertainty_apparent_reflectance_systematic", "units": ""},
+            "err_corr_inc_rad_system_indeple": {"long_name": "Spectral error correlation matrix for incoming (downwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FLUO sensor", "standard_name": "error_correlation_downwelling_irradiance_systematic_indeple", "units": "-"},
+            "err_corr_inc_rad_system_corrle": {"long_name": "Spectral error correlation matrix for incoming (downwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FLUO sensor", "standard_name": "error_correlation_downwelling_irradiance_systematic_corrle", "units": "-"},
+            "err_corr_refl_rad_system_indeple": {"long_name": "Spectral error correlation matrix for reflected (upwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FLUO sensor", "standard_name": "error_correlation_upwelling_radiance_systematic_indeple", "units": "-"},
+            "err_corr_refl_rad_system_corrle": {"long_name": "Spectral error correlation matrix for reflected (upwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FLUO sensor", "standard_name": "error_correlation_upwelling_radiance_systematic_corrle", "units": "-"},
+            "err_corr_refl_systematic": {"long_name": "Spectral error correlation matrix for apparent reflectance with systematic temporal error correlation for FLUO sensor", "standard_name": "error_correlation_apparent_reflectance_systematic", "units": "-"},
+            "err_corr_inc_rad_f_system_indeple": {"long_name": "Spectral error correlation matrix for incoming (downwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FULL sensor", "standard_name": "error_correlation_downwelling_irradiance_systematic_indeple_full", "units": "-"},
+            "err_corr_inc_rad_f_system_corrle": {"long_name": "Spectral error correlation matrix for incoming (downwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FULL sensor", "standard_name": "error_correlation_downwelling_irradiance_systematic_corrle_full", "units": "-"},
+            "err_corr_refl_rad_f_system_indeple": {"long_name": "Spectral error correlation matrix for reflected (upwelling) radiance with systematic temporal error correlation (independent between radiance and irradiance) for FULL sensor", "standard_name": "error_correlation_upwelling_radiance_systematic_indeple_full", "units": "-"},
+            "err_corr_refl_rad_f_system_corrle": {"long_name": "Spectral error correlation matrix for reflected (upwelling) radiance with systematic temporal error correlation (correlated between radiance and irradiance) for FULL sensor", "standard_name": "error_correlation_upwelling_radiance_systematic_corrle_full", "units": "-"},
+            "err_corr_refl_f_systematic": {"long_name": "Spectral error correlation matrix for apparent reflectance with systematic temporal error correlation for FULL sensor", "standard_name": "error_correlation_apparent_reflectance_systematic_full", "units": "-"},
+        }
 
-        #set wavelength dimensions
-        ds = ds.assign_coords(wavelength=np.array(ds["refl_wl"].values[0],dtype="float64"))
-        ds = ds.assign_coords(wavelength_full=np.array(ds["refl_f_wl"].values[0],dtype="float64"))
+        err_corr_attrs = {"random" : {"err_corr_1_dim": ["wavelength", "utc_time"],
+                                    "err_corr_1_form": "random",
+                                    "err_corr_1_units": "",
+                                    "err_corr_1_params": "", 
+                                    "pdf_shape": "gaussian"},
+                          "system_corrle" : {"err_corr_1_dim": "utc_time",
+                                    "err_corr_1_form": "systematic",
+                                    "err_corr_1_units": "",
+                                    "err_corr_1_params": "",
+                                    "err_corr_2_dim": "wavelength",
+                                    "err_corr_2_form": "err_corr_matrix",
+                                    "err_corr_2_units": "",
+                                    "err_corr_2_params": "",
+                                    "pdf_shape": "gaussian"},
+                          "system_indeple" : {"err_corr_1_dim": "utc_time",
+                                    "err_corr_1_form": "systematic",
+                                    "err_corr_1_units": "",
+                                    "err_corr_1_params": "",
+                                    "err_corr_2_dim": "wavelength",
+                                    "err_corr_2_form": "err_corr_matrix",
+                                    "err_corr_2_units": "",
+                                    "err_corr_2_params": "",
+                                    "pdf_shape": "gaussian"}
+                        }
 
-        # reshape all the variables to have dimensions (time, wavelength) or (time, wavelength_full) as appropriate
-        for var in ds.data_vars:
-            if ds[var].dtype == "O":
-                if var in ["refl", "refl_rad", "inc_rad"]:
-                    values = np.array([vals for vals in ds[var].values], dtype="float64")
-                    ds[var] = xr.DataArray(values, dims=["utc_time", "wavelength"], coords={"wavelength": ds["wavelength"], "utc_time": ds["utc_time"]})        
-                elif var in ["refl_f", "refl_rad_f", "inc_rad_f"]:
-                    values = np.array([vals for vals in ds[var].values], dtype="float64")
-                    ds[var] = xr.DataArray(values, dims=["utc_time", "wavelength_full"], coords={"wavelength_full": ds["wavelength_full"], "utc_time": ds["utc_time"]})
-                else:
-                    ds = ds.drop_vars(var)  # drop any other variables that are not in the default variable list
+        wavelength_size = 1024
+        ds = xr.Dataset(
+            coords={
+                "utc_time": time_values,
+                "wavelength": np.arange(wavelength_size, dtype="float32"),
+                "wavelength_full": np.arange(wavelength_size, dtype="float32"),
+            }
+        )
+        
+        def _coerce_value_array(value):
+            if value is None:
+                return np.asarray([np.nan], dtype="float32")
+            if isinstance(value, (list, tuple, np.ndarray, pd.Series)):
+                arr = np.asarray(value, dtype="float32")
+                return arr.reshape(-1)
+            return np.asarray([value], dtype="float32")
+
+        def _pad_or_truncate(arr):
+            arr = arr.reshape(-1)
+            if arr.size > wavelength_size:
+                return arr[:wavelength_size]
+            if arr.size < wavelength_size:
+                return np.pad(arr, (0, wavelength_size - arr.size), constant_values=np.nan)
+            return arr
+
+        for column in df.columns:
+            if column in {"utc_time", "geometry", "local_time"}:
+                continue
+            if column not in variable_attrs and column not in variable_attrs_unc_comps and not column.startswith("err_corr_"):
+                continue
+
+            values = []
+            for value in df[column]:
+                arr = _coerce_value_array(value)
+                values.append(_pad_or_truncate(arr))
+
+            if "_full" in column or "_f_" in column or column.endswith("_f"):
+                dim_name = "wavelength_full"
+            else:
+                dim_name = "wavelength"
+
+            # if column.startswith("err_corr_"):
+            #     data = values[0] if values else np.ones((wavelength_size, wavelength_size), dtype="float32")
+            #     attrs = dict(variable_attrs.get(column, {}))
+            #     ds[column] = xr.DataArray(data, dims=(dim_name, dim_name), coords={dim_name: ds[dim_name].values}, attrs=attrs)
+            #     continue
+
+            if "_unc_" in column:
+                data = np.stack(values, axis=-1) if values else np.ones(wavelength_size, dtype="float32")
+                attrs = dict(variable_attrs_unc_comps.get(column, {}))
+                for key in err_corr_attrs.keys():
+                    if key in column:
+                        attrs.update(err_corr_attrs.get(key, {}))
+                if "_unc_system" in column:
+                    attrs["err_corr_2_params"] = "err_corr_" + column.replace("_unc_", "_")
+                ds[column] = xr.DataArray(data, dims=(dim_name, "utc_time"), coords={dim_name: ds[dim_name].values}, attrs=attrs)
+                continue
+
+            stack = np.stack(values, axis=-1)
+            ds[column] = xr.DataArray(
+                stack,
+                dims=(dim_name, "utc_time"),
+                coords={dim_name: ds[dim_name].values, "utc_time": ds["utc_time"].values},
+                attrs=dict(variable_attrs.get(column, {})),
+            )
+
+        for err_name, base_name in [
+            ("err_corr_inc_rad_system_indeple", "inc_rad"),
+            ("err_corr_inc_rad_system_corrle", "inc_rad"),
+            ("err_corr_refl_rad_system_indeple", "refl_rad"),
+            ("err_corr_refl_rad_system_corrle", "refl_rad"),
+            ("err_corr_refl_systematic", "refl"),
+            ("err_corr_inc_rad_f_system_indeple", "inc_rad_f"),
+            ("err_corr_inc_rad_f_system_corrle", "inc_rad_f"),
+            ("err_corr_refl_rad_f_system_indeple", "refl_rad_f"),
+            ("err_corr_refl_rad_f_system_corrle", "refl_rad_f"),
+            ("err_corr_refl_f_systematic", "refl_f"),
+        ]:
+            if err_name in ds:
+                continue
+            if base_name not in ds:
+                continue
+            dim_name = "wavelength_full" if base_name.endswith("_f") else "wavelength"
+            data = np.ones((ds[base_name].sizes[dim_name],ds[base_name].sizes[dim_name]), dtype="float32")
+            ds[err_name] = xr.DataArray(data, dims=(dim_name,dim_name), coords={dim_name: ds[dim_name].values}, attrs=dict(variable_attrs_unc_comps.get(err_name, {})))
+
+        for base_name, full_name in [("inc_rad", "inc_rad_f"), ("refl_rad", "refl_rad_f"), ("refl", "refl_f")]:
+            if base_name not in ds or full_name in ds:
+                continue
+            base_data = ds[base_name].astype("float32")
+            if "utc_time" in base_data.dims:
+                data = base_data.values.copy()
+                ds[full_name] = xr.DataArray(
+                    data,
+                    dims=("wavelength_full", "utc_time"),
+                    coords={"wavelength_full": ds["wavelength_full"].values, "utc_time": ds["utc_time"].values},
+                    attrs=dict(variable_attrs.get(full_name, {})),
+                )
+            else:
+                ds[full_name] = xr.DataArray(
+                    base_data.values.copy(),
+                    dims=("wavelength_full",),
+                    coords={"wavelength_full": ds["wavelength_full"].values},
+                    attrs=dict(variable_attrs.get(full_name, {})),
+                )
+
+        coord_attrs = {
+                    "utc_time": {"long_name": "UTC Acquisition time in seconds since 1970-01-01 00:00:00", "standard_name": "UTC_time", "units": "seconds since 1970-01-01"},
+                    "wavelength": {"long_name": "Wavelength for FLUO sensor", "standard_name": "wavelength", "units": "nm"},
+                    "wavelength_full": {"long_name": "Wavelength for FULL sensor", "standard_name": "wavelength_full", "units": "nm"},
+                }
+        
+        ds["utc_time"].attrs.update(coord_attrs["utc_time"])
+        ds["wavelength"].attrs.update(coord_attrs["wavelength"])
+        ds["wavelength_full"].attrs.update(coord_attrs["wavelength_full"])
+        
+        for name in ds.data_vars:
+            if name.startswith("err_corr_"):
+                ds[name].encoding.update({"dtype": "int8", "scale_factor": 0.01, "add_offset": 0})
+            else:
+                ds[name].encoding.update({"dtype": "float32"})
 
         return ds
 
