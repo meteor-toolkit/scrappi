@@ -165,10 +165,19 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         :returns: The list of the collections that can be accessed using eodag.) -> list:
         """
-        return [
-            collection.id
-            for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"])
-        ]
+        if self.context["update_collections_list"] or not os.path.exists(
+            os.path.join(os.path.dirname(__file__), "utils", "eodag_collections_list.npy")
+            ):
+            collections = [collection.id 
+                           for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"])
+                           ]
+            np.save(os.path.join(os.path.dirname(__file__), "utils", "eodag_collections_list.npy"), collections)
+        else:
+            collections = np.load(
+                os.path.join(os.path.dirname(__file__), "utils", "eodag_collections_list.npy"), allow_pickle=True
+            )
+        return collections
+
 
     def _perform_query(self, query: dict) -> Any:
         """

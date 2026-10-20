@@ -109,7 +109,9 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
     def list_collections(self) -> List:
 
-        if self.context["update_collections_list"]:
+        if self.context["update_collections_list"] or not os.path.exists(
+            os.path.join(os.path.dirname(__file__), "utils", "earthaccess_collections_list.npy")
+        ):
             results = earthaccess.search_datasets(downloadable=True)
             collections = []
             for x in results:
