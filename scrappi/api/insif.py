@@ -16,6 +16,7 @@ import warnings
 import xarray as xr
 import pandas as pd
 from pathlib import Path
+import json
 
 from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
 from scrappi.product import ProductItem, ProductItemSet
@@ -84,6 +85,7 @@ class INSIFCallHandler(InSituCallHandler):
             raise RuntimeError("xcube_geodb package is required to use GeoDBClient: %s" % e)
 
         self.site_meta=self.metadata_sites()
+        self.current_site_meta = {}
         self.DEFAULT_SITE_DEFINITIONS = self._generate_roi_dict()
         super().__init__(context, self.DEFAULT_SITE_DEFINITIONS)
 
@@ -142,6 +144,11 @@ class INSIFCallHandler(InSituCallHandler):
         if not isinstance(flox_sn, list):
             flox_sn = [flox_sn]
 
+        if flox_sn[0] not in self.site_meta:
+            raise ValueError("No collection found for flox_sn {} in the INSIF API".format(flox_sn[0]))
+
+        self.current_site_meta = self.site_meta[flox_sn[0]][0]
+
         if "collection" in query:
             if query["collection"] == "INSIF_RADIRRREF" or query["collection"] == "INSIF_RAD" or query["collection"] == "INSIF_IRR" or query["collection"] == "INSIF_REF":
                 return [f"{site}-proc" for site in flox_sn]
@@ -175,6 +182,7 @@ class INSIFCallHandler(InSituCallHandler):
             raise ValueError("No flox_sn found for site {}".format(site))
         elif len(flox_sn_list) > 1:
             raise NotImplementedError("Multiple flox_sn ({}) found for site {} within query period. This functionality is not yet implemented. please separate your query by date or flox_sn.".format(flox_sn_list, site))
+        
         return flox_sn_list
 
     def get_site_from_flox_sn(self, flox_sn, start_time=None, stop_time=None):
@@ -225,7 +233,37 @@ class INSIFCallHandler(InSituCallHandler):
     #             )
     #         )
 
-    def metadata_sites(self) -> list:
+    @staticmethod
+    def _as_netcdf_attr(value):
+        """Convert metadata values to NetCDF-safe scalar or 1D attributes."""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            return json.dumps(value, sort_keys=True, default=str)
+        if isinstance(value, (list, tuple, np.ndarray, pd.Series)):
+            flat = np.asarray(value, dtype=object)
+            if flat.ndim > 1:
+                flat = flat.ravel()
+            normalized = []
+            for item in flat.tolist():
+                if isinstance(item, dict):
+                    normalized.append(json.dumps(item, sort_keys=True, default=str))
+                elif isinstance(item, (list, tuple, np.ndarray, pd.Series)):
+                    nested = INSIFCallHandler._as_netcdf_attr(item)
+                    if isinstance(nested, list):
+                        normalized.extend(nested)
+                    else:
+                        normalized.append(nested)
+                elif isinstance(item, np.generic):
+                    normalized.append(item.item())
+                else:
+                    normalized.append(item)
+            return normalized
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    def metadata_sites(self) -> dict:
         """
         Return list of sites available in API
 
@@ -235,7 +273,8 @@ class INSIFCallHandler(InSituCallHandler):
         for col in list(self.api.get_my_collections(self.DATABASE)["collection"]):
              if col.endswith("-raw"):
                 md = self.api.get_metadata(collection=col, database=self.DATABASE)
-                sites[col[:-4]] = [{"site_id": col[:-4], "site_name": col[:-4], "spatial_extent": md.spatial_extent, "start_date": "2023-09-01", "end_date": None}]
+                summaries = getattr(md, "summaries", {})
+                sites[col[:-4]] = [{"site_id": col[:-4], "flox_sn": col[:-4], "spatial_extent": getattr(md, "spatial_extent", []), "start_datetime": "2023-09-01", "end_datetime": None, "summaries": summaries}]
 
         return sites
 
@@ -273,20 +312,20 @@ class INSIFCallHandler(InSituCallHandler):
         """
         Check if the provided start_time and stop_time overlap with the site periods
 
-        :param site_data: site data dictionary containing start_date and end_date
+        :param site_data: site data dictionary containing start_datetime and end_datetime
         :param start_time: optional start time for the query
         :param stop_time: optional stop time for the query
         :return: True if overlap, False otherwise
         """
         if start_time is not None:
-            if site_data["end_date"] is not None:
-                site_end_time = convert_datetime(site_data["end_date"])
+            if site_data["end_datetime"] is not None:
+                site_end_time = convert_datetime(site_data["end_datetime"])
                 start_time_dt = convert_datetime(start_time)
                 if start_time_dt > site_end_time:
                     return False
         if stop_time is not None:
-            if site_data["start_date"] is not None:
-                site_start_time = convert_datetime(site_data["start_date"])
+            if site_data["start_datetime"] is not None:
+                site_start_time = convert_datetime(site_data["start_datetime"])
                 stop_time_dt = convert_datetime(stop_time)
                 if stop_time_dt < site_start_time:
                     return False
@@ -326,9 +365,9 @@ class INSIFCallHandler(InSituCallHandler):
     def get_default_variables(self, collection):
         if collection=="INSIF_RADIRRREF":
             return ['geometry', 'gps_lat', 'gps_lon', 'inc_rad',
-            'inc_rad_f', 'inc_rad_f_wl', 'inc_rad_wl', 'refl',
-            'refl_f', 'refl_f_wl', 'refl_rad', 'refl_rad_f', 'refl_rad_f_wl',
-            'refl_rad_wl', 'refl_wl', 'utc_time']
+            'inc_rad_f', 'refl',
+            'refl_f', 'refl_f_wl', 'refl_rad', 'refl_rad_f',
+            'refl_wl', 'utc_time']
         elif collection=="INSIF_RAD":
             return ['refl_rad', 'refl_rad_f', 'refl_rad_f_wl',
             'refl_rad_wl', 'utc_time']
@@ -388,13 +427,13 @@ class INSIFCallHandler(InSituCallHandler):
                     'inc_rad_f_unc_system_indeple',
                     'inc_rad_unc_random', 'inc_rad_unc_system_corrle',
                     'inc_rad_unc_system_indeple',
-                    'refl_f_unc_random', 'refl_f_unc_system_corrle',
+                    'refl_f_unc_random',
                     'refl_f_unc_system_indeple',
                     'refl_rad_f_unc_random', 'refl_rad_f_unc_system',
                     'refl_rad_f_unc_system_corrle', 'refl_rad_f_unc_system_indeple',
                     'refl_rad_unc_random',
                     'refl_rad_unc_system_corrle', 'refl_rad_unc_system_indeple',
-                    'refl_unc_random', 'refl_unc_system_corrle',
+                    'refl_unc_random',
                     'refl_unc_system_indeple', 'utc_time', 'wavelength',
                     'wavelength_unc']
                     # return ['idx_id',
@@ -420,9 +459,9 @@ class INSIFCallHandler(InSituCallHandler):
                     'wavelength_unc']
         if collection=="INSIF_RADIRRREF":
                     return ['idx_id',
-                    'refl_f_unc_random', 'refl_f_unc_system_corrle',
+                    'refl_f_unc_random',
                     'refl_f_unc_system_indeple',
-                    'refl_unc_random', 'refl_unc_system_corrle',
+                    'refl_unc_random',
                     'refl_unc_system_indeple', 'utc_time', 'wavelength',
                     'wavelength_unc']
         elif collection=="INSIF_ALLIDX":
@@ -519,6 +558,10 @@ class INSIFCallHandler(InSituCallHandler):
 
         insif_results = self._perform_query(query)
 
+        if len(insif_results) == 0:
+            warnings.warn("No INSIF records found for the selected query window.")
+            return ProductItemSet([])
+
         if "site" not in query.keys():
             query["site"] = self.get_site_from_flox_sn(query["flox_sn"], query.get("start_time"), query.get("stop_time"))
         
@@ -586,7 +629,7 @@ class INSIFCallHandler(InSituCallHandler):
                                                     database=self.DATABASE)
             if results_add is None or len(results_add) == 0:
                 break
-            results = results.merge(results_add, on="utc_time", how="left")
+            results = pd.concat([results, results_add], ignore_index=True)
             n+=1
 
         if self.context["insif"]["include_uncertainty"]:  
@@ -613,23 +656,19 @@ class INSIFCallHandler(InSituCallHandler):
                                                         database=self.DATABASE)
                 if results_add is None or len(results_add) == 0:
                     break
-                results_unc = results_unc.merge(results_add, on="utc_time", how="left")
+                results_unc = pd.concat([results_unc, results_add], ignore_index=True)
                 n+=1
             # append results pandas dataframe with results_unc pandas dataframe
             if results_unc is not None and len(results_unc) > 0:
                 results = results.merge(results_unc, on="utc_time", how="left")
+                results = results.rename(columns={"refl_f_unc_system_indeple": "refl_f_unc_systematic", "refl_unc_system_indeple": "refl_unc_systematic"})
+
             else:
                 warnings.warn("No uncertainties were found in the database for this collection.")
         return self.make_xarray_dataset(results)
 
     def make_xarray_dataset(self, results):
         """Build an xarray dataset directly from the dataframe columns.
-
-        The dataset schema is not loaded from the NetCDF template anymore. Instead,
-        every variable present in the results dataframe is kept as a data variable,
-        and the variable attributes are set from a small hard-coded registry based on
-        the canonical INSIF template metadata. Missing ``err_corr`` variables are
-        appended automatically as ones.
         """
         if results is None or results.empty:
             raise ValueError("No INSIF records available for the selected query window.")
@@ -714,11 +753,14 @@ class INSIFCallHandler(InSituCallHandler):
                         }
 
         wavelength_size = 1024
+        
         ds = xr.Dataset(
             coords={
                 "utc_time": time_values,
-                "wavelength": np.arange(wavelength_size, dtype="float32"),
-                "wavelength_full": np.arange(wavelength_size, dtype="float32"),
+                "wavelength": results["refl_wl"][0],
+                "wavelength_full": results["refl_f_wl"][0],
+                "wavelength_": results["refl_wl"][0],
+                "wavelength_full_": results["refl_f_wl"][0],
             }
         )
         
@@ -738,6 +780,7 @@ class INSIFCallHandler(InSituCallHandler):
                 return np.pad(arr, (0, wavelength_size - arr.size), constant_values=np.nan)
             return arr
 
+        unc_present=False
         for column in df.columns:
             if column in {"utc_time", "geometry", "local_time"}:
                 continue
@@ -769,6 +812,7 @@ class INSIFCallHandler(InSituCallHandler):
                 if "_unc_system" in column:
                     attrs["err_corr_2_params"] = "err_corr_" + column.replace("_unc_", "_")
                 ds[column] = xr.DataArray(data, dims=(dim_name, "utc_time"), coords={dim_name: ds[dim_name].values}, attrs=attrs)
+                unc_present = True
                 continue
 
             stack = np.stack(values, axis=-1)
@@ -779,25 +823,26 @@ class INSIFCallHandler(InSituCallHandler):
                 attrs=dict(variable_attrs.get(column, {})),
             )
 
-        for err_name, base_name in [
-            ("err_corr_inc_rad_system_indeple", "inc_rad"),
-            ("err_corr_inc_rad_system_corrle", "inc_rad"),
-            ("err_corr_refl_rad_system_indeple", "refl_rad"),
-            ("err_corr_refl_rad_system_corrle", "refl_rad"),
-            ("err_corr_refl_systematic", "refl"),
-            ("err_corr_inc_rad_f_system_indeple", "inc_rad_f"),
-            ("err_corr_inc_rad_f_system_corrle", "inc_rad_f"),
-            ("err_corr_refl_rad_f_system_indeple", "refl_rad_f"),
-            ("err_corr_refl_rad_f_system_corrle", "refl_rad_f"),
-            ("err_corr_refl_f_systematic", "refl_f"),
-        ]:
-            if err_name in ds:
-                continue
-            if base_name not in ds:
-                continue
-            dim_name = "wavelength_full" if base_name.endswith("_f") else "wavelength"
-            data = np.ones((ds[base_name].sizes[dim_name],ds[base_name].sizes[dim_name]), dtype="float32")
-            ds[err_name] = xr.DataArray(data, dims=(dim_name,dim_name), coords={dim_name: ds[dim_name].values}, attrs=dict(variable_attrs_unc_comps.get(err_name, {})))
+        if unc_present:
+            for err_name, base_name in [
+                ("err_corr_inc_rad_system_indeple", "inc_rad"),
+                ("err_corr_inc_rad_system_corrle", "inc_rad"),
+                ("err_corr_refl_rad_system_indeple", "refl_rad"),
+                ("err_corr_refl_rad_system_corrle", "refl_rad"),
+                ("err_corr_refl_systematic", "refl"),
+                ("err_corr_inc_rad_f_system_indeple", "inc_rad_f"),
+                ("err_corr_inc_rad_f_system_corrle", "inc_rad_f"),
+                ("err_corr_refl_rad_f_system_indeple", "refl_rad_f"),
+                ("err_corr_refl_rad_f_system_corrle", "refl_rad_f"),
+                ("err_corr_refl_f_systematic", "refl_f"),
+            ]:
+                if err_name in ds:
+                    continue
+                if base_name not in ds:
+                    continue
+                dim_name = "wavelength_full" if base_name.endswith("_f") else "wavelength"
+                data = np.ones((ds[base_name].sizes[dim_name],ds[base_name].sizes[dim_name]), dtype="float32")
+                ds[err_name] = xr.DataArray(data, dims=(dim_name,dim_name+"_"), coords={dim_name: ds[dim_name].values, dim_name+"_": ds[dim_name+"_"].values}, attrs=dict(variable_attrs_unc_comps.get(err_name, {})))
 
         for base_name, full_name in [("inc_rad", "inc_rad_f"), ("refl_rad", "refl_rad_f"), ("refl", "refl_f")]:
             if base_name not in ds or full_name in ds:
@@ -825,10 +870,21 @@ class INSIFCallHandler(InSituCallHandler):
                     "wavelength_full": {"long_name": "Wavelength for FULL sensor", "standard_name": "wavelength_full", "units": "nm"},
                 }
         
+        ds.attrs.update({
+            key: self._as_netcdf_attr(value)
+            for key, value in self.current_site_meta.items()
+        })
+        ds.attrs["start_datetime"] = self._get_datetime(df["utc_time"].min()).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ds.attrs["end_datetime"] = self._get_datetime(df["utc_time"].max()).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         ds["utc_time"].attrs.update(coord_attrs["utc_time"])
         ds["wavelength"].attrs.update(coord_attrs["wavelength"])
         ds["wavelength_full"].attrs.update(coord_attrs["wavelength_full"])
-        
+        ds["wavelength_"].attrs.update(coord_attrs["wavelength"])
+        ds["wavelength_full_"].attrs.update(coord_attrs["wavelength_full"])
+        ds["wavelength_"].attrs.update({"long_name": "Wavelength for FLUO sensor (duplicate coordinate for error correlation matrices)", "standard_name": "wavelength", "units": "nm"})
+        ds["wavelength_full_"].attrs.update({"long_name": "Wavelength for FULL sensor (duplicate coordinate for error correlation matrices)", "standard_name": "wavelength", "units": "nm"})
+            
         for name in ds.data_vars:
             if name.startswith("err_corr_"):
                 ds[name].encoding.update({"dtype": "int8", "scale_factor": 0.01, "add_offset": 0})
