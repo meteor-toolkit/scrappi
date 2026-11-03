@@ -12,7 +12,7 @@ from shapely.geometry import Polygon
 from eodag import EOProduct
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi import make_fs
-from scrappi.api.eodag import EODAGCallHandler, drop_unset_credentials
+from scrappi.api.eodag import EODAGCallHandler, credentials_fingerprint, drop_unset_credentials
 from scrappi import ScrappiContext
 
 __author__ = [
@@ -49,6 +49,33 @@ class TestDropUnsetCredentials(unittest.TestCase):
         cleaned = drop_unset_credentials(config)
         self.assertEqual(cleaned, {"usgs": {"priority": 4, "api": {}, "other": [1, None]}})
         self.assertEqual(config["usgs"]["api"]["credentials"], {"username": None})
+
+
+class TestCredentialsFingerprint(unittest.TestCase):
+    def test_no_credentials_gives_the_empty_string(self):
+        self.assertEqual(credentials_fingerprint(None), "")
+        self.assertEqual(credentials_fingerprint({}), "")
+        config = {"cop_dataspace": {"priority": 7, "auth": {"credentials": {"username": None, "password": ""}}}}
+        self.assertEqual(credentials_fingerprint(config), "")
+
+    def test_same_credentials_give_the_same_digest(self):
+        a = {"cop_dataspace": {"priority": 7, "auth": {"credentials": {"username": "u", "password": "p"}}}}
+        b = {"cop_dataspace": {"priority": 1, "auth": {"credentials": {"password": "p", "username": "u"}}}}
+        self.assertEqual(credentials_fingerprint(a), credentials_fingerprint(b))
+        self.assertNotEqual(credentials_fingerprint(a), "")
+
+    def test_different_credentials_give_different_digests(self):
+        base = {"cop_dataspace": {"auth": {"credentials": {"username": "u", "password": "p"}}}}
+        other_password = {"cop_dataspace": {"auth": {"credentials": {"username": "u", "password": "q"}}}}
+        other_provider = {"usgs": {"auth": {"credentials": {"username": "u", "password": "p"}}}}
+        self.assertNotEqual(credentials_fingerprint(base), credentials_fingerprint(other_password))
+        self.assertNotEqual(credentials_fingerprint(base), credentials_fingerprint(other_provider))
+
+    def test_the_digest_does_not_contain_the_credentials(self):
+        config = {"cop_dataspace": {"auth": {"credentials": {"username": "secret_user", "password": "secret_pass"}}}}
+        digest = credentials_fingerprint(config)
+        self.assertNotIn("secret", digest)
+        self.assertEqual(len(digest), 64)
 
 
 class TestEODAGCredentialsFromEnvironment(unittest.TestCase):

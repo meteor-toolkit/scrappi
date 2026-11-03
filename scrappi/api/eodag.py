@@ -5,6 +5,8 @@ This module provides `EODAGCallHandler`, an implementation of
 satellite products from supported providers.
 """
 
+import hashlib
+import json
 import os
 import shutil
 import warnings
@@ -59,6 +61,37 @@ def drop_unset_credentials(eodag_config: dict) -> dict:
                     continue
         cleaned[key] = value
     return cleaned
+
+
+def credentials_fingerprint(eodag_config: Optional[dict]) -> str:
+    """Return a stable digest of the credentials in an EODAG provider configuration.
+
+    Used to tell EODAG handlers that were built with different credentials apart (see
+    :py:meth:`scrappi.api.factory.APICallHandlerFactory.get_api_call_handler`). Unset (``None``/empty) credentials
+    are ignored, so a configuration without any credentials gives the empty string, and the digest does not
+    reveal the credentials themselves.
+
+    :param eodag_config: mapping of provider keys to provider configuration (``context["eodag"]``), or ``None``
+    :return: hex digest, or ``""`` if the configuration has no credentials set
+    """
+    credentials: dict = {}
+
+    def collect(config: dict, path: tuple) -> None:
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                continue
+            if key == "credentials":
+                set_values = {k: v for k, v in value.items() if v not in (None, "")}
+                if set_values:
+                    credentials[".".join((*path, key))] = set_values
+            else:
+                collect(value, (*path, key))
+
+    if eodag_config:
+        collect(eodag_config, ())
+    if not credentials:
+        return ""
+    return hashlib.sha256(json.dumps(credentials, sort_keys=True, default=str).encode()).hexdigest()
 
 
 class EODAGCallHandler(BaseAPICallHandler):
