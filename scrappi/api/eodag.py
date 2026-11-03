@@ -38,6 +38,29 @@ __author__ = [
 __all__ = ["EODAGCallHandler"]
 
 
+def drop_unset_credentials(eodag_config: dict) -> dict:
+    """Return a copy of an EODAG provider configuration without unset credentials.
+
+    The default scrappi config lists every credential as empty (``username: null``). Passing those on to
+    :py:meth:`eodag.EODataAccessGateway.update_providers_config` would overwrite the credentials EODAG itself found
+    (in its own config file or in ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__<NAME>`` environment variables), so credentials
+    that are ``None`` or empty are left out and EODAG's own values stay in place.
+
+    :param eodag_config: mapping of provider keys to provider configuration
+    :return: the same configuration, without ``None``/empty entries in any ``credentials`` section
+    """
+    cleaned: dict = {}
+    for key, value in eodag_config.items():
+        if isinstance(value, dict):
+            value = drop_unset_credentials(value)
+            if key == "credentials":
+                value = {k: v for k, v in value.items() if v not in (None, "")}
+                if not value:
+                    continue
+        cleaned[key] = value
+    return cleaned
+
+
 class EODAGCallHandler(BaseAPICallHandler):
     """EODAG API call handler.
 
@@ -60,7 +83,9 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.dag = EODataAccessGateway()
         if self.context["eodag"] is not None:
-            self.dag.update_providers_config(dict_conf=self.filter_eodag_config_priority(self.context["eodag"]))
+            self.dag.update_providers_config(
+                dict_conf=drop_unset_credentials(self.filter_eodag_config_priority(self.context["eodag"]))
+            )
 
         if self.context["api"]["preferred_provider"] is not None:
             self.dag.set_preferred_provider(self.context["api"]["preferred_provider"])
@@ -99,7 +124,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :param yaml_conf: YAML formated provider configuration
         """
         self.context = context
-        self.dag.update_providers_config(dict_conf=context["eodag"])
+        self.dag.update_providers_config(dict_conf=drop_unset_credentials(context["eodag"]))
 
     def _set_datetime(self, date_time: Union[dt.datetime, str]) -> str:
         """
