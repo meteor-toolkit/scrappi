@@ -12,7 +12,7 @@ from shapely.geometry import Polygon
 from eodag import EOProduct
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi import make_fs
-from scrappi.api.eodag import EODAGCallHandler
+from scrappi.api.eodag import EODAGCallHandler, credentials_fingerprint, drop_unset_credentials
 from scrappi import ScrappiContext
 
 __author__ = [
@@ -31,6 +31,81 @@ scrappi_config_path = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
     ".scrappi",
 )
+
+
+class TestDropUnsetCredentials(unittest.TestCase):
+    def test_unset_credentials_are_dropped(self):
+        config = {"cop_dataspace": {"priority": 7, "auth": {"credentials": {"username": None, "password": ""}}}}
+        self.assertEqual(drop_unset_credentials(config), {"cop_dataspace": {"priority": 7, "auth": {}}})
+
+    def test_set_credentials_are_kept(self):
+        config = {"cop_dataspace": {"auth": {"credentials": {"username": "u", "password": None}}}}
+        self.assertEqual(
+            drop_unset_credentials(config), {"cop_dataspace": {"auth": {"credentials": {"username": "u"}}}}
+        )
+
+    def test_other_settings_are_kept_and_the_input_is_not_modified(self):
+        config = {"usgs": {"priority": 4, "api": {"credentials": {"username": None}}, "other": [1, None]}}
+        cleaned = drop_unset_credentials(config)
+        self.assertEqual(cleaned, {"usgs": {"priority": 4, "api": {}, "other": [1, None]}})
+        self.assertEqual(config["usgs"]["api"]["credentials"], {"username": None})
+
+
+class TestCredentialsFingerprint(unittest.TestCase):
+    def test_no_credentials_gives_the_empty_string(self):
+        self.assertEqual(credentials_fingerprint(None), "")
+        self.assertEqual(credentials_fingerprint({}), "")
+        config = {"cop_dataspace": {"priority": 7, "auth": {"credentials": {"username": None, "password": ""}}}}
+        self.assertEqual(credentials_fingerprint(config), "")
+
+    def test_same_credentials_give_the_same_digest(self):
+        a = {"cop_dataspace": {"priority": 7, "auth": {"credentials": {"username": "u", "password": "p"}}}}
+        b = {"cop_dataspace": {"priority": 1, "auth": {"credentials": {"password": "p", "username": "u"}}}}
+        self.assertEqual(credentials_fingerprint(a), credentials_fingerprint(b))
+        self.assertNotEqual(credentials_fingerprint(a), "")
+
+    def test_different_credentials_give_different_digests(self):
+        base = {"cop_dataspace": {"auth": {"credentials": {"username": "u", "password": "p"}}}}
+        other_password = {"cop_dataspace": {"auth": {"credentials": {"username": "u", "password": "q"}}}}
+        other_provider = {"usgs": {"auth": {"credentials": {"username": "u", "password": "p"}}}}
+        self.assertNotEqual(credentials_fingerprint(base), credentials_fingerprint(other_password))
+        self.assertNotEqual(credentials_fingerprint(base), credentials_fingerprint(other_provider))
+
+    def test_the_digest_does_not_contain_the_credentials(self):
+        config = {"cop_dataspace": {"auth": {"credentials": {"username": "secret_user", "password": "secret_pass"}}}}
+        digest = credentials_fingerprint(config)
+        self.assertNotIn("secret", digest)
+        self.assertEqual(len(digest), 64)
+
+
+class TestEODAGCredentialsFromEnvironment(unittest.TestCase):
+    ENV = {
+        "EODAG__COP_DATASPACE__AUTH__CREDENTIALS__USERNAME": "env_user",
+        "EODAG__COP_DATASPACE__AUTH__CREDENTIALS__REMOVED_PASSWORD": "env_pass",
+    }
+
+    @staticmethod
+    def _credentials(handler):
+        return handler.dag.providers.configs["cop_dataspace"].auth.credentials
+
+    def _context(self, **credentials):
+        context = ScrappiContext()
+        context["fs"]["path"] = "t-drive"
+        # unset values, as in the default config
+        context["eodag"]["cop_dataspace"]["auth"]["credentials"] = {"username": None, "password": None, **credentials}
+        return context
+
+    def test_environment_credentials_are_not_overwritten_by_unset_config_credentials(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = EODAGCallHandler(self._context())
+        self.assertEqual(self._credentials(handler)["username"], "env_user")
+        self.assertEqual(self._credentials(handler)["password"], "env_pass")
+
+    def test_config_credentials_take_priority_over_the_environment(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = EODAGCallHandler(self._context(username="cfg_user", password="cfg_pass"))
+        self.assertEqual(self._credentials(handler)["username"], "cfg_user")
+        self.assertEqual(self._credentials(handler)["password"], "cfg_pass")
 
 
 class TestEODAGCallHandler(unittest.TestCase):

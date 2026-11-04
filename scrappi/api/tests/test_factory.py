@@ -142,6 +142,45 @@ class TestAPICallHandlerFactory(unittest.TestCase):
         second = self.api_call_handler_factory.get_api_call_handler("eodag", context=ScrappiContext())
         self.assertIs(first, second)
 
+    @staticmethod
+    def _eodag_context(username=None, password=None):
+        from scrappi import ScrappiContext
+
+        context = ScrappiContext()
+        context["eodag"]["cop_dataspace"]["auth"]["credentials"] = {"username": username, "password": password}
+        return context
+
+    @staticmethod
+    def _cop_dataspace_username(handler):
+        return handler.dag.providers.configs["cop_dataspace"].auth.credentials.get("username")
+
+    def test_eodag_handler_built_without_credentials_is_not_handed_to_a_caller_with_credentials(self):
+        """Regression test: the first eodag handler in a session is built inside the finder by
+        is_insitu_collection(), which has no credentials. It used to be cached by name alone and handed
+        back for everything after, so credentials in the context never reached eodag and a download
+        failed with "credentials are missing for provider cop_dataspace"."""
+        factory = self.api_call_handler_factory
+        without = factory.get_api_call_handler("eodag", context=self._eodag_context())
+        with_credentials = factory.get_api_call_handler("eodag", context=self._eodag_context("user", "pass"))
+        self.assertIsNot(without, with_credentials)
+        self.assertEqual(self._cop_dataspace_username(with_credentials), "user")
+
+    def test_eodag_handler_is_reused_across_context_objects_with_the_same_credentials(self):
+        """Keying by credentials, not by context identity, keeps the saving the name-only cache was
+        for: a new context object per call must not rebuild the (slow) EODataAccessGateway."""
+        factory = self.api_call_handler_factory
+        first = factory.get_api_call_handler("eodag", context=self._eodag_context("user", "pass"))
+        second = factory.get_api_call_handler("eodag", context=self._eodag_context("user", "pass"))
+        self.assertIs(first, second)
+
+    def test_eodag_handlers_with_different_credentials_are_independent(self):
+        factory = self.api_call_handler_factory
+        first = factory.get_api_call_handler("eodag", context=self._eodag_context("user_a", "pass"))
+        second = factory.get_api_call_handler("eodag", context=self._eodag_context("user_b", "pass"))
+        self.assertIsNot(first, second)
+        self.assertEqual(self._cop_dataspace_username(first), "user_a")
+        self.assertEqual(self._cop_dataspace_username(second), "user_b")
+
 
 if __name__ == "__main__":
     unittest.main()
