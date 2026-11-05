@@ -4,6 +4,7 @@ import requests
 from requests.exceptions import SSLError
 import unittest
 import unittest.mock as mock
+import warnings
 from datetime import datetime as dt, timedelta, timezone
 import shutil
 import pytest
@@ -337,6 +338,55 @@ class TestRCNCallHandler(unittest.TestCase):
                     shapes[site].bounds[i],
                     places=5,
                 )
+
+
+class TestRCNCredentials(unittest.TestCase):
+    """Credentials reach the session from the config, or else from the environment variables."""
+
+    ENV = {"RADCALNET_USERNAME": "env_user", "RADCALNET_REMOVED_PASSWORD": "env_pass"}
+
+    @staticmethod
+    def _context(username=None, password=None):
+        # unset values, as in the default config
+        context = ScrappiContext()
+        context["RadCalNet"]["credentials"] = {"username": username, "password": password}
+        return context
+
+    def test_environment_variables_are_used_when_the_config_credentials_are_unset(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context())
+        self.assertEqual(handler.session.auth, ("env_user", "env_pass"))
+
+    def test_config_credentials_take_priority_over_the_environment(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context("cfg_user", "cfg_pass"))
+        self.assertEqual(handler.session.auth, ("cfg_user", "cfg_pass"))
+
+    def test_username_and_password_can_come_from_different_places(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context(username="cfg_user"))
+        self.assertEqual(handler.session.auth, ("cfg_user", "env_pass"))
+
+    def test_no_credentials_anywhere_gives_an_unauthenticated_session_without_a_warning(self):
+        env = {k: v for k, v in os.environ.items() if k not in self.ENV}
+        with mock.patch.dict(os.environ, env, clear=True), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            handler = RadcalnetCallHandler(self._context())
+        self.assertIsNone(handler.session.auth)
+        self.assertEqual([w for w in caught if "RADCALNET" in str(w.message)], [])
+
+    def test_config_credentials_do_not_warn(self):
+        with mock.patch.dict(os.environ, {}), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            RadcalnetCallHandler(self._context("cfg_user", "cfg_pass"))
+        self.assertEqual([w for w in caught if "RADCALNET" in str(w.message)], [])
+
+    @mock.patch("requests.session")
+    def test_a_401_response_raises_an_error_that_says_how_to_provide_credentials(self, mock_session):
+        mock_session.return_value.get.return_value = mock.Mock(status_code=401)
+        handler = RadcalnetCallHandler(self._context())
+        with self.assertRaisesRegex(requests.exceptions.HTTPError, "RADCALNET_USERNAME"):
+            handler.get_files_list("GONA", "GONA_TOA", dt(2022, 10, 10), dt(2022, 11, 10))
 
 
 class TestRadcalnetOfflineCallHandler(unittest.TestCase):

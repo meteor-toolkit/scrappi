@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from processor_tools import context
 from scrappi import ScrappiContext
-from scrappi.api.eodag import EODAGCallHandler
+from scrappi.api.eodag import EODAGCallHandler, credentials_fingerprint
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
@@ -71,12 +71,15 @@ class APICallHandlerFactory:
         :param name: selected API (e.g. ``"eodag"``)
         :param context: optional `ScrappiContext` to pass to the handler
         :param use_cache: if ``True`` (default), a previously built handler may be reused
-            instead of constructing a new one. ``"eodag"`` is cached by name alone,
-            regardless of *context*: its ``__init__`` builds a fresh
-            ``eodag.EODataAccessGateway``, which reads and prunes every provider config on
-            every construction -- a few hundred ms each time -- and its per-run context
-            differences (the preferred provider) are applied at query time, not
-            construction. Every other handler is cheap to build and *is*
+            instead of constructing a new one. ``"eodag"`` is cached by name and by the
+            credentials in *context*, not by context identity: its ``__init__`` builds a
+            fresh ``eodag.EODataAccessGateway``, which reads and prunes every provider
+            config on every construction -- a few hundred ms each time -- and its per-run
+            context differences (the preferred provider) are applied at query time, not
+            construction. Its credentials are applied at construction, though, so a handler
+            built without credentials (e.g. by ``is_insitu_collection()``, which only needs
+            to type-check ``list_collections()``) is never handed back to a later caller
+            whose context has credentials. Every other handler is cheap to build and *is*
             context-sensitive (credentials, RadCalNet ``site_definitions``, an offline
             archive path, ...), so it's cached by ``(name, id(context))`` instead: a
             *different* context object always gets its own freshly built handler (so a
@@ -92,11 +95,16 @@ class APICallHandlerFactory:
         if isinstance(name, BaseAPICallHandler):
             return name
 
-        # eodag: cache by name alone, regardless of context (see above). Everything
+        # eodag: cache by name and credentials, not by context object (see above). Everything
         # else: cache by (name, identity of context) -- a different context object
         # always misses, but the same one reused across calls hits.
         is_eodag = name.split(":")[0].lower() == "eodag"
-        cache_key = name if is_eodag else (name, id(context))
+        if is_eodag:
+            if context is None:
+                context = ScrappiContext()  # the default context the handler would be built from anyway
+            cache_key = (name, credentials_fingerprint(context["eodag"]))
+        else:
+            cache_key = (name, id(context))
 
         if use_cache:
             cached = self._handler_cache.get(cache_key)
