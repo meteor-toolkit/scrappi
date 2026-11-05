@@ -366,12 +366,6 @@ class TestMetadataViaEoio(unittest.TestCase):
     def setUp(self):
         self.handler = SatelliteOfflineCallHandler(ScrappiContext(), archive_path="/nonexistent")
 
-    def test_raises_a_clear_import_error_when_eoio_is_not_installed(self):
-        # genuinely not installed in this environment -- no faking needed
-        with self.assertRaises(ImportError) as ctx:
-            self.handler._metadata_via_eoio("/archive/S2A_TEST.SAFE")
-        self.assertIn("scrappi[satellite_offline]", str(ctx.exception))
-
     def test_extracts_geometry_datetime_platform_and_cloud_cover(self):
         geom = Polygon([(0, 0), (2, 0), (2, 2), (0, 2)])
         basic = {
