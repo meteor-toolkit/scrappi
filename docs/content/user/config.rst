@@ -61,6 +61,28 @@ The following is a minimal example of how to configure scrappi to use eodag as t
                     username: YOUR_USERNAME
                     password: YOUR_REMOVED_PASSWORD
 
+Credentials in a notebook, script or CI job
+-------------------------------------------
+
+Credentials do not have to be written to a config file. Whichever way they are provided, an unset entry (the default
+``username: null``) never overrides a credential found elsewhere, and a credential in the context takes priority over the
+environment variables.
+
+* **In the context**, for example from a secrets store, by adding them to the dictionary (or ``eomatch`` context) that scrappi is given:
+
+  .. code-block:: python
+
+      context = ScrappiContext(
+          {
+              "eodag": {"cop_dataspace": {"auth": {"credentials": {"username": "...", "password": "..."}}}},
+              "RadCalNet": {"credentials": {"username": "...", "password": "..."}},
+          }
+      )
+
+* **As environment variables**: ``RADCALNET_USERNAME`` and ``RADCALNET_REMOVED_PASSWORD`` for RadCalNet, and
+  ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__USERNAME`` and ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__REMOVED_PASSWORD`` for an eodag
+  provider (for example ``EODAG__COP_DATASPACE__AUTH__CREDENTIALS__USERNAME``).
+
 
 
 

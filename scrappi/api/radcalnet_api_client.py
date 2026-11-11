@@ -280,28 +280,19 @@ class RadcalnetCallHandler(InSituCallHandler):
             context, self._default_geometries
         )  # Runs the init that is in the base class
 
-        credentials = self.context["RadCalNet"]["credentials"]
-        if credentials:
-            try:
-                # set environment variables (when credentials provided)
-                os.environ["RADCALNET_USERNAME"] = credentials["username"]
-                os.environ["RADCALNET_REMOVED_PASSWORD"] = credentials["password"]
-            except Exception:
-                warnings.warn("Provided RADCALNET credentials could not be set in environment variables.")
-            self.session = requests.session()
-            self.session.auth = (credentials["username"], credentials["password"])
+        credentials = self.context["RadCalNet"]["credentials"] or {}
+        # An unset entry in the config (the default is ``username: null``) is not a provided credential, so it
+        # must not shadow the environment variables: take each value from the config if set, else from the environment.
+        username = credentials.get("username") or os.environ.get("RADCALNET_USERNAME")
+        password = credentials.get("password") or os.environ.get("RADCALNET_REMOVED_PASSWORD")
 
-        else:
-            try:
-                # retrieve credentials from environment variables (if no credentials provided)
-                username = os.environ["RADCALNET_USERNAME"]
-                password = os.environ["RADCALNET_REMOVED_PASSWORD"]
-            except KeyError:
-                raise ValueError("No credentials found to initialise api.")
-            else:
-                # initialise api for search and download
-                self.session = requests.session()
-                self.session.auth = (username, password)
+        self.session = requests.session()
+        if username and password:
+            self.session.auth = (username, password)
+            if credentials.get("username") and credentials.get("password"):
+                # also make the credentials available as environment variables (for code that reads them from there)
+                os.environ["RADCALNET_USERNAME"] = username
+                os.environ["RADCALNET_REMOVED_PASSWORD"] = password
 
     def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
         """
@@ -466,6 +457,13 @@ class RadcalnetCallHandler(InSituCallHandler):
         url = self.url_base + site + "/data/"
         # get the list of all files for the site
         r = self.session.get(url, timeout=self.context.get("request_timeout", DEFAULT_REQUEST_TIMEOUT_S))
+        if getattr(r, "status_code", None) == 401:
+            raise requests.exceptions.HTTPError(
+                "401 Unauthorized: RadCalNet rejected the credentials, or none were provided. Set them in the scrappi "
+                "config (RadCalNet: credentials: username/password), in the context passed to scrappi, or in the "
+                "RADCALNET_USERNAME and RADCALNET_REMOVED_PASSWORD environment variables.",
+                response=r,
+            )
         r.raise_for_status()
         filelist = [file["name"] for file in r.json()]
 
@@ -587,7 +585,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
         # Same instance-level, config-mergeable site registry as RadcalnetCallHandler
         # (see _resolve_site_definitions) -- a site only ever available offline still
-        # needs a registered ROI for get_roi_shapely() to resolve it.
+        # needs a registered ROI for get_roi() to resolve it.
         self.DEFAULT_SITE_DEFINITIONS = _resolve_site_definitions(context)
         self._default_geometries = _build_default_geometries(self.DEFAULT_SITE_DEFINITIONS)
         # OfflineArchiveHandler resolves self.archive_path (arg -> context ->

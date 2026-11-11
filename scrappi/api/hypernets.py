@@ -23,27 +23,18 @@ __all__ = ["HYPERNETSOfflineCallHandler"]
 
 HYPERNETS_DEFAULT_ROI = {
     "GHNA": generate_bounding_lat_lon(-23.60153, 15.12589, 100),
-    "WWUK": {
-        "latitude_minimum": 51.77632771952633,
-        "longitude_minimum": -1.3399758460979756,
-        "latitude_maximum": 51.77808426115803,
-        "longitude_maximum": -1.3370120963843524,
-    },
-    "PEAN": [
-        -71.94130941393267,
-        23.3038867960562,
-        -71.93894657967229,
-        23.30663303562398,
-    ],
-    "BASP": Polygon(
-        [
-            [-2.0770842203487048, 39.048247138903605],
-            [-2.0747497502977192, 39.048247138903605],
-            [-2.0747497502977192, 39.05003084892345],
-            [-2.0770842203487048, 39.05003084892345],
-            [-2.0770842203487048, 39.048247138903605],
-        ]
-    ),
+    "ATGE": generate_bounding_lat_lon(52.466778, 12.959778, 100),
+    "BASP": generate_bounding_lat_lon(39.049139, -2.075917, 100),
+    "DEGE": generate_bounding_lat_lon(53.868278, 13.268556, 100),
+    "GHNA": generate_bounding_lat_lon(-23.60153, 15.12589, 100),
+    "IFAR": generate_bounding_lat_lon(-34.592322, -58.479017, 100),
+    "JAES": generate_bounding_lat_lon(58.281975, 27.312959, 100),
+    "JSIT": generate_bounding_lat_lon(44.874305, 11.979201, 100),
+    "LOBE": generate_bounding_lat_lon(50.551493, 4.745911, 100),
+    "PEAN": generate_bounding_lat_lon(-71.940128, 23.305260, 100),
+    "SPAR": generate_bounding_lat_lon(-33.81329, -59.88987, 100),
+    "WGUK": generate_bounding_lat_lon(51.773164, -1.326356, 100),
+    "WWUK": generate_bounding_lat_lon(51.777206, -1.338494, 100),
 }
 
 COLLECTIONS = [
@@ -173,7 +164,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
                     platform=props["site_id"],
                     collection="LHYP_" + query["collection"],
                     id=product_name,
-                    geometry=self.get_roi_shapely(props["site_id"]),
+                    geometry=self.get_roi(props["site_id"]),
                     start_time=self._get_datetime(props["start_datetime"]),
                     stop_time=self._get_datetime(props["end_datetime"]),
                     prod_dict=props,
@@ -320,8 +311,8 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     platform=prod["site_id"],
                     collection="LHYP_" + query["collection"],
                     id=prod["product_name"] + ".nc",
-                    geometry=self.get_roi_shapely(prod["site_id"]),
-                    start_time=self._get_datetime(prod["datetime_start"]) if prod["datetime_start"] != '1970-01-01 01:00:00.000000' else self._get_datetime(prod["datetime_SEQ"]) + datetime.timedelta(hours = 1),
+                    geometry=self.get_roi(prod["site_id"]),
+                    start_time=self._get_datetime(prod["datetime_start"]),
                     stop_time=self._get_datetime(prod["datetime_end"]),
                     prod_dict=prod,
                     filter_dict=self.extract_filter_attributes(prod),

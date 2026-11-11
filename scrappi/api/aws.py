@@ -10,6 +10,7 @@ import math
 from botocore import UNSIGNED
 from botocore.config import Config
 import re
+import numpy as np
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi import ScrappiContext
@@ -134,18 +135,7 @@ class AWSCallHandler(BaseAPICallHandler):
         return self.buckets[collection]
 
     def _set_geom(self, geom, collection) -> List[List[str]]:
-        if isinstance(geom, list):
-            min_lat, min_lon, max_lat, max_lon = geom
-
-        elif isinstance(geom, dict):
-            min_lat, min_lon, max_lat, max_lon = (
-                geom["latitude_minimum"],
-                geom["longitude_minimum"],
-                geom["latitude_maximum"],
-                geom["longitude_maximum"],
-            )
-        else:
-            raise TypeError(f"Unsupported geometry type: {type(geom)}")
+        min_lon, min_lat, max_lon, max_lat = self._get_geom_bounds(geom)
 
         tile_size = 3 if "WorldCover" in collection else 1
 
@@ -264,9 +254,9 @@ class AWSCallHandler(BaseAPICallHandler):
                 ProductItem(
                     constellation=self.get_constellation(prod_dict),  # Copernicus DEM
                     platform=self.get_platform(prod_dict),  # Copernicus DEM
-                    collection=query["collections"][0],  # Copernicus DEM 30m
+                    collection=query["collection"],  # Copernicus DEM 30m
                     id=self._get_id(prod[0].key),  # first part of the key
-                    geometry=self.tile_bbox(prod[0].key, tile_size=self._get_tile_size(query["collections"][0])).wkt,
+                    geometry=self.tile_bbox(prod[0].key, tile_size=self._get_tile_size(query["collection"])).wkt,
                     start_time=self._get_time(prod[0].key),
                     stop_time=self._get_time(prod[0].key),
                     api=self,
@@ -397,6 +387,37 @@ class AWSCallHandler(BaseAPICallHandler):
                 search = product.api_product
                 bucket, key = search["bucket"], search["key"]
                 return self._download(bucket, key, path)
+
+            else:
+                new_query = {
+                    "collection": product.collection,
+                    "geom": {
+                        "latitude_minimum": product.geometry.bounds[1],
+                        "longitude_minimum": product.geometry.bounds[0],
+                        "latitude_maximum": product.geometry.bounds[3],
+                        "longitude_maximum": product.geometry.bounds[2],
+                    },
+                }
+                if product.collection=='ESA_WorldCover':
+                    new_query["version"]=next((k for k, v in self.WORLDCOVER_VERSION_YEAR.items() if v == product.start_time.year), None)
+
+                # search catalogue with query
+                searchresult = self.perform_query(new_query)
+                search_ids = np.array([prod.id for prod in searchresult])
+                correct_ids = np.where(search_ids == product.id)[0]
+                if len(correct_ids) == 0:
+                    warnings.warn("no products found that satisfy download criterea")
+                    return None
+                elif len(correct_ids) > 1:
+                    warnings.warn(
+                        "multiple products found that satisfy download criterea (%s), only first will be downloaded."
+                        % searchresult
+                    )
+
+                search = searchresult[0].api_product
+                bucket, key = search["bucket"], search["key"]
+                return self._download(bucket, key, path)
+
         else:
             raise ValueError(
                 "products are not in the right format for download by scrappi earthaccess (ProductItem, ProductItemSet)"

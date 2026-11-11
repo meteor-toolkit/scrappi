@@ -115,8 +115,43 @@ def generate_bounding_lat_lon(latitude, longitude, distance, crs=None) -> list:
 
 
 def convert_geom(geom: Any) -> Any:
+    """Backward-compatible alias for the canonical shapely-normalized geometry."""
+    return convert_geom_and_check(geom)
+
+
+def convert_geom_and_check(geom: Any) -> Any:
     """
-    Get the geometry to use to query the api
+    Get the geometry to use to query the api.
+
+    Normalises any supported input to a shapely geometry and validates that
+    the coordinates are valid geographic bounds in lon/lat order.
+
+    :param geom:
+    :returns: shapely geometry
+    """
+    geom = convert_geom_shapely(geom)
+
+    if (
+        -180 <= geom.bounds[0] <= 180
+        and -180 <= geom.bounds[2] <= 180
+        and -90 <= geom.bounds[1] <= 90
+        and -90 <= geom.bounds[3] <= 90
+    ):
+        return geom
+    else:
+        raise ValueError("""Incorrect "geom" query format. 
+                        The provided shapely geom has invalid lat or lon. 
+                        Remember that shapely polygons are provided with (x,y) coordinates, i.e. (lon, lat).
+                        """)
+
+
+def convert_geom_shapely(geom: Any) -> Any:
+    """
+    Get the geometry converted to shapely.
+
+    This is the canonical internal representation used throughout scrappi.
+    All valid inputs return a shapely geometry; malformed inputs raise
+    ``ValueError`` consistently.
 
     :param geom:
     :returns:
@@ -125,37 +160,42 @@ def convert_geom(geom: Any) -> Any:
         geom = list(geom)
 
     if isinstance(geom, list):
-        if -180 <= geom[1] <= 180 and -180 <= geom[3] <= 180 and -90 <= geom[0] <= 90 and -90 <= geom[2] <= 90:
-            return {
-                "latitude_minimum": geom[0],
-                "longitude_minimum": geom[1],
-                "latitude_maximum": geom[2],
-                "longitude_maximum": geom[3],
-            }
-        else:
-            raise ValueError("""Incorrect "geom" query format. 
-                            Please choose from: 
-                                shapely geometry object,
-                                Well-Known-Text string (wkt str)
-                                dict("latitude_minimum": val,  "longitude_minimum": val, "latitude_maximum": val, "longitude_maximum": val),
-                                list(latitude_minimum, longitude_minimum, latitude_maximum, longitude_maximum)
-                            """)
+        return Polygon(
+            (
+                (geom[1], geom[0]),
+                (geom[3], geom[0]),
+                (geom[3], geom[2]),
+                (geom[1], geom[2]),
+                (geom[1], geom[0]),
+            )
+        )
+
     elif isinstance(geom, dict):
-        if {
-            "longitude_minimum",
-            "longitude_maximum",
-            "latitude_minimum",
-            "latitude_maximum",
-        } == set(geom.keys()):
-            return geom
-        else:
-            raise ValueError("""Incorrect "geom" query format. 
+        try:
+            min_lat = geom["latitude_minimum"]
+            min_lon = geom["longitude_minimum"]
+            max_lat = geom["latitude_maximum"]
+            max_lon = geom["longitude_maximum"]
+        except KeyError as exc:
+            raise ValueError(
+                """Incorrect "geom" query format. 
                             Please choose from: 
                                 shapely geometry object,
                                 Well-Known-Text string (wkt str)
                                 dict("latitude_minimum": val,  "longitude_minimum": val, "latitude_maximum": val, "longitude_maximum": val),
                                 list(latitude_minimum, longitude_minimum, latitude_maximum, longitude_maximum)
-                            """)
+                            """
+            ) from exc
+
+        return Polygon(
+            (
+                (min_lon, min_lat),
+                (max_lon, min_lat),
+                (max_lon, max_lat),
+                (min_lon, max_lat),
+                (min_lon, min_lat),
+            )
+        )
     elif isinstance(
         geom,
         (
@@ -163,22 +203,12 @@ def convert_geom(geom: Any) -> Any:
             shapely.geometry.base.BaseMultipartGeometry,
         ),
     ):
-        if (
-            -180 <= geom.bounds[0] <= 180
-            and -180 <= geom.bounds[2] <= 180
-            and -90 <= geom.bounds[1] <= 90
-            and -90 <= geom.bounds[3] <= 90
-        ):
-            return geom
-        else:
-            raise ValueError("""Incorrect "geom" query format. 
-                            The provided shapely geom has invalid lat or lon. 
-                            Remember that shapely polygons are provided with (x,y) coordinates, i.e. (lon, lat).
-                            """)
+        return geom
+
     else:
         try:
             return shapely.wkt.loads(geom)
-        except shapely.errors.WKTReadingError:
+        except (shapely.errors.ShapelyError, TypeError, ValueError):
             raise ValueError("""Incorrect "geom" query format. 
                             Please choose from: 
                                 shapely geometry object,
@@ -186,30 +216,31 @@ def convert_geom(geom: Any) -> Any:
                                 dict("latitude_minimum": val,  "longitude_minimum": val, "latitude_maximum": val, "longitude_maximum": val),
                                 list(latitude_minimum, longitude_minimum, latitude_maximum, longitude_maximum)
                             """)
+        
+
+def convert_geom_list(geom: Any) -> Any:
+    """Legacy compatibility helper for callers expecting a lat/lon bbox list.
+
+    ``AWSCallHandler`` historically used this API to unpack a geometry into
+    ``[min_lat, min_lon, max_lat, max_lon]``. The canonical internal format is a
+    shapely geometry, so this is now a thin compatibility wrapper around the
+    bbox conversion helper.
+    """
+    return convert_geom_bbox(geom)
 
 
-def convert_geom_shapely(geom: Any) -> Any:
+def convert_geom_bbox(geom: Any) -> Any:
     """
     Get the geometry converted to shapely
 
     :param geom:
     :returns:
     """
-    geom = convert_geom(
+    geom = convert_geom_shapely(
         geom
-    )  # this returns shapely or dictionary with "longitude_minimum", "longitude_maximum", "latitude_minimum", "latitude_maximum"
-    if isinstance(geom, dict):
-        return Polygon(
-            (
-                (geom["longitude_minimum"], geom["latitude_minimum"]),
-                (geom["longitude_maximum"], geom["latitude_minimum"]),
-                (geom["longitude_maximum"], geom["latitude_maximum"]),
-                (geom["longitude_minimum"], geom["latitude_maximum"]),
-                (geom["longitude_minimum"], geom["latitude_minimum"]),
-            )
-        )
-    else:
-        return geom
+    ) 
+    min_lon, min_lat, max_lon, max_lat = geom.bounds
+    return [min_lat, min_lon, max_lat, max_lon]
 
 
 # dictionary tools from eoio

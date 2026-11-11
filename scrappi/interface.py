@@ -16,12 +16,13 @@ import shapely
 import shapely.geometry
 from typing import Optional, Union, List, Dict, Any
 import xarray as xr
+from pyproj import Transformer
 from processor_tools import Context
 from processor_tools.utils.formatters import convert_datetime
 
 from scrappi.api.factory import APICallHandlerFactory
 from scrappi.fs.factory import FSCallHandlerFactory
-from scrappi.utils.utils import generate_bounding_lat_lon
+from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.insitubase import InSituCallHandler
@@ -55,6 +56,53 @@ platforms = {
 Factory = APICallHandlerFactory()
 FSFactory = FSCallHandlerFactory()
 logger = logging.getLogger(__name__)
+
+# id(raw context) -> (raw context reference, wrapped ScrappiContext), shared across
+# the whole process -- see _ensure_scrappi_context.
+_context_wrap_cache: Dict[int, Any] = {}
+
+
+def _ensure_scrappi_context(context: Optional[Any]) -> ScrappiContext:
+    """Return *context* as a real :py:class:`~scrappi.ScrappiContext`, wrapping it
+    if it isn't already one.
+
+    Every module-level helper below (``get_api_name``, ``make_api``, ``make_fs``,
+    ``perform_query``, ``download_product``) normalises its own *context* argument
+    through this one function, for two reasons:
+
+    - **Correctness**: a plain falsy check (``if not context:``) only catches
+      ``None``/empty -- a non-``ScrappiContext`` object that's still truthy (e.g. a
+      caller's own config class, such as eomatch's ``EOMatchContext``) would pass
+      through unwrapped and crash on e.g. ``context["api"]["preferred_api"]``, since
+      it doesn't carry scrappi's own ``defaults.yaml``. ``isinstance`` catches this.
+
+    - **Identity stability across repeated calls**: wrapping unconditionally on
+      *every* call -- even for the *same* raw *context* object passed again and
+      again (the normal case: a caller builds one context once and reuses it for
+      every query in a run) -- would hand back a *different* ``ScrappiContext``
+      object each time, defeating ``APICallHandlerFactory.get_api_call_handler``'s
+      own context-*identity* handler cache (see its docstring) at the exact point
+      it needs a stable identity to hold. This function instead wraps a given raw
+      object once and returns the *same* wrapped instance for that object on every
+      later call (the raw object is kept alive in the cache entry so its ``id()``
+      can't be recycled for an unrelated object in the meantime).
+
+    :param context: a :py:class:`~scrappi.ScrappiContext`, ``None``, or any other
+        config-like object (e.g. a dict, or another ``processor_tools.Context``
+        subclass).
+    :return: *context* unchanged if already a ``ScrappiContext``; otherwise the
+        same wrapped ``ScrappiContext`` returned for this exact *context* object
+        (identity, not equality) on every call.
+    """
+    if isinstance(context, ScrappiContext):
+        return context
+    key = id(context)
+    cached = _context_wrap_cache.get(key)
+    if cached is not None and cached[0] is context:
+        return cached[1]
+    wrapped = ScrappiContext(context)
+    _context_wrap_cache[key] = (context, wrapped)
+    return wrapped
 
 
 def _candidate_failure_is_recoverable(exc: BaseException) -> bool:
@@ -174,16 +222,7 @@ def get_api_name(
     :return: name/s of API to use
     """
 
-    if not isinstance(context, ScrappiContext):
-        # A falsy check alone (the old `if not context:`) only catches None/empty --
-        # a non-ScrappiContext object that's still truthy (e.g. an eomatch
-        # EOMatchContext, passed straight through by a caller like
-        # Sat2InSituMUFinder.identify_mu_events) would pass through unwrapped and
-        # crash below on context["api"]["preferred_api"], since it doesn't carry
-        # scrappi's own defaults.yaml (api.preferred_api etc.) the way a real
-        # ScrappiContext does. Same isinstance-based normalisation the API handler
-        # constructors themselves already use (e.g. RadcalnetCallHandler.__init__).
-        context = ScrappiContext(context)
+    context = _ensure_scrappi_context(context)
 
     preferred_api = ""
     if context["api"]["preferred_api"]:
@@ -263,9 +302,7 @@ def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None
     :param context: Context object (user provided configuration values or scrappi default)
     :return : reader object
     """
-    if not isinstance(context, ScrappiContext):
-        # See get_api_name's own comment on this same isinstance-vs-falsy fix.
-        context = ScrappiContext(context)
+    context = _ensure_scrappi_context(context)
     if isinstance(api, BaseAPICallHandler):
         return api
     elif not api:
@@ -283,9 +320,9 @@ def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     :param context: Context object (user provided configuration values or scrappi default)
 
     """
-    if not isinstance(context, ScrappiContext):
-        # See get_api_name's own comment on this same isinstance-vs-falsy fix.
-        context = ScrappiContext(context)
+    context = _ensure_scrappi_context(context)
+    if isinstance(fs, BaseFileSystem):
+        return fs
     if not fs:
         fs = context["fs"]["path"]
     return FSFactory.get_fs_call_handler(fs, context)
@@ -299,8 +336,15 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     :param context: Context object (user provided configuration values or scrappi default)
     :return: ProductItemSet satisfying query
     """
-    if not isinstance(context, ScrappiContext):
-        context = ScrappiContext(context)
+    context = _ensure_scrappi_context(context)
+
+    #coordinate system transfer to lat/lon if geom_crs is provided
+    if "geom" in query.keys() and "geom_crs" in query.keys():
+        if query["geom_crs"] != "EPSG:4326":
+            geom = convert_geom_shapely(query["geom"])
+            transformer = Transformer.from_crs(query["geom_crs"], "EPSG:4326", always_xy=True)
+            query["geom"] = shapely.ops.transform(transformer.transform, geom)
+            query["geom_crs"] = "EPSG:4326"
 
     # if multiple collections are provided, run query for each and combine results
     if "collections" in query.keys():
@@ -317,36 +361,53 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
                 products.append_ProductItemSet(perform_query(query, context))
             return products
 
-    apis = get_api_name(query["collection"], context=context, all_apis=True)
+    api = get_api_name(query["collection"], context=context)
+    api_handler = make_api(api, context)
+    try:
+        products = api_handler.perform_query(query)
+    except Exception as exc:
+        if not context["api"]["try_all_apis"]:
+            raise
+        warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {exc}")
+        products = ProductItemSet()
 
-    # Fan the query out across every candidate API for the collection, in preference
-    # order, returning the first non-empty result. A candidate that raises only
-    # because it can't serve this particular query (see
-    # _candidate_failure_is_recoverable) is skipped so a later candidate still gets a
-    # go; any other error surfaces immediately, and if *every* candidate that ran
-    # bailed that way, the last error is re-raised rather than masquerading as
-    # "no products found".
-    api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
-    n_ran = 0
-    n_recoverable = 0
-    last_exc: Optional[BaseException] = None
-    for api in api_list:
-        n_ran += 1
-        api_handler = make_api(api, context)
-        try:
-            products = api_handler.perform_query(query)
-        except Exception as e:
-            if not _candidate_failure_is_recoverable(e):
-                raise
-            warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
-            n_recoverable += 1
-            last_exc = e
-            continue
-        if len(products) > 0:
-            return products
+    if products is not None and len(products) > 0:
+        return products
 
-    if last_exc is not None and n_recoverable == n_ran:
-        raise last_exc
+    if context["api"]["try_all_apis"]:
+        apis = get_api_name(query["collection"], context=context, all_apis=True)
+        # remove preferred_api from list of apis to try, as it has already been tried above
+        apis = [a for a in apis if a != api]
+
+        # Fan the query out across every candidate API for the collection, in preference
+        # order, returning the first non-empty result. A candidate that raises only
+        # because it can't serve this particular query (see
+        # _candidate_failure_is_recoverable) is skipped so a later candidate still gets a
+        # go; any other error surfaces immediately, and if *every* candidate that ran
+        # bailed that way, the last error is re-raised rather than masquerading as
+        # "no products found".
+        api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+        n_ran = 0
+        n_recoverable = 0
+        last_exc: Optional[BaseException] = None
+        for api in api_list:
+            n_ran += 1
+            api_handler = make_api(api, context)
+            try:
+                products = api_handler.perform_query(query)
+            except Exception as e:
+                if not _candidate_failure_is_recoverable(e):
+                    raise
+                warnings.warn(f"Query failed for api {api!r}, collection {query['collection']!r}: {e}")
+                n_recoverable += 1
+                last_exc = e
+                continue
+            if products is not None and len(products) > 0:
+                return products
+
+        if last_exc is not None and n_recoverable == n_ran:
+            raise last_exc
+        
     return ProductItemSet()
 
 
@@ -417,8 +478,47 @@ def update_context_file(context_update: dict):
     context.write_config(path)
     return context
 
+def register_downloaded_product(product: ProductItem, context: Optional[ScrappiContext] = None):
+        try:
+            # Check context setting to decide whether to auto-register
+            register_flag = False
+            try:
+                register_flag = bool(context["fs"]["register_stac_items"])
+            except Exception:
+                register_flag = False
 
-def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None):
+            if register_flag and isinstance(product, ProductItem):
+                if getattr(product.filesystem, "read_only", False):
+                    # e.g. an offline archive handler's product.filesystem is pinned
+                    # into the archive itself -- not ours to write a stac/ folder
+                    # into. register_in_filesystem_catalog would raise IOError for
+                    # the same reason; skip quietly rather than let the two-attempt
+                    # fallback below hit it (and log a confusing "failed" message)
+                    # for what is expected, common behaviour for these products.
+                    logger.debug(
+                        "Skipping STAC registration for %r: product.filesystem is read-only",
+                        getattr(product, "id", product),
+                    )
+                else:
+                    # prefer product.filesystem; make_fs will handle strings
+                    try:
+                        product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
+                    except Exception:
+                        # fallback: try using make_fs with product.filesystem attribute
+                        try:
+                            fs = make_fs(product.filesystem)
+                            product.register_in_filesystem_catalog(
+                                filesystem=fs,
+                                overwrite=context["fs"]["overwrite_stac_items"],
+                            )
+                        except Exception as e:
+                            logger.debug("Failed to register product in STAC catalog: %s", e)
+            # for ProductItemSet we assume individual downloads will have registered themselves
+        except Exception:
+            # Do not let registration errors prevent returning the download path
+            pass
+    
+def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None, api: Optional[BaseAPICallHandler] = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
@@ -434,87 +534,75 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         if isinstance(product, ProductItem):
             context = product.context
         else:
-            context = ScrappiContext()
+            # No caller context and no single ProductItem to fall back to
+            # product.context on -- go through _ensure_scrappi_context (not a bare
+            # ScrappiContext()) anyway, so repeated calls in this shape (e.g. once
+            # per matchup in a download loop) reuse the same default instance
+            # instead of building a fresh one every time -- see its own docstring.
+            context = _ensure_scrappi_context(context)
 
     if isinstance(product, ProductItemSet):
         return [p.download_product(context=context) for p in product]
 
-    if isinstance(product, ProductItem):
-        path, exists = product.filesystem.return_path(product, check_exists=True)
+    if not isinstance(product, ProductItem):
+        raise ValueError("Provided product for download should be a ProductItem or ProductItemSet")
+
+    if product.filesystem is None:
+        product.set_fs(product.filesystem_init, context=context)
+    path, exists = product.filesystem.return_path(product, check_exists=True)
 
         if exists:
             print(f"{path} exists")
             return path
 
-    apis = get_api_name(product.collection, context=context, all_apis=True)
-    download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
-
-    # Same fan-out-with-recovery as perform_query: a product may be resolvable only
-    # by a later candidate (e.g. an offline archive handler for a site the online
-    # portal 404s on), so a recoverable failure from an earlier candidate is warned
-    # and skipped rather than aborting the chain -- but a real error (bad
-    # credentials, a bug) surfaces, and if every candidate bailed recoverably the
-    # last error is re-raised instead of returning None.
-    n_ran = 0
-    n_recoverable = 0
-    last_exc: Optional[BaseException] = None
-    for api in download_apis:
-        n_ran += 1
+    if api:
         api_handler = make_api(api, context=context)
-        try:
-            download_path = api_handler.download_product(product)
-        except Exception as e:
-            if not _candidate_failure_is_recoverable(e):
-                raise
-            warnings.warn(f"Download failed for api {api!r}, product {getattr(product, 'id', product)!r}: {e}")
-            n_recoverable += 1
-            last_exc = e
-            continue
-        if download_path is not None:
-            # After successful download, attempt to register the product in filesystem STAC catalogs
+
+    elif product.api:
+        product.set_api(context=context)
+        api_handler =  product.api
+    else:
+        api = get_api_name(product.collection, context=context)
+        api_handler = make_api(api, context=context)
+        
+    download_path = api_handler.download_product(product)
+    if download_path is not None:
+        register_downloaded_product(product, context=context)
+        return download_path
+
+    if context["api"]["try_all_apis"]:
+        apis = get_api_name(product.collection, context=context, all_apis=True)
+        apis = [a for a in apis if a != api] # remove preferred_api from list of apis to try, as it has already been tried above
+        download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+
+        # Same fan-out-with-recovery as perform_query: a product may be resolvable only
+        # by a later candidate (e.g. an offline archive handler for a site the online
+        # portal 404s on), so a recoverable failure from an earlier candidate is warned
+        # and skipped rather than aborting the chain -- but a real error (bad
+        # credentials, a bug) surfaces, and if every candidate bailed recoverably the
+        # last error is re-raised instead of returning None.
+        n_ran = 0
+        n_recoverable = 0
+        last_exc: Optional[BaseException] = None
+        for api in download_apis:
+            n_ran += 1
+            api_handler = make_api(api, context=context)
             try:
-                # Check context setting to decide whether to auto-register
-                register_flag = False
-                try:
-                    register_flag = bool(context["fs"]["register_stac_items"])
-                except Exception:
-                    register_flag = False
+                download_path = api_handler.download_product(product)
+            except Exception as e:
+                if not _candidate_failure_is_recoverable(e):
+                    raise
+                warnings.warn(f"Download failed for api {api!r}, product {getattr(product, 'id', product)!r}: {e}")
+                n_recoverable += 1
+                last_exc = e
+                continue
+            if download_path is not None:
+                register_downloaded_product(product, context=context)
+                return download_path
 
-                if register_flag and isinstance(product, ProductItem):
-                    if getattr(product.filesystem, "read_only", False):
-                        # e.g. an offline archive handler's product.filesystem is pinned
-                        # into the archive itself -- not ours to write a stac/ folder
-                        # into. register_in_filesystem_catalog would raise IOError for
-                        # the same reason; skip quietly rather than let the two-attempt
-                        # fallback below hit it (and log a confusing "failed" message)
-                        # for what is expected, common behaviour for these products.
-                        logger.debug(
-                            "Skipping STAC registration for %r: product.filesystem is read-only",
-                            getattr(product, "id", product),
-                        )
-                    else:
-                        # prefer product.filesystem; make_fs will handle strings
-                        try:
-                            product.register_in_filesystem_catalog(overwrite=context["fs"]["overwrite_stac_items"])
-                        except Exception:
-                            # fallback: try using make_fs with product.filesystem attribute
-                            try:
-                                fs = make_fs(product.filesystem)
-                                product.register_in_filesystem_catalog(
-                                    filesystem=fs,
-                                    overwrite=context["fs"]["overwrite_stac_items"],
-                                )
-                            except Exception as e:
-                                logger.debug("Failed to register product in STAC catalog: %s", e)
-                # for ProductItemSet we assume individual downloads will have registered themselves
-            except Exception:
-                # Do not let registration errors prevent returning the download path
-                pass
-
-            return download_path
-
-    if last_exc is not None and n_recoverable == n_ran:
-        raise last_exc
+        if last_exc is not None and n_recoverable == n_ran:
+            raise last_exc
+        
     return None
 
 
@@ -530,8 +618,7 @@ def download_product_filename(
 
     :return product paths of downloaded products
     """
-    if context is None:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     api = context["api"]["preferred_api"]
     api_handler = make_api(api, context=context)
     func = getattr(api_handler, "download_product_filename", None)
@@ -552,8 +639,7 @@ def download_product_scene(
     :param context: Context object (user provided configuration values or scrappi default)
     :return product paths of downloaded products
     """
-    if context is None:
-        context = ScrappiContext()
+    context = _ensure_scrappi_context(context)
     api = context["api"]["preferred_api"]
     api_handler = make_api(api, context=context)
     func = getattr(api_handler, "download_product_scene", None)

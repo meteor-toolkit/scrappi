@@ -13,6 +13,7 @@ from scrappi.utils.utils import (
     get_nested_value,
     get_dict_path,
     convert_geom,
+    convert_geom_and_check,
     convert_geom_shapely,
     generate_bounding_lat_lon,
 )
@@ -227,17 +228,12 @@ class TestPlotUtils(unittest.TestCase):
 
     def test_convert_geom_list(self):
         input_geom = [40, 120, 60, 140]
-        output_geom = {
-            "latitude_minimum": 40,
-            "longitude_minimum": 120,
-            "latitude_maximum": 60,
-            "longitude_maximum": 140,
-        }
-        self.assertEqual(convert_geom(input_geom), output_geom)
+        output_geom = Polygon([(120, 40), (140, 40), (140, 60), (120, 60), (120, 40)])
+        self.assertTrue(convert_geom_and_check(input_geom).equals(output_geom))
 
     def test_convert_geom_list_error(self):
         input_geom = [120, 40, 140, 60]
-        self.assertRaises(ValueError, convert_geom, input_geom)
+        self.assertRaises(ValueError, convert_geom_and_check, input_geom)
 
     def test_convert_geom_dict(self):
         input_geom = {
@@ -246,33 +242,34 @@ class TestPlotUtils(unittest.TestCase):
             "latitude_maximum": 60,
             "longitude_maximum": 140,
         }
-        self.assertEqual(convert_geom(input_geom), input_geom)
+        output_geom = Polygon([(120, 40), (140, 40), (140, 60), (120, 60), (120, 40)])
+        self.assertTrue(convert_geom_and_check(input_geom).equals(output_geom))
 
     def test_convert_geom_dict_error(self):
         input_geom = {"LAT_AND_LON": 23498293}
-        self.assertRaises(ValueError, convert_geom, input_geom)
+        self.assertRaises(ValueError, convert_geom_and_check, input_geom)
 
     def test_convert_geom_shapely(self):
         input_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
         output_geom = Polygon([[120, 40], [160, 40], [160, 60], [140, 60]])
-        self.assertEqual(convert_geom(input_geom), output_geom)
+        self.assertEqual(convert_geom_and_check(input_geom), output_geom)
 
     def test_convert_geom_shapely_error(self):
         input_geom = Polygon([[40, 120], [40, 160], [60, 160], [60, 140]])
-        self.assertRaises(ValueError, convert_geom, input_geom)
+        self.assertRaises(ValueError, convert_geom_and_check, input_geom)
 
     def test_convert_geom_point(self):
         input_geom = Point(120, 40)
-        self.assertEqual(convert_geom(input_geom), input_geom)
+        self.assertEqual(convert_geom_and_check(input_geom), input_geom)
 
     def test_convert_geom_wktstr(self):
         input_geom = "POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))"
         output_geom = shapely.wkt.loads("POLYGON ((120 40, 160 40, 160 60, 140 60, 120 40))")
-        self.assertEqual(convert_geom(input_geom), output_geom)
+        self.assertEqual(convert_geom_and_check(input_geom), output_geom)
 
     def test_convert_geom_wktstr_error_1(self):
         input_geom = "POLY ((120 40, 160 40, 160 60, 140 60, 120 40))"
-        self.assertRaises(ValueError, convert_geom, input_geom)
+        self.assertRaises(ValueError, convert_geom_and_check, input_geom)
 
     def test_convert_geom_shapely_dict(self):
         input_geom = {

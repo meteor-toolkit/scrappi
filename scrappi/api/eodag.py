@@ -5,6 +5,8 @@ This module provides `EODAGCallHandler`, an implementation of
 satellite products from supported providers.
 """
 
+import hashlib
+import json
 import os
 import shutil
 import warnings
@@ -41,6 +43,60 @@ __author__ = [
 __all__ = ["EODAGCallHandler"]
 
 
+def drop_unset_credentials(eodag_config: dict) -> dict:
+    """Return a copy of an EODAG provider configuration without unset credentials.
+
+    The default scrappi config lists every credential as empty (``username: null``). Passing those on to
+    :py:meth:`eodag.EODataAccessGateway.update_providers_config` would overwrite the credentials EODAG itself found
+    (in its own config file or in ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__<NAME>`` environment variables), so credentials
+    that are ``None`` or empty are left out and EODAG's own values stay in place.
+
+    :param eodag_config: mapping of provider keys to provider configuration
+    :return: the same configuration, without ``None``/empty entries in any ``credentials`` section
+    """
+    cleaned: dict = {}
+    for key, value in eodag_config.items():
+        if isinstance(value, dict):
+            value = drop_unset_credentials(value)
+            if key == "credentials":
+                value = {k: v for k, v in value.items() if v not in (None, "")}
+                if not value:
+                    continue
+        cleaned[key] = value
+    return cleaned
+
+
+def credentials_fingerprint(eodag_config: Optional[dict]) -> str:
+    """Return a stable digest of the credentials in an EODAG provider configuration.
+
+    Used to tell EODAG handlers that were built with different credentials apart (see
+    :py:meth:`scrappi.api.factory.APICallHandlerFactory.get_api_call_handler`). Unset (``None``/empty) credentials
+    are ignored, so a configuration without any credentials gives the empty string, and the digest does not
+    reveal the credentials themselves.
+
+    :param eodag_config: mapping of provider keys to provider configuration (``context["eodag"]``), or ``None``
+    :return: hex digest, or ``""`` if the configuration has no credentials set
+    """
+    credentials: dict = {}
+
+    def collect(config: dict, path: tuple) -> None:
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                continue
+            if key == "credentials":
+                set_values = {k: v for k, v in value.items() if v not in (None, "")}
+                if set_values:
+                    credentials[".".join((*path, key))] = set_values
+            else:
+                collect(value, (*path, key))
+
+    if eodag_config:
+        collect(eodag_config, ())
+    if not credentials:
+        return ""
+    return hashlib.sha256(json.dumps(credentials, sort_keys=True, default=str).encode()).hexdigest()
+
+
 class EODAGCallHandler(BaseAPICallHandler):
     """EODAG API call handler.
 
@@ -63,7 +119,9 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.dag = EODataAccessGateway()
         if self.context["eodag"] is not None:
-            self.dag.update_providers_config(dict_conf=self.filter_eodag_config_priority(self.context["eodag"]))
+            self.dag.update_providers_config(
+                dict_conf=drop_unset_credentials(self.filter_eodag_config_priority(self.context["eodag"]))
+            )
 
         if self.context["api"]["preferred_provider"] is not None:
             self.dag.set_preferred_provider(self.context["api"]["preferred_provider"])
@@ -102,7 +160,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :param yaml_conf: YAML formated provider configuration
         """
         self.context = context
-        self.dag.update_providers_config(dict_conf=context["eodag"])
+        self.dag.update_providers_config(dict_conf=drop_unset_credentials(context["eodag"]))
 
     def _set_datetime(self, date_time: Union[dt.datetime, str]) -> str:
         """
@@ -117,30 +175,31 @@ class EODAGCallHandler(BaseAPICallHandler):
         self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
     ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
         """
-        Convert input geometries to ones suited to the apis query format
-        All accepted geometries work for eodag api
+        Convert the internal normalized geometry into the provider-specific format.
+
+        ``_get_geom`` already validates and returns a shapely geometry, so here we
+        only do the final EODAG serialization step.
 
         :param geom: geometry to convert
         :return: geometry in accepted eodag format
         """
         geom = self._get_geom(geom)
-        if isinstance(geom, dict):
-            return {
-                "lonmin": geom["longitude_minimum"],
-                "latmin": geom["latitude_minimum"],
-                "lonmax": geom["longitude_maximum"],
-                "latmax": geom["latitude_maximum"],
-            }
-        else:
-            if not isinstance(
-                geom,
-                (
-                    shapely.geometry.base.BaseGeometry,
-                    shapely.geometry.base.BaseMultipartGeometry,
-                ),
-            ):
-                geom = shapely.wkt.loads(geom)
+        if isinstance(
+            geom,
+            (
+                shapely.geometry.base.BaseGeometry,
+                shapely.geometry.base.BaseMultipartGeometry,
+            ),
+        ):
             return geom
+
+        bbox = self._get_geom_bbox_dict(geom)
+        return {
+            "lonmin": bbox["longitude_minimum"],
+            "latmin": bbox["latitude_minimum"],
+            "lonmax": bbox["longitude_maximum"],
+            "latmax": bbox["latitude_maximum"],
+        }
 
     def _set_product_type(self, collection: str) -> str:
         """
@@ -231,6 +290,12 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
         Return ProductItemSet containing ProductItems that satisfy query
 
+        A product whose metadata is missing required fields (e.g. no start/stop time,
+        or an unparseable product ID) is skipped with a warning rather than aborting
+        the whole query -- one malformed record from a provider (seen e.g. for some
+        USGS Landsat products) shouldn't discard every other product the query would
+        otherwise have returned.
+
         :param query: catalogue query
         :returns: ProductItemSet
         """
@@ -277,8 +342,15 @@ class EODAGCallHandler(BaseAPICallHandler):
 
             collection = query["collection"]
 
+            # store product item -- a single malformed record (e.g. a provider missing
+            # start/stop time metadata for one product) shouldn't discard every other
+            # product the query would otherwise have returned. find_start_time/
+            # find_stop_time raise ValueError when neither of their recognised keys is
+            # present; find_stop_time's LANDSAT_C2L1 branch subscripts "end_datetime"
+            # directly (no existence/None check), raising KeyError if it's absent or
+            # TypeError if it's present but None; get_platform/get_constellation raise
+            # NotImplementedError for an unparseable product ID.
             try:
-                # store product item
                 product_list.append(
                     ProductItem(
                         constellation=self.get_constellation(prod_dict),
@@ -298,8 +370,8 @@ class EODAGCallHandler(BaseAPICallHandler):
                         api_product=prod,
                     )
                 )
-            except Exception as e:
-                log.warning(f"Error creating ProductItem for product {prod_dict['id']}: {e}")
+            except (ValueError, KeyError, TypeError, NotImplementedError) as e:
+                warnings.warn(f"Skipping product {prod_dict.get('id')!r}: {e}")
                 continue
 
         return ProductItemSet(product_list)
@@ -315,7 +387,12 @@ class EODAGCallHandler(BaseAPICallHandler):
             "surface_pressure": "sp",
             "total_column_ozone": "tco3",
             "total_aerosol_optical_depth_550nm": "aod550",
+            "total_aerosol_optical_depth_670nm": "aod670",
+            "total_aerosol_optical_depth_469nm": "aod469",
+            "total_aerosol_optical_depth_865nm": "aod865",
+            "total_aerosol_optical_depth_1240nm": "aod1240",
         }
+    
         return abbreviations.get(variable_name, variable_name)
 
     def get_id(self, prod_dict: dict, query: dict) -> str:
@@ -604,6 +681,8 @@ class EODAGCallHandler(BaseAPICallHandler):
             return None
 
         elif isinstance(product, ProductItem):
+            if product.filesystem is None:
+                product.set_fs(product.filesystem_init, context=product.context)
             path, exists = product.filesystem.return_path(product, check_exists=True)
             product_title = product.id
 

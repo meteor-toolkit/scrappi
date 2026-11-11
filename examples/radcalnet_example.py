@@ -31,25 +31,25 @@ context = ScrappiContext()
 context["api"]["preferred_api"] = "radcalnet"
 if __name__ == "__main__":
     api_name = "radcalnet"
-    start = "2023-02-07T23:00:00"
-    end = "2023-02-10T00:00:00"
+    start = "2026-03-01T23:00:00"
+    end = "2026-08-31T00:00:00"
 
     query = {
-        "collection": "RCN_BOA",
+        "collection": "RCN_TOA",
         "site": "GONA",  # ["GONA", "RVUS", "LCFR", "BSCN"],
         "start_time": start,
         "stop_time": end,
     }
 
-    api = get_api_name("RCN_BOA")
-    api = make_api(api)
-    api.get_roi("GONA")
+    # api = get_api_name("RCN_TOA")
+    # api = make_api(api)
+    # api.get_roi("GONA")
 
     products = perform_query(query, context)
 
     # products.plot_geometries()
     # plt.show()
-    products.set_fs(file_system)
+    products.set_fs("t-drive")
 
     path = download_product(products, context)
     print(path)

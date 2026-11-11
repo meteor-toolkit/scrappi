@@ -60,30 +60,36 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
     def _set_geom(self, query: dict) -> dict:
         """
-        Convert input geometries to ones suited to the apis query format
-        All accepted geometries work for earthaccess api
+        Convert the geometry into the earthaccess query format.
+
+        The canonical internal form is a validated shapely geometry, but the
+        payload shape still depends on the original query input: dict/list inputs
+        become a bounding box, while shapely/WKT inputs become polygon coords.
 
         :param geom: geometry to convert
         :return: geometry in accepted earthaccess format
         """
         if "geom" in query.keys():
-            geom = self._get_geom(query.get("geom"))
-            if isinstance(geom, dict):
-                query["bounding_box"] = (
-                    geom["longitude_minimum"],
-                    geom["latitude_minimum"],
-                    geom["longitude_maximum"],
-                    geom["latitude_maximum"],
-                )
+            geom_input = query.get("geom")
+            geom = self._get_geom(geom_input)
+            if isinstance(
+                geom_input,
+                (
+                    shapely.geometry.base.BaseGeometry,
+                    shapely.geometry.base.BaseMultipartGeometry,
+                ),
+            ):
+                query["polygon"] = list(geom.exterior.coords)
+            elif isinstance(geom_input, str):
+                query["polygon"] = list(geom.exterior.coords)
             else:
-                if isinstance(
-                    geom,
-                    (
-                        shapely.geometry.base.BaseGeometry,
-                        shapely.geometry.base.BaseMultipartGeometry,
-                    ),
-                ):
-                    query["polygon"] = list(geom.exterior.coords)
+                bbox = self._get_geom_bbox_dict(geom)
+                query["bounding_box"] = (
+                    bbox["longitude_minimum"],
+                    bbox["latitude_minimum"],
+                    bbox["longitude_maximum"],
+                    bbox["latitude_maximum"],
+                )
         return query
 
     def _format_query(self, query: dict) -> dict:

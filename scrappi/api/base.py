@@ -17,7 +17,7 @@ from typing import Optional, Any, Union, List
 from scrappi.product import ProductItemSet, ProductItem
 from scrappi.fs.factory import FSCallHandlerFactory
 from scrappi.fs.base import BaseFileSystem
-from scrappi.utils.utils import convert_datetime, convert_geom
+from scrappi.utils.utils import convert_datetime, convert_geom_and_check
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi import ScrappiContext
 
@@ -111,12 +111,34 @@ class BaseAPICallHandler(ABC):
     @staticmethod
     def _get_geom(geom: Any) -> Any:
         """
-        Get the geometry to use to query the api
+        Normalise all incoming geometries to the canonical internal form:
+        a validated shapely geometry in lon/lat coordinates.
+
+        API handlers should convert this to their provider-specific format in
+        their own ``_set_geom`` implementation rather than re-normalising the
+        same object again.
 
         :param geom: geometry in any accepted format
-        :returns: geometry in converted format
+        :returns: shapely geometry in lon/lat CRS
         """
-        return convert_geom(geom)
+        return convert_geom_and_check(geom)
+
+    @staticmethod
+    def _get_geom_bounds(geom: Any) -> tuple[float, float, float, float]:
+        """Return ``(min_lon, min_lat, max_lon, max_lat)`` for any valid geom."""
+        geom = convert_geom_and_check(geom)
+        return geom.bounds
+
+    @staticmethod
+    def _get_geom_bbox_dict(geom: Any) -> dict:
+        """Return a bounds dictionary in the canonical order used by scrappi."""
+        min_lon, min_lat, max_lon, max_lat = BaseAPICallHandler._get_geom_bounds(geom)
+        return {
+            "longitude_minimum": min_lon,
+            "latitude_minimum": min_lat,
+            "longitude_maximum": max_lon,
+            "latitude_maximum": max_lat,
+        }
 
     def _get_product_type(self, collection: str) -> str:
         """
