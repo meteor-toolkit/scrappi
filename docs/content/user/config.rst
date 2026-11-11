@@ -80,8 +80,9 @@ geoservice login, added like any other provider's:
 
 Keep its priority below the providers you prefer for collections several providers share (it also serves some
 Sentinel-2 products). The credentials can equally come from ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__USERNAME``
-and ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__REMOVED_PASSWORD`` (see below). A user config created before this provider
-was added to the defaults won't have the entry: add it as above.
+and ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__REMOVED_PASSWORD`` (see below). The entry comes from scrappi's defaults, so
+an existing user config only needs the ``credentials`` adding (a user config created from the template before this
+provider was added won't list it, but still inherits it from the defaults).
 
 Credentials in a notebook, script or CI job
 -------------------------------------------

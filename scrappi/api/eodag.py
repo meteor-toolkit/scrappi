@@ -125,8 +125,8 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.check_eodag_version()
 
-        # Whether the providers' own collection lists have been fetched yet (see discover_collection).
-        self._provider_collections_fetched = bool(self.context["api"]["fetch_collection_update"])
+        # Collections the providers' own catalogues list, once fetched (see discover_collection).
+        self._discovered_collections: Optional[set] = None
 
         # this bit is meant to be used for one time passwords (authenticator apps), but does not seem to work right
         # if "totp" in config_dict.keys():
@@ -235,21 +235,23 @@ class EODAGCallHandler(BaseAPICallHandler):
         own catalogue.
 
         The first call asks EODAG to fetch every provider's collection list
-        (``EODataAccessGateway.list_collections(fetch_providers=True)``); EODAG keeps the result, so later calls and
-        searches (with no ``provider`` given) find and route those collections too. This happens at most once per
-        handler, and not at all when ``context["api"]["fetch_collection_update"]`` already fetches them.
+        (``EODataAccessGateway.list_collections(fetch_providers=True)``) and keeps the collection ids; EODAG also
+        keeps what it fetched, so searches (with no ``provider`` given) are routed to the provider serving them. This
+        happens at most once per handler, and not at all when ``context["api"]["fetch_collection_update"]`` is set,
+        as :py:meth:`list_collections` then already includes them.
 
         :param collection: collection id of dataset
         :return: ``True`` if a provider serves *collection*
         """
-        if not self._provider_collections_fetched:
-            self._provider_collections_fetched = True
+        if self.context["api"]["fetch_collection_update"]:
+            return False  # list_collections() already fetches the providers' lists
+        if self._discovered_collections is None:
             try:
-                self.dag.list_collections(fetch_providers=True)
+                self._discovered_collections = {c.id for c in self.dag.list_collections(fetch_providers=True)}
             except Exception as e:  # network/provider failure: behave as before, without the discovered collections
                 warnings.warn(f"Could not fetch the providers' collection lists from EODAG: {e}")
-                return False
-        return collection in self.list_collections()
+                self._discovered_collections = set()
+        return collection in self._discovered_collections
 
     def _perform_query(self, query: dict) -> Any:
         """

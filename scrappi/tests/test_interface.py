@@ -214,6 +214,19 @@ class TestInterface(unittest.TestCase):
             handlers["handle1"]().discover_collection.assert_not_called()
             handlers["handle2"]().discover_collection.assert_not_called()
 
+    def test_get_api_name_stops_at_the_first_api_serving_the_collection(self):
+        """A single api is wanted: later handlers' collection lists aren't consulted (nor discovery run)."""
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
+        handlers = self._handlers({"handle1": ["X"], "handle2": ["X"]}, {"handle1": [], "handle2": []})
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", handlers, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1", "handle2"]),
+        ):
+            self.assertEqual(get_api_name("X", context=context), "handle1")
+            handlers["handle2"]().list_collections.assert_not_called()
+            handlers["handle1"]().discover_collection.assert_not_called()
+
     def test_get_api_name_puts_the_preferred_api_first(self):
         context = ScrappiContext()
         context["api"]["preferred_api"] = "handle2"

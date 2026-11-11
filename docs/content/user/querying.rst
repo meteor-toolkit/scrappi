@@ -84,7 +84,7 @@ collection::
 When no API lists a requested collection, *scrappi* asks each API to look it up in its providers' catalogues (for
 *eodag*, by fetching the providers' collection lists once per session) and routes the query to the provider that
 serves it -- no ``provider`` needs to be given. Setting ``api: fetch_collection_update: True`` in the config fetches
-these lists up front instead, so they also appear in ``list_satellite_products_api()``.
+these lists up front instead, so the collections are also listed by ``list_satellite_products_api()``.
 
 For a product whose ID follows a naming scheme *scrappi* doesn't parse, the product's platform and constellation are
 taken from its metadata (eodag's ``platformSerialIdentifier``/``constellationIdentifier``, or the STAC ``platform``/

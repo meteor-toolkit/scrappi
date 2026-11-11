@@ -14,7 +14,7 @@ import numpy as np
 
 import shapely
 import shapely.geometry
-from typing import Optional, Union, List, Dict, Any
+from typing import Optional, Union, List, Dict, Any, Iterator
 import xarray as xr
 from processor_tools import Context
 from processor_tools.utils.formatters import convert_datetime
@@ -227,56 +227,57 @@ def get_api_name(
     if context["api"]["preferred_api"]:
         preferred_api = context["api"]["preferred_api"]
 
-    apis = _apis_serving(collection, context)
-    if preferred_api != "" and preferred_api in apis:
-        apis.remove(preferred_api)
-        apis.insert(0, preferred_api)
-
+    apis = _apis_serving(collection, context, preferred_api)
     if all_apis:
-        return apis
-    if apis:
-        return apis[0]
+        return list(apis)
+    api = next(apis, None)
+    if api is not None:
+        return api
     logger.debug("No api was found for the specified collection. Returning context['api']['preferred_api'].")
     return context["api"]["preferred_api"]
 
 
-def _apis_serving(collection: str, context: ScrappiContext) -> List[str]:
+def _apis_serving(collection: str, context: ScrappiContext, preferred_api: str = "") -> Iterator[str]:
     """
-    Names of the APIs that can serve *collection*, in ``Factory.all_api_list`` order.
+    Lazily yield the names of the APIs that can serve *collection*: *preferred_api* first (if set), then
+    ``Factory.all_api_list`` order.
 
     Every API's own collection list is checked first; only if none lists *collection* is each API asked to discover
     it from its providers (:py:meth:`~scrappi.api.base.BaseAPICallHandler.discover_collection`, which may cost a
     network request), so collections a provider only publishes in its own catalogue -- such as DLR's EnMAP
-    collections, via EODAG -- are still found without slowing down the common case.
+    collections, via EODAG -- are still found without slowing down the common case. Handlers are built only as
+    needed, so a caller that takes just the first name stops at the first API that serves the collection.
 
     :param collection: name of the satellite collection
     :param context: scrappi context passed to each API call handler
-    :return: API names (empty if none can serve the collection)
+    :param preferred_api: API to try first, or ``""``
+    :return: iterator of API names (empty if none can serve the collection)
     """
-    handlers = []
-    for api in Factory.all_api_list:
+    order = [preferred_api] if preferred_api else []
+    order += [api for api in Factory.all_api_list if api != preferred_api]
+    handlers: Dict[str, Any] = {}
+
+    def check(api: str, test) -> bool:
         try:
-            handlers.append((api, Factory.get_api_call_handler(api, context=context)))
+            if api not in handlers:
+                handlers[api] = Factory.get_api_call_handler(api, context=context)
+            return bool(test(handlers[api]))
         except Exception as e:
             logger.debug(
-                "Could not build the %s handler while identifying apis for collection %s: %s", api, collection, e
+                "Error occurred for %s while identifying available apis for collection %s: %s", api, collection, e
             )
+            return False
 
-    def serving(check) -> List[str]:
-        found = []
-        for api, handler in handlers:
-            try:
-                if check(handler):
-                    found.append(api)
-            except Exception as e:
-                logger.debug(
-                    "Error occurred for %s while identifying available apis for collection %s: %s", api, collection, e
-                )
-        return found
-
-    return serving(lambda handler: collection in handler.list_collections()) or serving(
-        lambda handler: handler.discover_collection(collection)
-    )
+    found = False
+    for api in order:
+        if check(api, lambda handler: collection in handler.list_collections()):
+            found = True
+            yield api
+    if found:
+        return
+    for api in order:
+        if check(api, lambda handler: handler.discover_collection(collection)):
+            yield api
 
 
 def list_collections(guess: Optional[str] = None, context: Optional[ScrappiContext] = None):

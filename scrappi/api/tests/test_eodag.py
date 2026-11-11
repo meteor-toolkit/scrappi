@@ -135,7 +135,7 @@ def _bare_handler(fetch_collection_update=False, static=("S2_MSI_L1C",), discove
     *discovered* ones once providers' collection lists have been fetched (``fetch_providers=True``)."""
     handler = EODAGCallHandler.__new__(EODAGCallHandler)
     handler.context = {"api": {"fetch_collection_update": fetch_collection_update}}
-    handler._provider_collections_fetched = fetch_collection_update
+    handler._discovered_collections = None
     state = {"fetched": False}
 
     def list_collections(fetch_providers=False):
@@ -179,17 +179,21 @@ class TestDiscoverCollection(unittest.TestCase):
         self.assertFalse(handler.discover_collection("NOT_A_COLLECTION"))
         self.assertEqual(len(_fetches(handler)), 1)
 
-    def test_no_extra_fetch_when_fetch_collection_update_is_set(self):
+    def test_redundant_when_fetch_collection_update_is_set(self):
+        """list_collections() then already includes the providers' collections, so there is nothing to discover."""
         handler = _bare_handler(fetch_collection_update=True)
-        self.assertTrue(handler.discover_collection("ENMAP_HSI_L1C"))
-        # only list_collections' own fetch_providers=True call, no separate discovery fetch
-        self.assertEqual(len(_fetches(handler)), 1)
+        self.assertIn("ENMAP_HSI_L1C", handler.list_collections())
+        handler.dag.list_collections.reset_mock()
+        self.assertFalse(handler.discover_collection("NOT_A_COLLECTION"))
+        handler.dag.list_collections.assert_not_called()
 
     def test_fetch_failure_warns_and_reports_not_found(self):
         handler = _bare_handler()
         handler.dag.list_collections.side_effect = ConnectionError("offline")
         with pytest.warns(UserWarning, match="Could not fetch the providers' collection lists"):
             self.assertFalse(handler.discover_collection("ENMAP_HSI_L1C"))
+        self.assertFalse(handler.discover_collection("ENMAP_HSI_L1C"))  # not retried on every call
+        self.assertEqual(handler.dag.list_collections.call_count, 1)
 
     def test_product_type_of_a_discovered_collection_does_not_warn(self):
         handler = _bare_handler()
