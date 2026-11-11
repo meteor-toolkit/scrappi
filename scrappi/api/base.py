@@ -126,7 +126,7 @@ class BaseAPICallHandler(ABC):
         :param collection: collection id of dataset
         :return: collection id if valid (else ValueError is raised)
         """
-        if collection in self.list_collections():
+        if collection in self.list_collections() or self.discover_collection(collection):
             return collection
         else:
             warnings.warn(
@@ -174,6 +174,22 @@ class BaseAPICallHandler(ABC):
         :return: list of collection identifiers
         """
         pass
+
+    def discover_collection(self, collection: str) -> bool:
+        """
+        Whether *collection*, although not in :py:meth:`list_collections`, can be served once the API has asked its
+        providers which collections they offer.
+
+        Some APIs only know part of what they can serve up front -- e.g. EODAG learns the collections a STAC provider
+        publishes (such as DLR's EnMAP collections) only by fetching that provider's catalogue. Callers check
+        :py:meth:`list_collections` first and only fall back to this (which may cost a network request) when no API
+        lists the collection.
+
+        :param collection: collection id of dataset
+        :return: ``True`` if the collection was found by asking the providers (``False`` by default, for APIs whose
+            collection list is already complete)
+        """
+        return False
 
     @abstractmethod
     def perform_query(self, query: dict) -> ProductItemSet:

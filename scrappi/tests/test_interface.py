@@ -177,6 +177,54 @@ class TestInterface(unittest.TestCase):
         ) as _mock_handlers:
             self.assertEqual(get_api_name("S2_MSI_L1C", context=context), None)
 
+    def _handlers(self, static, discoverable):
+        """Mock handler classes: each lists *static[name]* and discovers *discoverable[name]*."""
+        handlers = {}
+        for name in static:
+            m = mock.MagicMock()
+            m().list_collections.return_value = static[name]
+            m().discover_collection.side_effect = lambda c, found=discoverable[name]: c in found
+            handlers[name] = m
+        return handlers
+
+    def test_get_api_name_falls_back_to_provider_discovery(self):
+        """A collection no API lists up front (e.g. one EODAG only learns from a provider's own catalogue) is still
+        routed to the API whose providers serve it."""
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
+        handlers = self._handlers({"handle1": [], "handle2": []}, {"handle1": [], "handle2": ["ENMAP_HSI_L1C"]})
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", handlers, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1", "handle2"]),
+        ):
+            self.assertEqual(get_api_name("ENMAP_HSI_L1C", context=context), "handle2")
+            self.assertEqual(get_api_name("ENMAP_HSI_L1C", context=context, all_apis=True), ["handle2"])
+            self.assertEqual(get_api_name("UNKNOWN", context=context, all_apis=True), [])
+
+    def test_get_api_name_skips_discovery_when_an_api_lists_the_collection(self):
+        """Discovery may cost a network request, so it is only tried when no API lists the collection."""
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = None
+        handlers = self._handlers({"handle1": ["LANDSAT_C2L1"], "handle2": []}, {"handle1": [], "handle2": []})
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", handlers, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1", "handle2"]),
+        ):
+            self.assertEqual(get_api_name("LANDSAT_C2L1", context=context, all_apis=True), ["handle1"])
+            handlers["handle1"]().discover_collection.assert_not_called()
+            handlers["handle2"]().discover_collection.assert_not_called()
+
+    def test_get_api_name_puts_the_preferred_api_first(self):
+        context = ScrappiContext()
+        context["api"]["preferred_api"] = "handle2"
+        handlers = self._handlers({"handle1": ["X"], "handle2": ["X"]}, {"handle1": [], "handle2": []})
+        with (
+            mock.patch.dict("scrappi.interface.Factory.api_call_handlers", handlers, clear=True),
+            mock.patch("scrappi.interface.Factory.all_api_list", ["handle1", "handle2"]),
+        ):
+            self.assertEqual(get_api_name("X", context=context), "handle2")
+            self.assertEqual(get_api_name("X", context=context, all_apis=True), ["handle2", "handle1"])
+
     def test_get_api_name_accepts_a_non_scrappicontext_truthy_context(self):
         """Regression test: a caller may pass a non-ScrappiContext object as
         *context* (e.g. eomatch's own EOMatchContext, or a plain populated dict) --

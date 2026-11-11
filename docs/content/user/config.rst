@@ -61,6 +61,28 @@ The following is a minimal example of how to configure scrappi to use eodag as t
                     username: YOUR_USERNAME
                     password: YOUR_REMOVED_PASSWORD
 
+Providers only reached through a catalogue: DLR EOC Geoservice (EnMAP)
+---------------------------------------------------------------------
+
+The default config includes the ``dlr_eoc_geoservice`` provider, which serves e.g. the EnMAP collections
+``ENMAP_HSI_L1B``/``L1C``/``L2A`` (see :ref:`querying`). Searching it needs no account; downloading needs a DLR
+geoservice login, added like any other provider's:
+
+.. code-block:: yaml
+
+    eodag:
+        dlr_eoc_geoservice:
+            priority: 1 # Lower value means lower priority (Default: 0)
+            auth:
+                credentials:
+                    username: YOUR_USERNAME
+                    password: YOUR_REMOVED_PASSWORD
+
+Keep its priority below the providers you prefer for collections several providers share (it also serves some
+Sentinel-2 products). The credentials can equally come from ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__USERNAME``
+and ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__REMOVED_PASSWORD`` (see below). A user config created before this provider
+was added to the defaults won't have the entry: add it as above.
+
 Credentials in a notebook, script or CI job
 -------------------------------------------
 

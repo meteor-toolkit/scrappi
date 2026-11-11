@@ -227,48 +227,56 @@ def get_api_name(
     if context["api"]["preferred_api"]:
         preferred_api = context["api"]["preferred_api"]
 
+    apis = _apis_serving(collection, context)
+    if preferred_api != "" and preferred_api in apis:
+        apis.remove(preferred_api)
+        apis.insert(0, preferred_api)
+
     if all_apis:
-        apis = []
-        for api in Factory.all_api_list:
+        return apis
+    if apis:
+        return apis[0]
+    logger.debug("No api was found for the specified collection. Returning context['api']['preferred_api'].")
+    return context["api"]["preferred_api"]
+
+
+def _apis_serving(collection: str, context: ScrappiContext) -> List[str]:
+    """
+    Names of the APIs that can serve *collection*, in ``Factory.all_api_list`` order.
+
+    Every API's own collection list is checked first; only if none lists *collection* is each API asked to discover
+    it from its providers (:py:meth:`~scrappi.api.base.BaseAPICallHandler.discover_collection`, which may cost a
+    network request), so collections a provider only publishes in its own catalogue -- such as DLR's EnMAP
+    collections, via EODAG -- are still found without slowing down the common case.
+
+    :param collection: name of the satellite collection
+    :param context: scrappi context passed to each API call handler
+    :return: API names (empty if none can serve the collection)
+    """
+    handlers = []
+    for api in Factory.all_api_list:
+        try:
+            handlers.append((api, Factory.get_api_call_handler(api, context=context)))
+        except Exception as e:
+            logger.debug(
+                "Could not build the %s handler while identifying apis for collection %s: %s", api, collection, e
+            )
+
+    def serving(check) -> List[str]:
+        found = []
+        for api, handler in handlers:
             try:
-                if collection in Factory.get_api_call_handler(api, context).list_collections():
-                    if all_apis is True:
-                        apis.append(api)
-                    else:
-                        return api
+                if check(handler):
+                    found.append(api)
             except Exception as e:
                 logger.debug(
-                    "Error occurred for %s while identifying available apis for collection %s: %s",
-                    api,
-                    collection,
-                    e,
+                    "Error occurred for %s while identifying available apis for collection %s: %s", api, collection, e
                 )
-                pass
+        return found
 
-        if preferred_api != "" and preferred_api in apis:
-            apis.remove(preferred_api)
-            apis.insert(0, preferred_api)
-
-        return apis
-
-    else:
-        # select api based on collection if not already specified in context
-        if context and context["api"]["preferred_api"]:
-            if (
-                collection
-                in Factory.get_api_call_handler(context["api"]["preferred_api"], context=context).list_collections()
-            ):
-                return context["api"]["preferred_api"]
-
-        for k in Factory.all_api_list:
-            try:
-                if collection in Factory.get_api_call_handler(k, context=context).list_collections():
-                    return k
-            except Exception:
-                pass
-
-        logger.debug("No api was found for the specified collection. Returning context['api']['preferred_api'].")
-        return context["api"]["preferred_api"]
+    return serving(lambda handler: collection in handler.list_collections()) or serving(
+        lambda handler: handler.discover_collection(collection)
+    )
 
 
 def list_collections(guess: Optional[str] = None, context: Optional[ScrappiContext] = None):

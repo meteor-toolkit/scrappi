@@ -34,6 +34,12 @@ eodag:
         credentials:
             username: 
             password: 
+  dlr_eoc_geoservice: # DLR EOC Geoservice: e.g. EnMAP (ENMAP_HSI_L1B/L1C/L2A). Searching needs no account; downloading needs a DLR geoservice login
+    priority: 1 # Lower value means lower priority (Default: 0). Kept below the providers preferred for collections they share
+    auth:
+        credentials:
+            username: 
+            password: 
 
 RadCalNet:
   credentials:

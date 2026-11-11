@@ -101,11 +101,139 @@ class TestEODAGCredentialsFromEnvironment(unittest.TestCase):
         self.assertEqual(self._credentials(handler)["username"], "env_user")
         self.assertEqual(self._credentials(handler)["password"], "env_pass")
 
+    def test_environment_credentials_survive_a_query(self):
+        """The provider config is re-applied before every search; unset entries must not wipe credentials there
+        either."""
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = EODAGCallHandler(self._context())
+            with mock.patch.object(handler.dag, "search_all", return_value=[]):
+                handler._perform_query(
+                    {
+                        "collection": "S2_MSI_L1C",
+                        "geom": {
+                            "latitude_minimum": 0,
+                            "longitude_minimum": 0,
+                            "latitude_maximum": 1,
+                            "longitude_maximum": 1,
+                        },
+                        "start_time": "2024-01-01T00:00:00",
+                        "stop_time": "2024-01-02T00:00:00",
+                    }
+                )
+        self.assertEqual(self._credentials(handler)["username"], "env_user")
+        self.assertEqual(self._credentials(handler)["password"], "env_pass")
+
     def test_config_credentials_take_priority_over_the_environment(self):
         with mock.patch.dict(os.environ, self.ENV):
             handler = EODAGCallHandler(self._context(username="cfg_user", password="cfg_pass"))
         self.assertEqual(self._credentials(handler)["username"], "cfg_user")
         self.assertEqual(self._credentials(handler)["password"], "cfg_pass")
+
+
+def _bare_handler(fetch_collection_update=False, static=("S2_MSI_L1C",), discovered=("ENMAP_HSI_L1C",)):
+    """An EODAGCallHandler without a real EODataAccessGateway: its ``dag`` lists *static* collections, plus
+    *discovered* ones once providers' collection lists have been fetched (``fetch_providers=True``)."""
+    handler = EODAGCallHandler.__new__(EODAGCallHandler)
+    handler.context = {"api": {"fetch_collection_update": fetch_collection_update}}
+    handler._provider_collections_fetched = fetch_collection_update
+    state = {"fetched": False}
+
+    def list_collections(fetch_providers=False):
+        if fetch_providers:
+            state["fetched"] = True
+        ids = list(static) + (list(discovered) if state["fetched"] else [])
+        return [mock.Mock(id=i) for i in ids]
+
+    handler.dag = mock.MagicMock()
+    handler.dag.list_collections.side_effect = list_collections
+    return handler
+
+
+def _fetches(handler):
+    return [c for c in handler.dag.list_collections.call_args_list if c.kwargs.get("fetch_providers")]
+
+
+class TestDefaultConfigProviders(unittest.TestCase):
+    def test_dlr_geoservice_is_configured_with_empty_credentials(self):
+        """Shipped so EnMAP etc. can be downloaded once credentials are filled in; empty credentials are dropped
+        before reaching eodag, so they never override ones from eodag's own config or the environment."""
+        import yaml
+
+        etc = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "etc")
+        for name in ("defaults.yaml", os.path.join("config_templates", "initial_config.yaml")):
+            with open(os.path.join(etc, name)) as f:
+                provider = yaml.safe_load(f)["eodag"]["dlr_eoc_geoservice"]
+            self.assertGreater(provider["priority"], 0, name)
+            self.assertEqual(
+                drop_unset_credentials({"p": provider})["p"], {"priority": provider["priority"], "auth": {}}
+            )
+
+
+class TestDiscoverCollection(unittest.TestCase):
+    """EODAG only learns some collections (e.g. DLR's ENMAP_HSI_*) from the providers' own catalogues."""
+
+    def test_finds_a_provider_collection_fetching_once(self):
+        handler = _bare_handler()
+        self.assertTrue(handler.discover_collection("ENMAP_HSI_L1C"))
+        self.assertTrue(handler.discover_collection("ENMAP_HSI_L1C"))
+        self.assertFalse(handler.discover_collection("NOT_A_COLLECTION"))
+        self.assertEqual(len(_fetches(handler)), 1)
+
+    def test_no_extra_fetch_when_fetch_collection_update_is_set(self):
+        handler = _bare_handler(fetch_collection_update=True)
+        self.assertTrue(handler.discover_collection("ENMAP_HSI_L1C"))
+        # only list_collections' own fetch_providers=True call, no separate discovery fetch
+        self.assertEqual(len(_fetches(handler)), 1)
+
+    def test_fetch_failure_warns_and_reports_not_found(self):
+        handler = _bare_handler()
+        handler.dag.list_collections.side_effect = ConnectionError("offline")
+        with pytest.warns(UserWarning, match="Could not fetch the providers' collection lists"):
+            self.assertFalse(handler.discover_collection("ENMAP_HSI_L1C"))
+
+    def test_product_type_of_a_discovered_collection_does_not_warn(self):
+        handler = _bare_handler()
+        with mock.patch("warnings.warn") as warn:
+            self.assertEqual(handler._set_product_type("ENMAP_HSI_L1C"), "ENMAP_HSI_L1C")
+        warn.assert_not_called()
+
+
+class TestPlatformAndConstellationFromProperties(unittest.TestCase):
+    """For a product ID scrappi has no parser for, platform/constellation come from the product's properties."""
+
+    handler = EODAGCallHandler.__new__(EODAGCallHandler)
+
+    def _ids(self, **properties):
+        prod_dict = {"id": "ENMAP01-____L1C-DT0000065648_20240314T094315Z_008", "properties": properties}
+        return self.handler.get_platform(prod_dict), self.handler.get_constellation(prod_dict)
+
+    def test_stac_platform_doubles_as_constellation(self):
+        self.assertEqual(self._ids(platform="enmap"), ("enmap", "enmap"))
+
+    def test_stac_constellation_is_used_when_given(self):
+        self.assertEqual(self._ids(platform="sentinel-2a", constellation="sentinel-2"), ("sentinel-2a", "sentinel-2"))
+
+    def test_eodag_names_take_precedence(self):
+        ids = self._ids(platformSerialIdentifier="P1", platform="p", constellationIdentifier="C1", constellation="c")
+        self.assertEqual(ids, ("P1", "C1"))
+
+    def test_platform_serial_identifier_without_constellation_identifier(self):
+        """Used to raise KeyError (the fallback checked one key, then read another)."""
+        self.assertEqual(self._ids(platformSerialIdentifier="P1"), ("P1", "P1"))
+
+    def test_empty_values_are_ignored(self):
+        self.assertEqual(
+            self._ids(platformSerialIdentifier="", platform="enmap", constellation=None), ("enmap", "enmap")
+        )
+
+    def test_nothing_to_go_on_raises(self):
+        with self.assertRaises(NotImplementedError):
+            self._ids()
+
+    def test_known_id_schemes_are_still_parsed(self):
+        prod_dict = {"id": "S2A_MSIL1C_20240101T000000", "properties": {"platform": "ignored"}}
+        self.assertEqual(self.handler.get_platform(prod_dict), "S2A")
+        self.assertEqual(self.handler.get_constellation(prod_dict), "Sentinel-2")
 
 
 class TestEODAGCallHandler(unittest.TestCase):

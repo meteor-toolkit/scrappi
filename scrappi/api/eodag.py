@@ -125,6 +125,9 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.check_eodag_version()
 
+        # Whether the providers' own collection lists have been fetched yet (see discover_collection).
+        self._provider_collections_fetched = bool(self.context["api"]["fetch_collection_update"])
+
         # this bit is meant to be used for one time passwords (authenticator apps), but does not seem to work right
         # if "totp" in config_dict.keys():
         #     provider = config_dict["totp_provider"]
@@ -225,6 +228,29 @@ class EODAGCallHandler(BaseAPICallHandler):
             for collection in self.dag.list_collections(fetch_providers=self.context["api"]["fetch_collection_update"])
         ]
 
+    def discover_collection(self, collection: str) -> bool:
+        """
+        Whether *collection* is served by one of the configured providers, even though it isn't in EODAG's built-in
+        collection list -- e.g. a collection a STAC provider (such as ``dlr_eoc_geoservice``) only publishes in its
+        own catalogue.
+
+        The first call asks EODAG to fetch every provider's collection list
+        (``EODataAccessGateway.list_collections(fetch_providers=True)``); EODAG keeps the result, so later calls and
+        searches (with no ``provider`` given) find and route those collections too. This happens at most once per
+        handler, and not at all when ``context["api"]["fetch_collection_update"]`` already fetches them.
+
+        :param collection: collection id of dataset
+        :return: ``True`` if a provider serves *collection*
+        """
+        if not self._provider_collections_fetched:
+            self._provider_collections_fetched = True
+            try:
+                self.dag.list_collections(fetch_providers=True)
+            except Exception as e:  # network/provider failure: behave as before, without the discovered collections
+                warnings.warn(f"Could not fetch the providers' collection lists from EODAG: {e}")
+                return False
+        return collection in self.list_collections()
+
     def _perform_query(self, query: dict) -> Any:
         """
         Return catalogue product SearchResults that satisfy query
@@ -244,9 +270,10 @@ class EODAGCallHandler(BaseAPICallHandler):
         for k in ["start_time", "stop_time", "collections"]:
             eodag_query.pop(k, None)
 
-        # search catalogue with query
+        # search catalogue with query -- unset (empty) config credentials are dropped, as in __init__, so they
+        # don't overwrite credentials EODAG found itself (its own config file or environment variables)
         try:
-            self.dag.update_providers_config(dict_conf=self.context["eodag"])
+            self.dag.update_providers_config(dict_conf=drop_unset_credentials(self.context["eodag"]))
         except Exception as e:
             print(f"Error updating providers config: {e}")
 
@@ -371,35 +398,58 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return ProductItemSet(product_list)
 
+    #: Product properties holding the platform, in order of preference: EODAG's own name, then the STAC one.
+    _PLATFORM_PROPERTIES = ("platformSerialIdentifier", "platform")
+    #: Product properties holding the constellation, likewise.
+    _CONSTELLATION_PROPERTIES = ("constellationIdentifier", "constellation")
+
+    @staticmethod
+    def _first_property(prod_dict: dict, names) -> Optional[str]:
+        """The first of the product properties *names* that is set (not ``None``/empty), or ``None``."""
+        properties = prod_dict.get("properties") or {}
+        for name in names:
+            value = properties.get(name)
+            if value not in (None, ""):
+                return value
+        return None
+
     def get_platform(self, prod_dict: dict) -> str:
         """
-        Function to extract to platform identifier
+        Function to extract to platform identifier: parsed from the product ID where scrappi knows its naming
+        scheme, otherwise the product's ``platformSerialIdentifier`` or (STAC) ``platform`` property.
 
         :param prod_dict: eodag product dictionary
         :return: platform identifier
+        :raises NotImplementedError: if none of these gives a platform
         """
         try:
             return self.parse_platform_from_name(prod_dict["id"])
         except NotImplementedError:
-            if "platformSerialIdentifier" in prod_dict["properties"]:
-                return prod_dict["properties"]["platformSerialIdentifier"]
-            else:
+            platform = self._first_property(prod_dict, self._PLATFORM_PROPERTIES)
+            if platform is None:
                 raise NotImplementedError("platform name could not be parsed")
+            return platform
 
     def get_constellation(self, prod_dict: dict) -> str:
         """
-        Function to extract constellation identifier
+        Function to extract constellation identifier: parsed from the product ID where scrappi knows its naming
+        scheme, otherwise the product's ``constellationIdentifier`` or (STAC) ``constellation`` property, otherwise
+        its platform (a single-satellite mission is its own constellation).
 
         :param prod_dict: eodag product dictionary
         :return: constellation identifier
+        :raises NotImplementedError: if none of these gives a constellation
         """
         try:
             return self.parse_constellation_from_name(prod_dict["id"])
         except NotImplementedError:
-            if "platformSerialIdentifier" in prod_dict["properties"]:
-                return prod_dict["properties"]["constellationIdentifier"]
-            else:
+            constellation = self._first_property(prod_dict, self._CONSTELLATION_PROPERTIES)
+            if constellation is None:
+                # A single-satellite mission (e.g. EnMAP) has no separate constellation: use its platform.
+                constellation = self._first_property(prod_dict, self._PLATFORM_PROPERTIES)
+            if constellation is None:
                 raise NotImplementedError("constellation name could not be parsed")
+            return constellation
 
     def get_version(self, prod_dict: dict) -> str:
         """

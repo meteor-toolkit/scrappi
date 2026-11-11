@@ -66,6 +66,34 @@ which returns any product types with "S3" or "s3" in::
      'S3_SY_VGP',
      'S3_WAT']
 
+Collections published by a provider's own catalogue
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+*eodag*'s built-in list does not include every collection its providers serve: some providers, such as DLR's EOC
+Geoservice (``dlr_eoc_geoservice``), publish collections only in their own STAC catalogue -- e.g. the EnMAP
+hyperspectral products ``ENMAP_HSI_L1B``, ``ENMAP_HSI_L1C`` and ``ENMAP_HSI_L2A``. These can be queried like any other
+collection::
+
+    query = {
+        "collections": ["ENMAP_HSI_L1C"],
+        "geom": {"latitude_minimum": 28.45, "longitude_minimum": 23.29, "latitude_maximum": 28.65, "longitude_maximum": 23.49},
+        "start_time": "2024-01-01T00:00:00",
+        "stop_time": "2024-12-31T23:59:59",
+    }
+    products = perform_query(query)
+
+When no API lists a requested collection, *scrappi* asks each API to look it up in its providers' catalogues (for
+*eodag*, by fetching the providers' collection lists once per session) and routes the query to the provider that
+serves it -- no ``provider`` needs to be given. Setting ``api: fetch_collection_update: True`` in the config fetches
+these lists up front instead, so they also appear in ``list_satellite_products_api()``.
+
+For a product whose ID follows a naming scheme *scrappi* doesn't parse, the product's platform and constellation are
+taken from its metadata (eodag's ``platformSerialIdentifier``/``constellationIdentifier``, or the STAC ``platform``/
+``constellation`` properties); a single-satellite mission with no constellation of its own (such as EnMAP,
+``platform: enmap``) uses its platform as the constellation.
+
+Downloading from a provider may need an account even where searching doesn't -- see :ref:`config` for adding
+provider credentials (including for ``dlr_eoc_geoservice``).
+
 
 Region of interest
 ++++++++++++++++++
