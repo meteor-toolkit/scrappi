@@ -1,5 +1,6 @@
 """scrappi.utils.tests.test_plot_utils - tests for scrappi.utils.plot_utils module"""
 
+import os
 import unittest
 import shapely
 import shapely.wkt
@@ -359,3 +360,32 @@ class TestGenerateBoundingLatLon(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProductPathContent(unittest.TestCase):
+    """An empty product folder (left by a failed download) must not count as a downloaded product."""
+
+    def test_path_has_content(self):
+        import tempfile
+        from scrappi.utils.utils import path_has_content
+
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = os.path.join(tmp, "empty")
+            os.mkdir(empty)
+            full = os.path.join(tmp, "full")
+            os.mkdir(full)
+            open(os.path.join(full, "SPECTRAL_IMAGE.TIF"), "w").close()
+            self.assertFalse(path_has_content(os.path.join(tmp, "missing")))
+            self.assertFalse(path_has_content(empty))
+            self.assertTrue(path_has_content(full))
+            self.assertTrue(path_has_content(os.path.join(full, "SPECTRAL_IMAGE.TIF")))
+
+    def test_an_empty_folder_is_not_a_valid_download(self):
+        import tempfile
+        from pathlib import Path
+        from scrappi.utils.utils import validate_product_download
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertFalse(validate_product_download(Path(tmp)))
+            open(os.path.join(tmp, "METADATA.XML"), "w").close()
+            self.assertTrue(validate_product_download(Path(tmp)))

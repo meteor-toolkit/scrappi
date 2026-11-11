@@ -497,14 +497,17 @@ class ProductItem:
         """
         return self.filesystem.return_path(self, False)
 
-    def download_product(self, context: Optional[ScrappiContext] = None):
+    def download_product(self, context: Optional[ScrappiContext] = None, assets: Optional[str] = None):
         """
         Function to download product using api and fs set in attributes
+        :param context: Context object (user provided configuration values or scrappi default)
+        :param assets: download only the assets whose keys fully match this regular expression -- see
+            :py:func:`scrappi.interface.download_product`
         :return: path to downloaded product
         """
         from scrappi.interface import download_product
 
-        return download_product(self, context=context)
+        return download_product(self, context=context, assets=assets)
 
     @property
     def geometry(self) -> Polygon:
@@ -789,14 +792,17 @@ class ProductItemSet:
         self,
         credentials: Optional[dict] = None,
         config_dict: Optional[dict] = None,
+        assets: Optional[str] = None,
     ):
         """
         Function to download product using api and fs set in attributes
         :param credentials: dictionary with credentials
         :param config_dict: eodag config YAML file (default file is in home directory, ".config", "eodag", "eodag.yml")
+        :param assets: download only the assets whose keys fully match this regular expression -- see
+            :py:func:`scrappi.interface.download_product`
         :return: path to downloaded product
         """
-        return [p.download_product() for p in self]
+        return [p.download_product(assets=assets) for p in self]
 
     def to_stac_catalog(
         self,

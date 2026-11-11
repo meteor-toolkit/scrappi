@@ -202,6 +202,60 @@ class TestDiscoverCollection(unittest.TestCase):
         warn.assert_not_called()
 
 
+def _mock_eoproduct(provider):
+    product = mock.MagicMock(spec=EOProduct)
+    product.properties = {"id": "PRODUCT_ID"}
+    product.provider = provider
+    product.downloader = mock.Mock(config=mock.Mock(timeout=10, wait=0.2))
+    return product
+
+
+class TestDownloadAssets(unittest.TestCase):
+    """download_product(assets=...) downloads only the matching assets (EODAG's ``asset`` option)."""
+
+    def _download(self, tmp, **kwargs):
+        handler = EODAGCallHandler.__new__(EODAGCallHandler)
+        handler.context = {"max_retrys": 1}
+        product = _mock_eoproduct("dlr_eoc_geoservice")
+        out = os.path.join(tmp, "PRODUCT_ID")
+        os.mkdir(out)
+        open(os.path.join(out, "METADATA.XML"), "w").close()
+        product.download.return_value = out
+        with mock.patch.object(EODAGCallHandler, "check_usgs_tmp_file"):
+            handler._download_product_EOProduct(product, os.path.join(tmp, "archive"), **kwargs)
+        return product.download.call_args.kwargs
+
+    def test_asset_filter_is_passed_to_eodag(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kwargs = self._download(tmp, assets="SPECTRAL_IMAGE.*|METADATA\\.XML")
+        self.assertEqual(kwargs["asset"], "SPECTRAL_IMAGE.*|METADATA\\.XML")
+
+    def test_whole_product_by_default(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            kwargs = self._download(tmp)
+        self.assertNotIn("asset", kwargs)
+
+    def test_an_empty_product_folder_is_downloaded_again(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = os.path.join(tmp, "archive")
+            os.makedirs(os.path.join(archive, "PRODUCT_ID"))  # left behind by a failed download
+            handler = EODAGCallHandler.__new__(EODAGCallHandler)
+            handler.context = {"max_retrys": 1}
+            product = _mock_eoproduct("x")
+            out = os.path.join(tmp, "out")
+            os.mkdir(out)
+            open(os.path.join(out, "f"), "w").close()
+            product.download.return_value = out
+            handler._download_product_EOProduct(product, archive)
+        product.download.assert_called_once()
+
+
 class TestPlatformAndConstellationFromProperties(unittest.TestCase):
     """For a product ID scrappi has no parser for, platform/constellation come from the product's properties."""
 

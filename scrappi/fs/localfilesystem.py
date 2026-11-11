@@ -8,6 +8,7 @@ several common product filename/dir conventions (zip, SAFE, nc, json).
 import os
 from typing import Optional
 from scrappi.fs.base import BaseFileSystem
+from scrappi.utils.utils import path_has_content
 from scrappi.product import ProductItem
 from scrappi import ScrappiContext
 
@@ -79,7 +80,7 @@ class LocalFileSystem(BaseFileSystem):
             or any(lower.endswith(ext) for ext in (".zip", ".SAFE", ".nc", ".json", ".SEN3", ".tar"))
         ):
             path_out = path
-            path_exists = os.path.exists(path_out)
+            path_exists = path_has_content(path_out)
             if check_exists:
                 return path_out, path_exists
             return path_out
@@ -87,7 +88,7 @@ class LocalFileSystem(BaseFileSystem):
         # If the path already ends with the product id, avoid appending it again
         if os.path.basename(path) == product_item.id:
             path_out = path
-            path_exists = os.path.exists(path_out)
+            path_exists = path_has_content(path_out)
             if check_exists:
                 return path_out, path_exists
             return path_out
@@ -101,7 +102,8 @@ class LocalFileSystem(BaseFileSystem):
 
     def check_any_path_exists(self, path, id):
         """
-        check whether either a path based on the id, a zipped file of the id, or an id.SAFE path exists.
+        check whether either a path based on the id, a zipped file of the id, or an id.SAFE path exists. An empty
+        directory (e.g. left by a failed download) doesn't count as existing.
 
         :param path: directory to check whether path exists in.
         :param id: id of the path (file or folder) to be checked
@@ -123,28 +125,28 @@ class LocalFileSystem(BaseFileSystem):
 
         path_tar_gz = os.path.join(path, id + ".tar.gz")
 
-        if os.path.exists(path_id):
+        if path_has_content(path_id):
             path_out = path_id
             path_exists = True
-        elif os.path.exists(path_zip):
+        elif path_has_content(path_zip):
             path_out = path_zip
             path_exists = True
-        elif os.path.exists(path_SAFE):
+        elif path_has_content(path_SAFE):
             path_out = path_SAFE
             path_exists = True
-        elif os.path.exists(path_nc):
+        elif path_has_content(path_nc):
             path_out = path_nc
             path_exists = True
-        elif os.path.exists(path_json):
+        elif path_has_content(path_json):
             path_out = path_json
             path_exists = True
-        elif os.path.exists(path_SEN3):
+        elif path_has_content(path_SEN3):
             path_out = path_SEN3
             path_exists = True
-        elif os.path.exists(path_tar):
+        elif path_has_content(path_tar):
             path_out = path_tar
             path_exists = True
-        elif os.path.exists(path_tar_gz):
+        elif path_has_content(path_tar_gz):
             path_out = path_tar_gz
             path_exists = True
         else:

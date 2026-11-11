@@ -238,6 +238,27 @@ class TestInterface(unittest.TestCase):
             self.assertEqual(get_api_name("X", context=context), "handle2")
             self.assertEqual(get_api_name("X", context=context, all_apis=True), ["handle2", "handle1"])
 
+    def test_download_passes_assets_to_handlers_that_support_it(self):
+        from scrappi.interface import _download_with_handler
+
+        class Selective:
+            name = "selective"
+
+            def download_product(self, product, assets=None):
+                return ("selective", product, assets)
+
+        class WholeOnly:
+            name = "whole"
+
+            def download_product(self, product):
+                return ("whole", product)
+
+        self.assertEqual(_download_with_handler(Selective(), "p", "A.*"), ("selective", "p", "A.*"))
+        self.assertEqual(_download_with_handler(Selective(), "p", None), ("selective", "p", None))
+        with self.assertWarns(UserWarning):
+            self.assertEqual(_download_with_handler(WholeOnly(), "p", "A.*"), ("whole", "p"))
+        self.assertEqual(_download_with_handler(WholeOnly(), "p", None), ("whole", "p"))
+
     def test_get_api_name_accepts_a_non_scrappicontext_truthy_context(self):
         """Regression test: a caller may pass a non-ScrappiContext object as
         *context* (e.g. eomatch's own EOMatchContext, or a plain populated dict) --

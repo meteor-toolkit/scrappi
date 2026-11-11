@@ -28,7 +28,12 @@ from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
 from eodag import setup_logging, EODataAccessGateway, SearchResult, EOProduct
 from eodag import __version__ as eodag_version
-from scrappi.utils.utils import validate_product_download, normalize_product_path, add_seconds_to_datetime
+from scrappi.utils.utils import (
+    validate_product_download,
+    normalize_product_path,
+    add_seconds_to_datetime,
+    path_has_content,
+)
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -518,12 +523,16 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return filter_dict
 
-    def _download_product_EOProduct(self, product: EOProduct, path: str) -> Union[list, str]:
+    def _download_product_EOProduct(
+        self, product: EOProduct, path: str, assets: Optional[str] = None
+    ) -> Union[list, str]:
         """
         Download catalogue product(s) at defined URL to local path
 
         :param product: search result from a eodag product query
         :param path: path to write product to
+        :param assets: if given, download only the product's assets whose keys fully match this regular expression
+            (EODAG's ``asset`` download option); by default the whole product
         :return: path to which product has been downloaded
         """
 
@@ -531,7 +540,7 @@ class EODAGCallHandler(BaseAPICallHandler):
             product_title = product.properties["id"]
             if os.path.isfile(os.path.join(path, product_title.split(".")[0] + ".zip")):
                 print(f"zipped {product_title} exists in {path}")
-            elif os.path.exists(os.path.join(path, product_title)):
+            elif path_has_content(os.path.join(path, product_title)):
                 print(f"{product_title} exists in {path}")
             else:
                 print(f"{product_title} needs downloading to {path}")
@@ -558,6 +567,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                             extract=False,
                             timeout=timeout,
                             wait=wait,
+                            **({"asset": assets} if assets else {}),
                         )
                         if validate_product_download(Path(path_out)):
                             break
@@ -672,16 +682,19 @@ class EODAGCallHandler(BaseAPICallHandler):
     def download_product(
         self,
         product: Union[str, ProductItem, ProductItemSet],
+        assets: Optional[str] = None,
     ) -> Optional[Union[list, str]]:
         """
         Download catalogue product(s) from query results to local path
 
         :param product: ProductItem or ProductItemSet that contains all the products as returned by a given query. Alternatively, a filename (id field in ProductItem) can be provided.
+        :param assets: if given, download only the assets (files) of each product whose keys fully match this regular
+            expression -- e.g. to skip quicklooks a provider fails to serve, or to save space; by default everything
         :return: path (or list of paths) to downloaded product(s)
         """
 
         if isinstance(product, ProductItemSet) or isinstance(product, SearchResult):
-            return [self.download_product(prod) for prod in product]
+            return [self.download_product(prod, assets=assets) for prod in product]
 
         # next perform download based on type of product provided
         if product is None:
@@ -713,7 +726,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 eoprod = product.api_product
                 # self._set_provider_output_dir(eoprod, path)
 
-                return self._download_product_EOProduct(eoprod, os.path.dirname(path))
+                return self._download_product_EOProduct(eoprod, os.path.dirname(path), assets=assets)
 
             else:
                 if product.prod_dict is not None and "properties" in product.prod_dict.keys():
@@ -724,7 +737,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                         # ].api.products = self.dag.providers_config[eoprod.provider].products
                         self.dag._setup_downloader(eoprod)
                         self._set_provider_output_dir(eoprod, path)
-                        return self._download_product_EOProduct(eoprod, os.path.dirname(path))
+                        return self._download_product_EOProduct(eoprod, os.path.dirname(path), assets=assets)
                     except Exception:
                         print("Could not create EOProduct from prod_dict, trying search method.")
                         pass
@@ -753,7 +766,9 @@ class EODAGCallHandler(BaseAPICallHandler):
                         % searchresult
                     )
 
-                return self._download_product_EOProduct(searchresult[correct_ids[0]], os.path.dirname(path))
+                return self._download_product_EOProduct(
+                    searchresult[correct_ids[0]], os.path.dirname(path), assets=assets
+                )
 
             return None
 

@@ -76,6 +76,18 @@ class TestLocalFileSystem(unittest.TestCase):
             ),
         )
 
+    def test_an_empty_product_folder_is_not_an_existing_product(self):
+        """A failed download can leave an empty product folder; it must be downloaded again, not treated as present."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            local_fs = LocalFileSystem(tmp)
+            product_dir = os.path.join(tmp, "PRODUCT_ID")
+            os.mkdir(product_dir)
+            self.assertEqual(local_fs.check_any_path_exists(tmp, "PRODUCT_ID"), (product_dir, False))
+            open(os.path.join(product_dir, "METADATA.XML"), "w").close()
+            self.assertEqual(local_fs.check_any_path_exists(tmp, "PRODUCT_ID"), (product_dir, True))
+
 
 class TestSTACFileSystem(unittest.TestCase):
     def test_return_path(self):

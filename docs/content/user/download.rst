@@ -31,6 +31,31 @@ to ensure the correct api is set in the ProductItem(Set)::
 
 The files will be downloaded, skipping any file which already exists in the file system, and the path to each product will be returned.
 (WARNING: scrappi can only partially check if the downloaded file is correct - it checks if the file exists, and if it is a valid .zip or .tar.gz file, but it cannot verify if all the files within that archive are present.)
+An empty product folder -- as a failed download can leave behind -- doesn't count as existing, so that product is
+downloaded again.
+
+Downloading only some of a product's files
+-------------------------------------------
+Some providers deliver a product as several separate files (*assets*), e.g. the image data, metadata, quality masks and
+quicklook previews. To download only some of them, pass ``assets``, a regular expression matched in full against each
+asset's key (with the *eodag* API; other APIs download the whole product, with a warning)::
+
+    path_list = download_product(products, assets=r"SPECTRAL_IMAGE.*|METADATA\.XML|QL_PIXELMASK.*|QL_QUALITY_.*")
+    # or
+    path_list = products.download_product(assets=r"SPECTRAL_IMAGE.*|METADATA\.XML")
+
+This saves space and time, and avoids failing on a file that isn't needed (e.g. a preview the provider can't serve).
+The asset keys a product offers are listed in its ``prod_dict["assets"]``. An EnMAP product from DLR's EOC Geoservice,
+for example, has ``SPECTRAL_IMAGE_COG.TIF``, ``METADATA.XML``, ``QL_PIXELMASK_COG.TIF``, ``QL_QUALITY_*_COG.TIF`` masks
+and ``QL_VNIR``/``QL_SWIR`` previews.
+
+If a provider refuses some of a product's files when they are requested together (e.g. ``503 Service Temporarily
+Unavailable``), limit how many files *eodag* downloads at once in that provider's config (see :ref:`config`)::
+
+    eodag:
+        dlr_eoc_geoservice:
+            download:
+                max_workers: 1
 
 
 Filename Download

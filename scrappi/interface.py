@@ -6,6 +6,7 @@ download products. The helpers bridge the `ScrappiContext` to concrete
 adapter implementations.
 """
 
+import inspect
 import logging
 import os
 import warnings
@@ -392,6 +393,16 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     return ProductItemSet()
 
 
+def _download_with_handler(api_handler, product, assets: Optional[str]):
+    """``api_handler.download_product(product)``, passing *assets* on if the handler can select assets."""
+    if assets is None:
+        return api_handler.download_product(product)
+    if "assets" in inspect.signature(api_handler.download_product).parameters:
+        return api_handler.download_product(product, assets=assets)
+    warnings.warn(f"The {api_handler.name!r} api can't select product assets; downloading the whole product.")
+    return api_handler.download_product(product)
+
+
 def is_insitu_collection(collection: str) -> bool:
     """
     Return whether collection is an in situ collection
@@ -460,12 +471,19 @@ def update_context_file(context_update: dict):
     return context
 
 
-def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None):
+def download_product(
+    product: Union[ProductItem, ProductItemSet],
+    context: Optional[ScrappiContext] = None,
+    assets: Optional[str] = None,
+):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
     :param product: ProductItem or ProductItemSet to download
     :param context: Context object (user provided configuration values or scrappi default)
+    :param assets: if given, download only the product assets (files) whose keys fully match this regular expression,
+        e.g. ``"SPECTRAL_IMAGE.*|METADATA\\.XML"``, for APIs that support it (eodag); by default whole products. An API
+        that can't select assets downloads the whole product, with a warning.
     :return product paths of downloaded products
     """
     if product is None:
@@ -484,7 +502,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
             context = _ensure_scrappi_context(context)
 
     if isinstance(product, ProductItemSet):
-        return [p.download_product(context=context) for p in product]
+        return [p.download_product(context=context, assets=assets) for p in product]
 
     if isinstance(product, ProductItem):
         path, exists = product.filesystem.return_path(product, check_exists=True)
@@ -509,7 +527,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         n_ran += 1
         api_handler = make_api(api, context=context)
         try:
-            download_path = api_handler.download_product(product)
+            download_path = _download_with_handler(api_handler, product, assets)
         except Exception as e:
             if not _candidate_failure_is_recoverable(e):
                 raise

@@ -1,6 +1,7 @@
 """scrappi.utils - util functions for api and file system call handlers"""
 
 from __future__ import annotations
+import os
 from copy import deepcopy
 import tarfile
 from typing import Optional, Union, Any
@@ -342,13 +343,29 @@ def normalize_product_path(path: Path) -> Path:
     return out
 
 
+def path_has_content(path: Union[str, Path]) -> bool:
+    """Whether *path* exists and, if it is a directory, isn't empty.
+
+    An empty product directory is what an interrupted or failed download can leave behind (the directory is created
+    before any file arrives), so it must not count as a downloaded product.
+
+    :param path: file or directory
+    :return: ``True`` for an existing file or non-empty directory
+    """
+    path = os.fspath(path)
+    if not os.path.exists(path):
+        return False
+    return not os.path.isdir(path) or len(os.listdir(path)) > 0
+
+
 def validate_product_download(path: Path) -> bool:
     """Validate that a product has been downloaded by checking the integrity of the archive.
 
     :param path: Path to validate
-    :return: True if the path exists and is a valid archive, False otherwise
+    :return: True if the path exists and is a valid archive (or a non-empty directory, or a file that isn't an
+        archive), False otherwise -- including for an empty directory
     """
-    if not path.exists():
+    if not path_has_content(path):
         return False
 
     elif path.suffix == ".zip":
