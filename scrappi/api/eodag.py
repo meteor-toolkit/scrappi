@@ -559,7 +559,7 @@ class EODAGCallHandler(BaseAPICallHandler):
                 if product.provider == "usgs":
                     self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
-                for attempt in range(self.context.get("max_retrys", 3)):
+                for attempt in range(self._max_download_attempts()):
                     try:
                         path_out = product.download(
                             outputs_prefix=path,
@@ -584,7 +584,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
                     except Exception as e:
                         print(f"Download attempt {attempt + 1} failed with error: {e}")
-                        if attempt < self.context.get("max_retrys", 3) - 1:
+                        if attempt < self._max_download_attempts() - 1:
                             print(f"Retrying download after {self.context.get('retry_wait', 5)} seconds...")
                             time.sleep(self.context.get("retry_wait", 5))
                         else:

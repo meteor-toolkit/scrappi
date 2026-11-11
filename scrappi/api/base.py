@@ -136,6 +136,20 @@ class BaseAPICallHandler(ABC):
             )
             return collection
 
+    def _max_download_attempts(self) -> int:
+        """
+        How many times to attempt a download, from the context's ``max_retries`` (the name in scrappi's default config).
+        ``max_retrys`` -- the name the download code used to read, so that ``max_retries`` had no effect -- is still
+        honoured if set, and takes precedence as the default config always provides ``max_retries``.
+
+        :return: number of download attempts (at least 1; 3 if unset)
+        """
+        for key in ("max_retrys", "max_retries"):
+            value = self.context.get(key) if self.context is not None else None
+            if value is not None:
+                return max(1, int(value))
+        return 3
+
     def check_fs(
         self,
         fs: Union[str, BaseFileSystem],

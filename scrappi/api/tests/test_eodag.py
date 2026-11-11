@@ -256,6 +256,37 @@ class TestDownloadAssets(unittest.TestCase):
         product.download.assert_called_once()
 
 
+class TestMaxDownloadAttempts(unittest.TestCase):
+    """The default config's max_retries sets the attempts; the old max_retrys name still works and wins."""
+
+    def _attempts(self, context):
+        handler = EODAGCallHandler.__new__(EODAGCallHandler)
+        handler.context = context
+        return handler._max_download_attempts()
+
+    def test_max_retries_is_honoured(self):
+        self.assertEqual(self._attempts({"max_retries": 20}), 20)
+
+    def test_old_name_still_works_and_takes_precedence(self):
+        self.assertEqual(self._attempts({"max_retrys": 7, "max_retries": 3}), 7)
+
+    def test_default_and_floor(self):
+        self.assertEqual(self._attempts({}), 3)
+        self.assertEqual(self._attempts({"max_retries": 0}), 1)
+
+    def test_attempts_are_used_by_the_download_loop(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            handler = EODAGCallHandler.__new__(EODAGCallHandler)
+            handler.context = {"max_retries": 4, "retry_wait": 0}
+            product = _mock_eoproduct("x")
+            product.download.side_effect = RuntimeError("503")
+            with self.assertRaises(RuntimeError):
+                handler._download_product_EOProduct(product, os.path.join(tmp, "archive"))
+        self.assertEqual(product.download.call_count, 4)
+
+
 class TestPlatformAndConstellationFromProperties(unittest.TestCase):
     """For a product ID scrappi has no parser for, platform/constellation come from the product's properties."""
 

@@ -49,7 +49,7 @@ The following is a minimal example of how to configure scrappi to use eodag as t
         preferred_api: "eodag" 
         preferred_provider: "cop_dataspace"
 
-    max_retrys: 3 # Number of times to retry a failed download (Default: 3)
+    max_retries: 3 # Number of times to retry a failed download (Default: 3)
     retry_wait: 5 # Time to wait between retries in seconds (Default: 5)
     delete_usgs_tmp_file: False # Whether to delete the temporary file created by the USGS provider, which can cause issues with query authentication (Default: false)
 

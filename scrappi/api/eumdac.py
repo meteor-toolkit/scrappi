@@ -354,7 +354,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
                     os.makedirs(path)
 
                 if isinstance(product, eumdac.product.Product):
-                    for attempt in range(self.context.get("max_retrys", 3)):
+                    for attempt in range(self._max_download_attempts()):
                         try:
                             with product.open() as fsrc, open(os.path.join(path, product_title), mode="wb") as fdst:
                                 shutil.copyfileobj(fsrc, fdst)
@@ -366,7 +366,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
                         except Exception as e:
                             print(f"Download attempt {attempt + 1} failed with error: {e}")
-                            if attempt < self.context.get("max_retrys", 3) - 1:
+                            if attempt < self._max_download_attempts() - 1:
                                 print(f"Retrying download after {self.context.get('retry_wait', 5)} seconds...")
                                 time.sleep(self.context.get("retry_wait", 5))
                             else:
@@ -374,7 +374,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
                                 raise e
 
                 elif isinstance(product, str):
-                    for attempt in range(self.context.get("max_retrys", 3)):
+                    for attempt in range(self._max_download_attempts()):
                         try:
                             response = requests.get(
                                 product,
@@ -391,7 +391,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
                         except Exception as e:
                             print(f"Download attempt {attempt + 1} failed with error: {e}")
-                            if attempt < self.context.get("max_retrys", 3) - 1:
+                            if attempt < self._max_download_attempts() - 1:
                                 print(f"Retrying download after {self.context.get('retry_wait', 5)} seconds...")
                                 time.sleep(self.context.get("retry_wait", 5))
                             else:

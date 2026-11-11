@@ -346,7 +346,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
                 if not os.path.exists(path):
                     os.makedirs(path)
 
-                for attempt in range(self.context.get("max_retrys", 3)):
+                for attempt in range(self._max_download_attempts()):
                     try:
                         path_out = earthaccess.download(product, local_path=path)[0]
                         path_out_str = str(path_out)
@@ -357,7 +357,7 @@ class EarthaccessCallHandler(BaseAPICallHandler):
 
                     except Exception as e:
                         print(f"Download attempt {attempt + 1} failed with error: {e}")
-                        if attempt < self.context.get("max_retrys", 3) - 1:
+                        if attempt < self._max_download_attempts() - 1:
                             print(f"Retrying download after {self.context.get('retry_wait', 5)} seconds...")
                             time.sleep(self.context.get("retry_wait", 5))
                         else:
