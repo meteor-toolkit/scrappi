@@ -551,9 +551,9 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
         product.set_fs(product.filesystem_init, context=context)
     path, exists = product.filesystem.return_path(product, check_exists=True)
 
-        if exists:
-            print(f"{path} exists")
-            return path
+    if exists:
+        print(f"{path} exists")
+        return path
 
     if api:
         api_handler = make_api(api, context=context)
