@@ -1,12 +1,12 @@
 """Query (and optionally download) EnMAP hyperspectral products from DLR's EOC Geoservice through scrappi.
 
 The ENMAP_HSI_* collections are published only in DLR's own STAC catalogue, not in eodag's built-in collection list;
-scrappi finds them by asking eodag's providers for their collections (see docs: querying, "Collections published by a
-provider's own catalogue"), so they are queried like any other collection.
+scrappi finds them by asking eodag's providers for their collections (see docs: querying, "Collections listed only by a
+provider"), so they are queried like any other collection.
 
 Searching needs no account. Downloading needs a DLR geoservice login in the scrappi config (``eodag:
 dlr_eoc_geoservice: auth: credentials``) or in ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__USERNAME`` /
-``..._REMOVED_PASSWORD`` -- see docs: config.
+``..._REMOVED_PASSWORD`` -- see docs: config, "Adding a provider's credentials".
 """
 
 import os

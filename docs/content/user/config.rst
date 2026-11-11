@@ -61,12 +61,20 @@ The following is a minimal example of how to configure scrappi to use eodag as t
                     username: YOUR_USERNAME
                     password: YOUR_REMOVED_PASSWORD
 
-Providers only reached through a catalogue: DLR EOC Geoservice (EnMAP)
----------------------------------------------------------------------
+Adding a provider's credentials
+-------------------------------
 
-The default config includes the ``dlr_eoc_geoservice`` provider, which serves e.g. the EnMAP collections
-``ENMAP_HSI_L1B``/``L1C``/``L2A`` (see :ref:`querying`). Searching it needs no account; downloading needs a DLR
-geoservice login, added like any other provider's:
+Any *eodag* provider can be configured under ``eodag``, by its *eodag* provider name, with a ``priority`` and its
+credentials (the credential keys -- e.g. under ``auth`` or ``api`` -- depend on the provider; see *eodag*'s provider
+docs). ``priority`` decides which provider a collection served by several providers is fetched from (higher wins); a
+provider needs a positive priority for *scrappi* to apply its entry when setting up *eodag*. Providers already in
+*scrappi*'s defaults only need their credentials filling in -- a user config made from an older template still
+inherits any provider added to the defaults since.
+
+Some providers let anyone search but need an account to download. For example, DLR's EOC Geoservice
+(``dlr_eoc_geoservice``, which publishes e.g. the EnMAP collections -- see :ref:`querying`) is in the defaults at
+priority 1, below the providers preferred for the few collections it shares with them; downloading from it needs a DLR
+geoservice login:
 
 .. code-block:: yaml
 
@@ -78,11 +86,8 @@ geoservice login, added like any other provider's:
                     username: YOUR_USERNAME
                     password: YOUR_REMOVED_PASSWORD
 
-Keep its priority below the providers you prefer for collections several providers share (it also serves some
-Sentinel-2 products). The credentials can equally come from ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__USERNAME``
-and ``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__REMOVED_PASSWORD`` (see below). The entry comes from scrappi's defaults, so
-an existing user config only needs the ``credentials`` adding (a user config created from the template before this
-provider was added won't list it, but still inherits it from the defaults).
+The credentials can equally come from environment variables, e.g.
+``EODAG__DLR_EOC_GEOSERVICE__AUTH__CREDENTIALS__USERNAME`` and ``..._REMOVED_PASSWORD`` (see below).
 
 Credentials in a notebook, script or CI job
 -------------------------------------------
