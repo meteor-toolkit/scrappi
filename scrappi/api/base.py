@@ -10,16 +10,15 @@ results and downloading products to a target filesystem.
 
 import datetime as dt
 import warnings
-
 from abc import ABC, abstractmethod
-from typing import Optional, Any, Union, List
+from typing import Any
 
-from scrappi.product import ProductItemSet, ProductItem
-from scrappi.fs.factory import FSCallHandlerFactory
-from scrappi.fs.base import BaseFileSystem
-from scrappi.utils.utils import convert_datetime, convert_geom
-from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi import ScrappiContext
+from scrappi.fs.base import BaseFileSystem
+from scrappi.fs.factory import FSCallHandlerFactory
+from scrappi.fs.localfilesystem import LocalFileSystem
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import convert_datetime, convert_geom
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -99,7 +98,7 @@ class BaseAPICallHandler(ABC):
             raise NotImplementedError("constellation name could not be parsed")
 
     @staticmethod
-    def _get_datetime(date_time: Union[dt.datetime, dt.date, str]) -> dt.datetime:
+    def _get_datetime(date_time: dt.datetime | dt.date | str) -> dt.datetime:
         """
         Get the datetimes to use to query the api
 
@@ -130,17 +129,15 @@ class BaseAPICallHandler(ABC):
             return collection
         else:
             warnings.warn(
-                "Selected collection '{}' not automatically found in {} api. You can try setting context['api']['preferred_api] to circumvent this.".format(
-                    collection, self.name
-                )
+                f"Selected collection '{collection}' not automatically found in {self.name} api. You can try setting context['api']['preferred_api] to circumvent this."
             )
             return collection
 
     def check_fs(
         self,
-        fs: Union[str, BaseFileSystem],
+        fs: str | BaseFileSystem,
         organise_data: bool,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: str | ProductItem | ProductItemSet,
     ) -> BaseFileSystem:
         """
         Checks whether the provided fs is a valid filesystem, and if not builds the correct fs
@@ -167,13 +164,12 @@ class BaseAPICallHandler(ABC):
             raise ValueError("provided filesystem is not valid")
 
     @abstractmethod
-    def list_collections(self) -> List[str]:
+    def list_collections(self) -> list[str]:
         """
         Function to extract collection identifiers
 
         :return: list of collection identifiers
         """
-        pass
 
     @abstractmethod
     def perform_query(self, query: dict) -> ProductItemSet:
@@ -183,12 +179,11 @@ class BaseAPICallHandler(ABC):
         :param query: catalogue query
         :returns: ProductItemSet of catalogue products
         """
-        pass
 
     def download_metadata(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-        fs: Optional[Union[str, BaseFileSystem]],
+        product: str | ProductItem | ProductItemSet,
+        fs: str | BaseFileSystem | None,
     ) -> None:
         """
         Download catalogue product(s) metadata at defined URL to local path
@@ -201,8 +196,8 @@ class BaseAPICallHandler(ABC):
     @abstractmethod
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-    ) -> Optional[Union[list, str]]:
+        product: str | ProductItem | ProductItemSet,
+    ) -> list | str | None:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -210,7 +205,6 @@ class BaseAPICallHandler(ABC):
         :param fs: filesystem (can be path or file system object (BaseFileSystem)). Defaults to None, in which case product.filesystem is used.
         :returns: path (or list of paths) to the relevant (downloaded) file(s)
         """
-        pass
 
 
 if __name__ == "__main__":

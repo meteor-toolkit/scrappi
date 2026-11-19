@@ -1,12 +1,13 @@
-import unittest
 import json
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
 from shapely.geometry import box
 
+from scrappi import ScrappiContext
 from scrappi.api.stac_api import STACAPICallHandler
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 
 class TestSTACAPICallHandler(unittest.TestCase):

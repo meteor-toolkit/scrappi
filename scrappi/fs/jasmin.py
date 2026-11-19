@@ -6,9 +6,10 @@ the STAC filesystem behaviour for read-only archives.
 """
 
 import os
+
+from scrappi import ScrappiContext
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",

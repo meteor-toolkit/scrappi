@@ -7,10 +7,10 @@ the STAC integration in scrappi.
 """
 
 import os
-from typing import Optional
+
+from scrappi import ScrappiContext
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -32,11 +32,11 @@ class STACFileSystem(LocalFileSystem):
     def __init__(
         self,
         path: str = "./",
-        path_stac: Optional[str] = None,
-        context: Optional[ScrappiContext] = None,
+        path_stac: str | None = None,
+        context: ScrappiContext | None = None,
         flat: bool = False,
-        organise_data: Optional[bool] = None,
-        read_only: Optional[bool] = None,
+        organise_data: bool | None = None,
+        read_only: bool | None = None,
     ):
         if not context:
             context = ScrappiContext()

@@ -6,26 +6,26 @@ download products. The helpers bridge the `ScrappiContext` to concrete
 adapter implementations.
 """
 
+import datetime as dt
 import logging
 import os
 import warnings
-import datetime as dt
-import numpy as np
+from typing import Any
 
+import numpy as np
 import shapely
 import shapely.geometry
-from typing import Optional, Union, List, Dict, Any
 import xarray as xr
 from processor_tools import Context
 from processor_tools.utils.formatters import convert_datetime
 
-from scrappi.api.factory import APICallHandlerFactory
-from scrappi.fs.factory import FSCallHandlerFactory
-from scrappi.utils.utils import generate_bounding_lat_lon
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi.api.base import BaseAPICallHandler
-from scrappi.api.insitubase import InSituCallHandler
 from scrappi import ScrappiContext
+from scrappi.api.base import BaseAPICallHandler
+from scrappi.api.factory import APICallHandlerFactory
+from scrappi.api.insitubase import InSituCallHandler
+from scrappi.fs.factory import FSCallHandlerFactory
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import generate_bounding_lat_lon
 
 __author__ = "Pieter De Vis <pieter.de.vis@npl.co.uk>"
 __all__ = [
@@ -58,10 +58,10 @@ logger = logging.getLogger(__name__)
 
 # id(raw context) -> (raw context reference, wrapped ScrappiContext), shared across
 # the whole process -- see _ensure_scrappi_context.
-_context_wrap_cache: Dict[int, Any] = {}
+_context_wrap_cache: dict[int, Any] = {}
 
 
-def _ensure_scrappi_context(context: Optional[Any]) -> ScrappiContext:
+def _ensure_scrappi_context(context: Any | None) -> ScrappiContext:
     """Return *context* as a real :py:class:`~scrappi.ScrappiContext`, wrapping it
     if it isn't already one.
 
@@ -208,9 +208,7 @@ def parse_queries_orbitx(ds_orbitx: xr.Dataset) -> tuple:
     return queries1, queries2, indices
 
 
-def get_api_name(
-    collection: str, all_apis: bool = False, context: Optional[ScrappiContext] = None
-) -> Optional[Union[str, list]]:
+def get_api_name(collection: str, all_apis: bool = False, context: ScrappiContext | None = None) -> str | list | None:
     """
     Return name of API call handler capable of reading in desired satellite collection.
     If preferred_api is set in context, this is returned.
@@ -243,7 +241,6 @@ def get_api_name(
                     collection,
                     e,
                 )
-                pass
 
         if preferred_api != "" and preferred_api in apis:
             apis.remove(preferred_api)
@@ -271,7 +268,7 @@ def get_api_name(
         return context["api"]["preferred_api"]
 
 
-def list_collections(guess: Optional[str] = None, context: Optional[ScrappiContext] = None):
+def list_collections(guess: str | None = None, context: ScrappiContext | None = None):
     """
     Return a list of accepted collection strings
     which can be used to query products
@@ -293,7 +290,7 @@ def list_collections(guess: Optional[str] = None, context: Optional[ScrappiConte
     return sorted(list(set(products)))
 
 
-def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None):
+def make_api(api: str | None = None, context: ScrappiContext | None = None):
     """
     Return specified API call handler
 
@@ -309,7 +306,7 @@ def make_api(api: Optional[str] = None, context: Optional[ScrappiContext] = None
     return Factory.get_api_call_handler(api, context)
 
 
-def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
+def make_fs(fs: str | None = None, context: ScrappiContext | None = None):
     """
     Return specified file system call handler.
 
@@ -325,7 +322,7 @@ def make_fs(fs: Optional[str] = None, context: Optional[ScrappiContext] = None):
     return FSFactory.get_fs_call_handler(fs, context)
 
 
-def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> ProductItemSet:
+def perform_query(query: dict, context: ScrappiContext | None = None) -> ProductItemSet:
     """
     Return catalogue product url(s) that satisfy query
 
@@ -336,7 +333,7 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     context = _ensure_scrappi_context(context)
 
     # if multiple collections are provided, run query for each and combine results
-    if "collections" in query.keys():
+    if "collections" in query:
         if isinstance(query["collections"], str):
             query["collection"] = query["collections"]
         elif len(query["collections"]) == 1:
@@ -359,10 +356,10 @@ def perform_query(query: dict, context: Optional[ScrappiContext] = None) -> Prod
     # go; any other error surfaces immediately, and if *every* candidate that ran
     # bailed that way, the last error is re-raised rather than masquerading as
     # "no products found".
-    api_list: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+    api_list: list[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
     n_ran = 0
     n_recoverable = 0
-    last_exc: Optional[BaseException] = None
+    last_exc: BaseException | None = None
     for api in api_list:
         n_ran += 1
         api_handler = make_api(api, context)
@@ -401,18 +398,15 @@ def is_insitu_collection(collection: str) -> bool:
                 return isinstance(api, InSituCallHandler)
         except Exception:
             pass
-    else:
-        logger.debug(
-            "Collection %s not found in listed collections for any API (some are missing from list for eodag).",
-            collection,
-        )
+    logger.debug(
+        "Collection %s not found in listed collections for any API (some are missing from list for eodag).",
+        collection,
+    )
 
-        return False
+    return False
 
 
-def set_credentials(
-    api: str, credentials: dict, context: Optional[ScrappiContext] = None, provider: Optional[str] = None
-):
+def set_credentials(api: str, credentials: dict, context: ScrappiContext | None = None, provider: str | None = None):
     """
     Set credentials for a given API
 
@@ -451,7 +445,7 @@ def update_context_file(context_update: dict):
     return context
 
 
-def download_product(product: Union[ProductItem, ProductItemSet], context: Optional[ScrappiContext] = None):
+def download_product(product: ProductItem | ProductItemSet, context: ScrappiContext | None = None):
     """
     Download catalogue product(s), provided as ProductItem or ProductItemSet, to file system path
 
@@ -485,7 +479,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
             return path
 
     apis = get_api_name(product.collection, context=context, all_apis=True)
-    download_apis: List[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
+    download_apis: list[Any] = list(apis) if isinstance(apis, (list, str)) else ([] if apis is None else [apis])
 
     # Same fan-out-with-recovery as perform_query: a product may be resolvable only
     # by a later candidate (e.g. an offline archive handler for a site the online
@@ -495,7 +489,7 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
     # last error is re-raised instead of returning None.
     n_ran = 0
     n_recoverable = 0
-    last_exc: Optional[BaseException] = None
+    last_exc: BaseException | None = None
     for api in download_apis:
         n_ran += 1
         api_handler = make_api(api, context=context)
@@ -557,8 +551,8 @@ def download_product(product: Union[ProductItem, ProductItemSet], context: Optio
 
 
 def download_product_filename(
-    product: Union[str, List],
-    context: Optional[ScrappiContext] = None,
+    product: str | list,
+    context: ScrappiContext | None = None,
 ):
     """
     Download catalogue product(s), provided as filename string, to file system path
@@ -579,8 +573,8 @@ def download_product_filename(
 
 
 def download_product_scene(
-    product: Union[str, List],
-    context: Optional[ScrappiContext] = None,
+    product: str | list,
+    context: ScrappiContext | None = None,
 ):
     """
     Download catalogue product(s), provided as scene_id (url field in ProductItem) string, to file system path
@@ -616,15 +610,15 @@ def download_product_scene(
 
 
 def make_query_with_tolerance(
-    collection: Union[str, List],
-    latitude: Union[float, int],
-    longitude: Union[float, int],
-    date_time: Union[dt.datetime, str],
-    spatial_tolerance_deg: Optional[Union[float, int]] = None,
-    spatial_tolerance_m: Optional[Union[float, int]] = None,
-    temporal_tolerance_min: Optional[float] = None,
-    temporal_tolerance_hours: Optional[float] = None,
-) -> Dict[str, Any]:
+    collection: str | list,
+    latitude: float,
+    longitude: float,
+    date_time: dt.datetime | str,
+    spatial_tolerance_deg: float | None = None,
+    spatial_tolerance_m: float | None = None,
+    temporal_tolerance_min: float | None = None,
+    temporal_tolerance_hours: float | None = None,
+) -> dict[str, Any]:
     """
     Make a query with a given spatial and temporal tolerance
 
@@ -643,7 +637,7 @@ def make_query_with_tolerance(
     :return:
     """
     # initialise query dictionary
-    query: Dict[str, Any]
+    query: dict[str, Any]
     if isinstance(collection, str):
         query = {
             "collections": [collection],
@@ -698,14 +692,14 @@ def make_query_with_tolerance(
 
 
 def make_query_start_stop(
-    collection: Union[str, List[str]],
-    latitude_start: Union[float, int],
-    longitude_start: Union[float, int],
-    latitude_stop: Union[float, int],
-    longitude_stop: Union[float, int],
-    date_time_start: Union[dt.datetime, str],
-    date_time_stop: Union[dt.datetime, str],
-) -> Dict[str, Any]:
+    collection: str | list[str],
+    latitude_start: float,
+    longitude_start: float,
+    latitude_stop: float,
+    longitude_stop: float,
+    date_time_start: dt.datetime | str,
+    date_time_stop: dt.datetime | str,
+) -> dict[str, Any]:
     """
     Make a query with a given region and start and end time
 
@@ -726,7 +720,7 @@ def make_query_start_stop(
     datetime_stop = convert_datetime(date_time_stop)
 
     # initialise query dictionary
-    query: Dict[str, Any] = {
+    query: dict[str, Any] = {
         "collections": collection,
         "start_time": "%s" % datetime_start.isoformat(),
         "stop_time": "%s" % datetime_stop.isoformat(),

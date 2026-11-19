@@ -1,18 +1,19 @@
 """scrappi.api.aws - AWS class for API call handler implementations"""
 
-import os
-import warnings
-import shapely
 import datetime as dt
-from typing import Any, Optional, Union, List, Tuple
-import boto3
 import math
+import os
+import re
+import warnings
+
+import boto3
+import shapely
 from botocore import UNSIGNED
 from botocore.config import Config
-import re
+
+from scrappi import ScrappiContext
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi import ScrappiContext
 
 __all__ = ["AWSCallHandler"]
 
@@ -41,7 +42,7 @@ class AWSCallHandler(BaseAPICallHandler):
 
     def __init__(
         self,
-        context: Optional[Union[str, list, ScrappiContext]] = None,
+        context: str | list | ScrappiContext | None = None,
     ) -> None:
         """
         Initialise the AWS API handler.
@@ -133,7 +134,7 @@ class AWSCallHandler(BaseAPICallHandler):
     def _set_product_type(self, collection) -> str:
         return self.buckets[collection]
 
-    def _set_geom(self, geom, collection) -> List[List[str]]:
+    def _set_geom(self, geom, collection) -> list[list[str]]:
         if isinstance(geom, list):
             min_lat, min_lon, max_lat, max_lon = geom
 
@@ -186,7 +187,7 @@ class AWSCallHandler(BaseAPICallHandler):
             )
         return aws_query
 
-    def list_collections(self) -> List:
+    def list_collections(self) -> list:
         return self.collections
 
     def _perform_query(self, query: dict) -> list:
@@ -236,7 +237,7 @@ class AWSCallHandler(BaseAPICallHandler):
         :param query: catalogue query
         :returns: ProductItemSet
         """
-        if "collections" in query.keys():
+        if "collections" in query:
             if isinstance(query["collections"], str):
                 query["collection"] = query["collections"]
             elif len(query["collections"]) == 1:
@@ -262,16 +263,19 @@ class AWSCallHandler(BaseAPICallHandler):
             # store product item
             product_list.append(
                 ProductItem(
-                    constellation=self.get_constellation(prod_dict),  # Copernicus DEM
-                    platform=self.get_platform(prod_dict),  # Copernicus DEM
+                    constellation=self.get_constellation(prod_dict) or "",  # Copernicus DEM
+                    platform=self.get_platform(prod_dict) or "",  # Copernicus DEM
                     collection=query["collections"][0],  # Copernicus DEM 30m
-                    id=self._get_id(prod[0].key),  # first part of the key
+                    id=self._get_id(prod[0].key) or "",  # first part of the key
                     geometry=self.tile_bbox(prod[0].key, tile_size=self._get_tile_size(query["collections"][0])).wkt,
-                    start_time=self._get_time(prod[0].key),
-                    stop_time=self._get_time(prod[0].key),
+                    start_time=self._get_time(prod[0].key) or "",
+                    stop_time=self._get_time(prod[0].key) or "",
                     api=self,
                     context=self.context,
-                    api_product={"bucket": prod[0].bucket_name, "key": self._get_api_product(prod[0].key)},
+                    api_product={
+                        "bucket": prod[0].bucket_name,
+                        "key": self._get_api_product(prod[0].key) or "",
+                    },
                 )
             )
 
@@ -289,18 +293,21 @@ class AWSCallHandler(BaseAPICallHandler):
 
                 if year is not None:
                     return dt.datetime(year=year, month=1, day=1)
+        return None
 
     def _get_api_product(self, key: str) -> str | None:
         if "DEM" in key.upper():
             return key.split("/")[0]
         elif "worldcover" in key.lower():
             return key
+        return None
 
     def _get_id(self, key: str) -> str | None:
         if "DEM" in key.upper():
             return key.split("/")[0]
         elif "worldcover" in key.lower():
             return key.split("/")[-1]
+        return None
 
     def get_platform(self, prod_dict: dict) -> str | None:
         """
@@ -315,9 +322,9 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "Copernicus_DEM"
                 elif "worldcover" in prod_dict[0].bucket_name:
                     return "ESA_WorldCover"
-
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
+        return None
 
     def get_constellation(self, prod_dict: dict) -> str | None:
         """
@@ -335,6 +342,7 @@ class AWSCallHandler(BaseAPICallHandler):
                     return "ESA_WorldCover"
         except NotImplementedError:
             raise NotImplementedError("platform name could not be parsed")
+        return None
 
     def tile_bbox(self, key: str, tile_size: int = 1) -> shapely.Polygon:
         lat_m = re.search(r"([NS])(\d{2})", key)
@@ -369,8 +377,8 @@ class AWSCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-    ) -> Optional[Union[list, str]]:
+        product: str | ProductItem | ProductItemSet,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -397,6 +405,7 @@ class AWSCallHandler(BaseAPICallHandler):
                 search = product.api_product
                 bucket, key = search["bucket"], search["key"]
                 return self._download(bucket, key, path)
+            return None
         else:
             raise ValueError(
                 "products are not in the right format for download by scrappi earthaccess (ProductItem, ProductItemSet)"
@@ -404,6 +413,8 @@ class AWSCallHandler(BaseAPICallHandler):
 
     def _download(self, bucket: str, key: str, path: str) -> str:
         s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+        if self.s3_resource is None:
+            raise RuntimeError("AWS S3 resource is not available.")
         s3_bucket = self.s3_resource.Bucket(bucket)
         products = list(s3_bucket.objects.filter(Prefix=key))
 
@@ -413,20 +424,29 @@ class AWSCallHandler(BaseAPICallHandler):
                 s3_client.download_file(bucket, products[0].key, path)
                 return path
             else:
-                filename = os.path.join(path, self._get_filename(products[0].key))
+                relative_filename = self._get_filename(products[0].key)
+                if relative_filename is None:
+                    raise ValueError(f"Could not determine filename for key: {products[0].key}")
+                filename = os.path.join(path, relative_filename)
                 os.makedirs(os.path.dirname(filename), exist_ok=True)
                 s3_client.download_file(Bucket=bucket, Key=products[0].key, Filename=filename)
                 return filename
-        else:
-            for prod in products:
-                filename = os.path.join(path, self._get_filename(prod.key))
-                os.makedirs(os.path.dirname(filename), exist_ok=True)
-                s3_client.download_file(Bucket=bucket, Key=prod.key, Filename=filename)
-                # filename of the last one
-            return os.path.dirname(os.path.dirname(filename))
+        if not products:
+            raise RuntimeError(f"No AWS S3 objects found for key: {key}")
+
+        filename = ""
+        for prod in products:
+            relative_filename = self._get_filename(prod.key)
+            if relative_filename is None:
+                raise ValueError(f"Could not determine filename for key: {prod.key}")
+            filename = os.path.join(path, relative_filename)
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            s3_client.download_file(Bucket=bucket, Key=prod.key, Filename=filename)
+        return os.path.dirname(os.path.dirname(filename))
 
     def _get_filename(self, key: str) -> str | None:
         if "DEM" in key.upper():
             return os.path.join(*key.split("/")[1:])
         elif "worldcover" in key.lower():
             return key
+        return None

@@ -3,8 +3,8 @@
 import unittest
 from unittest import mock
 
-from scrappi.api.factory import API_CALL_HANDLERS, APICallHandlerFactory
 from scrappi.api.eodag import EODAGCallHandler
+from scrappi.api.factory import API_CALL_HANDLERS, APICallHandlerFactory
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
 
 __author__ = [

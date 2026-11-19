@@ -1,16 +1,17 @@
 import os
 import re
-import requests
-from requests.exceptions import SSLError
-import unittest
-import unittest.mock as mock
-import warnings
-from datetime import datetime as dt, timedelta, timezone
 import shutil
-import pytest
+import unittest
+import warnings
+from datetime import UTC, timedelta
+from datetime import datetime as dt
 from tempfile import TemporaryDirectory
+from unittest import mock
 
+import pytest
+import requests
 import requests.exceptions
+from requests.exceptions import SSLError
 
 from scrappi import ScrappiContext
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
@@ -20,7 +21,7 @@ __author__ = [
     "Ashley Ramsay <ashley.ramsay@npl.co.uk",
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
 ]
-__all__ = ["MockSession", "MockSessionError", "MockGetError", "MockGet"]
+__all__ = ["MockGet", "MockGetError", "MockSession", "MockSessionError"]
 
 scrappi_folder = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -201,8 +202,8 @@ class TestRCNCallHandler(unittest.TestCase):
         self.assertEqual(len(products), 1)
         product = list(products)[0]
         start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
-        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=timezone.utc)
-        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=timezone.utc)
+        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=UTC)
+        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=UTC)
         self.assertEqual(product.start_time, expected_start)
         self.assertEqual(product.stop_time, expected_stop)
 

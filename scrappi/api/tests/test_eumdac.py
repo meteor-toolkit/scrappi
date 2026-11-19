@@ -1,16 +1,15 @@
 """scrappi.api.tests.test_eumdac - tests for scrappi.api.eumdac"""
 
+import datetime as dt
 import os
 import unittest
-import datetime as dt
 from unittest import mock
 
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Polygon
 
+from scrappi import ScrappiContext
 from scrappi.api.eumdac import EUMDACCallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi import ScrappiContext
-
 
 __author__ = [
     "Jacob Fahy <jacob.fahy@npl.co.uk>",
@@ -234,13 +233,13 @@ class TestEUMDACCallHandler(unittest.TestCase):
         """Test find_start_time method"""
         prod_dict = {"date": "2022-06-07T23:30:00Z/2022-06-07T23:50:00Z"}
         result = self.handler.find_start_time(prod_dict)
-        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 30, tzinfo=dt.timezone.utc))
+        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 30, tzinfo=dt.UTC))
 
     def test_find_stop_time(self):
         """Test find_stop_time method"""
         prod_dict = {"date": "2022-06-07T23:30:00Z/2022-06-07T23:50:00Z"}
         result = self.handler.find_stop_time(prod_dict)
-        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 50, tzinfo=dt.timezone.utc))
+        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 50, tzinfo=dt.UTC))
 
     def test_extract_filter_attributes(self):
         """Test extract_filter_attributes method"""

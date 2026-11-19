@@ -1,23 +1,23 @@
 """scrappi.api.eumdac - EUMDAC class for API call handler implementations"""
 
+import datetime as dt
 import os
 import shutil
-import warnings
-import shapely
-import shapely.wkt
-import shapely.geometry
 import time
-import datetime as dt
+import warnings
+from typing import Any
+
 import eumdac
 import requests
+import shapely
+import shapely.geometry
+import shapely.wkt
 from shapely.geometry import MultiPolygon, shape
-from typing import Any, Optional, Union, List
 
-
-from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi.fs.base import BaseFileSystem
 from scrappi import ScrappiContext
+from scrappi.api.base import BaseAPICallHandler
+from scrappi.fs.base import BaseFileSystem
+from scrappi.product import ProductItem, ProductItemSet
 
 __all__ = ["EUMDACCallHandler"]
 
@@ -29,7 +29,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
     name = "eumdac"
 
-    def __init__(self, context: Optional[Union[str, List, ScrappiContext]] = None):
+    def __init__(self, context: str | list | ScrappiContext | None = None):
 
         super().__init__(context)
 
@@ -44,6 +44,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
             eumdac_key = None
             eumdac_secret = None
 
+        self.eumdac_token: Any | None = None
+        self.api: Any | None = None
         if eumdac_key and eumdac_secret:
             self.eumdac_token = eumdac.AccessToken([eumdac_key, eumdac_secret])
             self.api = eumdac.DataStore(self.eumdac_token)
@@ -59,7 +61,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         """
         return self._get_product_type(collection)
 
-    def _set_datetime(self, date_time: Union[dt.datetime, str]) -> dt.datetime:
+    def _set_datetime(self, date_time: dt.datetime | str) -> dt.datetime:
         """
         Convert input datetime to a datetime object suited to the eumdac query format
 
@@ -69,8 +71,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
         return self._get_datetime(date_time)
 
     def _set_geom(
-        self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        self, geom: list | dict | str | shapely.geometry.base.BaseGeometry
+    ) -> dict | shapely.geometry.base.BaseGeometry:
         """
         Convert input geometries to ones suited to the apis query format
         EUMDAC accepts either a bbox or Polygon, but these are different arguments in the query.
@@ -120,8 +122,9 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
         return eumdac_query
 
-    def list_collections(self) -> List:
-
+    def list_collections(self) -> list:
+        if self.api is None:
+            raise RuntimeError("EUMDAC API is not available. Configure valid credentials.")
         collections = [collection._id for collection in self.api.collections]
         return collections
 
@@ -137,6 +140,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
         eumdac_query = self._format_query(query)
 
         # set collection object to be used for searching
+        if self.api is None:
+            raise RuntimeError("EUMDAC API is not available. Configure valid credentials.")
         collection = self.api.get_collection(eumdac_query["selected_collection"])
         eumdac_query.pop("selected_collection", None)
 
@@ -171,7 +176,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :param query: catalogue query
         :returns: ProductItemSet
         """
-        if "collections" in query.keys():
+        if "collections" in query:
             if isinstance(query["collections"], str):
                 query["collection"] = query["collections"]
             elif len(query["collections"]) == 1:
@@ -232,8 +237,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
         return ProductItemSet(product_item_list)
 
     def convert_geom(
-        self, geom: Union[dict, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        self, geom: dict | shapely.geometry.base.BaseGeometry
+    ) -> dict | shapely.geometry.base.BaseGeometry:
         """
         Convert product metadata geometry to a format suitable for filtering and downloading
         :param geom: geometry to convert
@@ -290,7 +295,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         else:
             return ""
 
-    def find_start_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_start_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best start time for a scene (depends on information provided by provider).
 
@@ -298,12 +303,12 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :return: datetime of starting time of observation
         """
 
-        if "date" in prod_dict.keys():
+        if "date" in prod_dict:
             return [dt.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in prod_dict["date"].split("/")][0]
         else:
             raise ValueError("start time not found in product dictionary")
 
-    def find_stop_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_stop_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best end time for a scene (depends on information provided by provider).
 
@@ -311,7 +316,7 @@ class EUMDACCallHandler(BaseAPICallHandler):
         :return: datetime of end time of observation
         """
 
-        if "date" in prod_dict.keys():
+        if "date" in prod_dict:
             return [dt.datetime.fromisoformat(t.replace("Z", "+00:00")) for t in prod_dict["date"].split("/")][1]
         else:
             raise ValueError("stop time not found in product dictionary")
@@ -332,10 +337,10 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
     def _download_product(
         self,
-        product: Union[eumdac.product.Product, str],
+        product: eumdac.product.Product | str,
         path: str,
         product_id: str,
-    ) -> Union[list, str]:
+    ) -> list | str:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -407,8 +412,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-    ) -> Optional[Union[list, str]]:
+        product: str | ProductItem | ProductItemSet,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -450,10 +455,10 @@ class EUMDACCallHandler(BaseAPICallHandler):
 
     def download_product_filename(
         self,
-        product: Union[str, List],
+        product: str | list,
         collection: str,
-        fs: Optional[BaseFileSystem] = None,
-    ) -> Optional[Union[list, str]]:
+        fs: BaseFileSystem | None = None,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -481,6 +486,8 @@ class EUMDACCallHandler(BaseAPICallHandler):
         elif isinstance(product, str):
             found = False
             eumdac_product: Any = None
+            if self.api is None:
+                raise RuntimeError("EUMDAC API is not available. Configure valid credentials.")
             product_prov: Any = self.api.get_product(collection_id=collection, product_id=product)
             if isinstance(product_prov, list) and len(product_prov) > 0:
                 found = True

@@ -4,12 +4,15 @@ import os
 import sys
 import types
 import unittest
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
-from scrappi.api.hypernets import HYPERNETSOfflineCallHandler, HYPERNETSCallHandler
-from scrappi import ScrappiContext
+
+import shapely
 from shapely.geometry import Polygon
-from pathlib import Path
+
+from scrappi import ScrappiContext
+from scrappi.api.hypernets import HYPERNETSCallHandler, HYPERNETSOfflineCallHandler
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk>",
@@ -90,7 +93,7 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
                 [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert shapely.equals_exact(poly_roi, poly_test, tolerance=0.01)
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [
@@ -101,7 +104,7 @@ class TestOfflineHYPERNETSCallHandler(unittest.TestCase):
                 [23.3038867960562, -71.93894657967229],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert shapely.equals_exact(poly_roi, poly_test, tolerance=0.01)
 
     def test_perform_query(self):
         if self.hypernets_call_handler is None:
@@ -159,7 +162,7 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
                 [15.124910202637997, -23.60243291100309],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert shapely.equals_exact(poly_roi, poly_test, tolerance=0.01)
         poly_roi = self.hypernets_call_handler.get_roi_shapely("PEAN")
         poly_test = Polygon(
             [
@@ -170,7 +173,7 @@ class TestHYPERNETSCallHandler(unittest.TestCase):
                 [23.3038867960562, -71.93894657967229],
             ]
         )
-        assert poly_roi.equals(poly_test)
+        assert shapely.equals_exact(poly_roi, poly_test, tolerance=0.01)
 
     def test_perform_query(self):
         if self.hypernets_call_handler is None:

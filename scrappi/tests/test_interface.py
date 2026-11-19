@@ -1,18 +1,20 @@
 """scrappi.tests.test_interface - tests for scrappi.interface"""
 
+import datetime as dt
 import os
 import random
 import shutil
 import string
 import threading
 import unittest
-import datetime as dt
+from unittest import mock
+
 import numpy as np
 import numpy.testing as npt
-
-from unittest import mock
 from shapely.geometry import Point, Polygon
-from scrappi.product import ProductItem
+
+import scrappi.interface as interface_module
+from scrappi import THIS_DIRECTORY, ScrappiContext
 from scrappi.interface import (
     Factory,
     _ensure_scrappi_context,
@@ -30,8 +32,7 @@ from scrappi.interface import (
     set_credentials,
     update_context_file,
 )
-import scrappi.interface as interface_module
-from scrappi import THIS_DIRECTORY, ScrappiContext
+from scrappi.product import ProductItem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -501,18 +502,18 @@ class TestInterface(unittest.TestCase):
         with (
             mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
             mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+            self.assertRaises(TypeError),
         ):
-            with self.assertRaises(TypeError):
-                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+            perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
 
     def test_perform_query_reraises_last_error_when_every_candidate_fails_recoverably(self):
         factory = self._fanout_handlers(ValueError("nope 1"), ValueError("nope 2"))
         with (
             mock.patch.dict("scrappi.interface.Factory.api_call_handlers", factory, clear=True),
             mock.patch("scrappi.interface.Factory.all_api_list", ["h1", "h2"]),
+            self.assertRaises(ValueError),
         ):
-            with self.assertRaises(ValueError):
-                perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
+            perform_query({"collection": "LANDSAT_C2L1"}, ScrappiContext())
 
     def test_download_product_filename(self):
         context = ScrappiContext()

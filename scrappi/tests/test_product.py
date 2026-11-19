@@ -1,19 +1,28 @@
 """scrappi.tests.test_product - tests for scrappi.product"""
 
 import json
-import unittest
-import string
-import random
 import os
+import random
 import shutil
 import socket
+import string
+import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 from unittest.mock import patch
-import unittest.mock as mock
+
+from eodag import EOProduct
 from matplotlib import pyplot as plt
+from processor_tools.utils.formatters import convert_datetime
 from shapely.geometry import Polygon, box
+
+from scrappi import ScrappiContext
+from scrappi.api.eodag import EODAGCallHandler
+from scrappi.fs.localfilesystem import LocalFileSystem
+from scrappi.fs.stacfilesystem import STACFileSystem
+from scrappi.fs.tdrive import TdriveFileSystem
 from scrappi.product import (
     ProductItem,
     ProductItemSet,
@@ -23,13 +32,6 @@ from scrappi.product import (
     product_item_from_stac,
     product_item_set_from_dict,
 )
-from scrappi.api.eodag import EODAGCallHandler
-from scrappi.fs.stacfilesystem import STACFileSystem
-from scrappi.fs.tdrive import TdriveFileSystem
-from scrappi.fs.localfilesystem import LocalFileSystem
-from scrappi import ScrappiContext
-from eodag import EOProduct
-from processor_tools.utils.formatters import convert_datetime
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",

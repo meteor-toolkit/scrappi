@@ -15,13 +15,14 @@ __author__ = [
 __all__ = ["APICallHandlerFactory"]
 
 
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any
+
 from scrappi import ScrappiContext
+from scrappi.api.aws import AWSCallHandler
+from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.eodag import EODAGCallHandler, credentials_fingerprint
 from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
-from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.stac_api import STACAPICallHandler
-from scrappi.api.aws import AWSCallHandler
 
 all_api_list = [
     "eodag",
@@ -57,10 +58,10 @@ class APICallHandlerFactory:
         # context reference is never read back for its own sake, only to (a) keep the
         # context object alive for as long as its handler is cached (see the identity
         # check below) and (b) let clear_cache() drop entries regardless of key shape.
-        self._handler_cache: Dict[Any, Tuple[Optional[ScrappiContext], BaseAPICallHandler]] = {}
+        self._handler_cache: dict[Any, tuple[ScrappiContext | None, BaseAPICallHandler]] = {}
 
     def get_api_call_handler(
-        self, name: Union[str, BaseAPICallHandler], context: Optional[ScrappiContext] = None, use_cache: bool = True
+        self, name: str | BaseAPICallHandler, context: ScrappiContext | None = None, use_cache: bool = True
     ):
         """
         Return specified API call handler
@@ -96,6 +97,7 @@ class APICallHandlerFactory:
         # else: cache by (name, identity of context) -- a different context object
         # always misses, but the same one reused across calls hits.
         is_eodag = name.split(":")[0].lower() == "eodag"
+        cache_key: tuple[Any, ...]
         if is_eodag:
             if context is None:
                 context = ScrappiContext()  # the default context the handler would be built from anyway
@@ -123,7 +125,7 @@ class APICallHandlerFactory:
 
         return handler
 
-    def _build_api_call_handler(self, name: str, context: Optional[ScrappiContext]) -> BaseAPICallHandler:
+    def _build_api_call_handler(self, name: str, context: ScrappiContext | None) -> BaseAPICallHandler:
         """Construct a fresh handler for *name* -- the uncached part of :py:meth:`get_api_call_handler`."""
         if context is None:
             context = ScrappiContext()
@@ -134,7 +136,7 @@ class APICallHandlerFactory:
                 context["api"]["preferred_provider"] = name_parts[1]
                 return self.api_call_handlers[name_parts[0].lower()](context=context)
             else:
-                raise IOError(
+                raise OSError(
                     "only eodag allows to optionally include preffered provider using a `:'. This is not relevant for other api's.  "
                     "For eodag the preferred provider can also be set in config_dict."
                 )
@@ -163,7 +165,7 @@ class APICallHandlerFactory:
             return self.api_call_handlers[name.lower()](context=context)
 
         else:
-            raise IOError("api name (%s) not one of the recognised apis (%s)." % (name, self.api_call_handlers.keys()))
+            raise OSError("api name (%s) not one of the recognised apis (%s)." % (name, self.api_call_handlers.keys()))
 
     def clear_cache(self) -> None:
         """Drop all cached handler instances (see ``get_api_call_handler``'s ``use_cache``).

@@ -1,5 +1,6 @@
-from processor_tools.config import ConfigInit
 import os.path
+
+from processor_tools.config import ConfigInit
 
 config_init = ConfigInit(
     package_name="scrappi",

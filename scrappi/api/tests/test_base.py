@@ -1,13 +1,13 @@
 """scrappi.api.tests.test_base - tests for scrappi.api.base"""
 
-import unittest
 import datetime as dt
+import unittest
 
 import shapely
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Point, Polygon
 
-from scrappi.api.base import BaseAPICallHandler
 from scrappi import ScrappiContext
+from scrappi.api.base import BaseAPICallHandler
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -48,56 +48,56 @@ class TestBaseAPICallHandler(unittest.TestCase):
 
     def test_get_datetime_obj(self):
         input_dt = dt.datetime(2022, 10, 20)
-        expected = input_dt.replace(tzinfo=dt.timezone.utc)
+        expected = input_dt.replace(tzinfo=dt.UTC)
         self.assertEqual(self.DummyAPICallHandler._get_datetime(input_dt), expected)
 
     def test_get_datetime_date_obj(self):
         input_dt = dt.date(2022, 10, 20)
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 10, 20, 0, 0, 0, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 10, 20, 0, 0, 0, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_1(self):
         input_dt = "2022-09-10T20:23:47.111356Z"
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, 111356, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, 111356, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_2(self):
         input_dt = "2022-09-10T20:23:47.111356"
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, 111356, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, 111356, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_3(self):
         input_dt = "2022-09-10T20:23:47.11135"
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, 111350, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, 111350, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_4(self):
         input_dt = "2022-09-10 20:23:47.1113"
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, 111300, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, 111300, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_5(self):
         input_dt = "2022-09-10 20:23:47.111"
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, 111000, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, 111000, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_6(self):
         input_dt = "2022-09-10 20:23:47."
         self.assertEqual(
             self.DummyAPICallHandler._get_datetime(input_dt),
-            dt.datetime(2022, 9, 10, 20, 23, 47, tzinfo=dt.timezone.utc),
+            dt.datetime(2022, 9, 10, 20, 23, 47, tzinfo=dt.UTC),
         )
 
     def test_get_datetime_str_error(self):

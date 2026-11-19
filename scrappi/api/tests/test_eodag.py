@@ -1,19 +1,19 @@
 """scrappi.api.tests.test_EODAG - tests for scrappi.api.EODAG"""
 
-import os
-import math
-import unittest
-import unittest.mock as mock
 import datetime as dt
+import math
+import os
+import unittest
 from typing import cast
-import pytest
+from unittest import mock
 
-from shapely.geometry import Polygon
+import pytest
 from eodag import EOProduct
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi import make_fs
+from shapely.geometry import Polygon
+
+from scrappi import ScrappiContext, make_fs
 from scrappi.api.eodag import EODAGCallHandler, credentials_fingerprint, drop_unset_credentials
-from scrappi import ScrappiContext
+from scrappi.product import ProductItem, ProductItemSet
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -1271,8 +1271,8 @@ class TestEODAGCallHandler(unittest.TestCase):
         # Patch filesystem resolution as providers may return absolute T: paths
         # which don't exist on the test host. Ensure these resolve to the
         # TdriveFileSystem for the scope of this test.
-        from scrappi.fs.tdrive import TdriveFileSystem
         import scrappi.fs.factory as fs_factory
+        from scrappi.fs.tdrive import TdriveFileSystem
 
         orig_get = fs_factory.FSCallHandlerFactory.get_fs_call_handler
 

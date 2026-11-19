@@ -1,6 +1,6 @@
-import unittest
-from unittest.mock import Mock, MagicMock, patch
 import datetime as dt
+import unittest
+from unittest.mock import Mock, patch
 
 from scrappi.api.aws import AWSCallHandler
 

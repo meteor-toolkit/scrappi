@@ -11,21 +11,22 @@ JSON API with basic auth, while the offline handler resolves files from a
 local archive.
 """
 
+import datetime as dt
 import os
 import platform
-import datetime as dt
-import requests
-from shapely.geometry import Polygon
-from typing import Dict, Optional, Any, Tuple, Union, List
-import warnings
-import numpy as np
 import socket
+import warnings
+from typing import Any
+
+import numpy as np
+import requests
 from processor_tools import Context
+from shapely.geometry import Polygon
 
 from scrappi import ScrappiContext
 from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
-from scrappi.product import ProductItemSet, ProductItem
-from scrappi.utils.utils import generate_bounding_lat_lon, convert_geom_shapely
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import convert_geom_shapely, generate_bounding_lat_lon
 
 __author__ = [
     "Ashley James Ramsay <ashley.ramsay@npl.co.uk",
@@ -50,7 +51,7 @@ DEFAULT_REQUEST_TIMEOUT_S = 60
 # _resolve_site_definitions) -- kept as RadcalnetCallHandler.DEFAULT_SITE_DEFINITIONS
 # below too, unchanged, since external code (e.g. eomatch's own report scripts) reads
 # that class attribute directly.
-_RCN_BUILTIN_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = {
+_RCN_BUILTIN_SITE_DEFINITIONS: dict[str, dict[str, float]] = {
     "GONA": {
         "latitude": -23.600201,
         "longitude": 15.119556,
@@ -67,7 +68,7 @@ _RCN_BUILTIN_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = {
 }
 
 
-def _resolve_site_definitions(context: ScrappiContext) -> Dict[str, Dict[str, float]]:
+def _resolve_site_definitions(context: ScrappiContext) -> dict[str, dict[str, float]]:
     """Merge :py:data:`_RCN_BUILTIN_SITE_DEFINITIONS` with any user-supplied entries
     under ``context["RadCalNet"]["site_definitions"]``.
 
@@ -98,7 +99,7 @@ def _resolve_site_definitions(context: ScrappiContext) -> Dict[str, Dict[str, fl
     return definitions
 
 
-def _build_default_geometries(site_definitions: Dict[str, Dict[str, float]]) -> Dict[str, Polygon]:
+def _build_default_geometries(site_definitions: dict[str, dict[str, float]]) -> dict[str, Polygon]:
     """Convert *site_definitions* (lat/lon/default_roi per site) into ROI polygons.
 
     Shared by :py:meth:`RadcalnetCallHandler._set_Polygons` and
@@ -115,7 +116,7 @@ def _build_default_geometries(site_definitions: Dict[str, Dict[str, float]]) -> 
     }
 
 
-def _parse_rcn_filename(filename: str) -> Tuple[str, int, int, str]:
+def _parse_rcn_filename(filename: str) -> tuple[str, int, int, str]:
     """Split an RCN filename into site+instrument, year, day of year, and version.
 
     Shared by :py:meth:`RadcalnetCallHandler.parse_name` and
@@ -129,7 +130,7 @@ def _parse_rcn_filename(filename: str) -> Tuple[str, int, int, str]:
     return site_instrument, int(year), int(doy), version
 
 
-def _rcn_version_key(version: str) -> Tuple[int, ...]:
+def _rcn_version_key(version: str) -> tuple[int, ...]:
     """A sortable key for an RCN version string so the newest reprocessing of a
     site/day can be picked when an accumulating offline archive keeps several
     (e.g. ``v04.08.output`` alongside ``v04.09.output``).
@@ -205,20 +206,14 @@ def _check_date_in_range(year: int, doy: int, date1: dt.date, date2: dt.date) ->
             return True
         return False
 
-    elif date1.year == year and doy1 <= doy:
-        return True
-
-    elif date2.year == year and doy <= doy2:
-        return True
-
-    elif date1.year < year < date2.year:
+    elif date1.year == year and doy1 <= doy or date2.year == year and doy <= doy2 or date1.year < year < date2.year:
         return True
 
     else:
         return False
 
 
-def _daylight_window_hours_for_site(site_definitions: Dict[str, Dict[str, float]], site: str) -> Tuple[float, float]:
+def _daylight_window_hours_for_site(site_definitions: dict[str, dict[str, float]], site: str) -> tuple[float, float]:
     """Return *site*'s approximate daylight recording window as ``(start_hour, stop_hour)``.
 
     Shared by :py:meth:`RadcalnetCallHandler._daylight_window_hours` and
@@ -250,7 +245,7 @@ class RadcalnetCallHandler(InSituCallHandler):
     # directly off the class, not an instance. A given instance's own site registry
     # (self.DEFAULT_SITE_DEFINITIONS, set in __init__) may additionally include
     # config-supplied sites -- see _resolve_site_definitions -- without affecting this.
-    DEFAULT_SITE_DEFINITIONS: Dict[str, Dict[str, float]] = _RCN_BUILTIN_SITE_DEFINITIONS
+    DEFAULT_SITE_DEFINITIONS: dict[str, dict[str, float]] = _RCN_BUILTIN_SITE_DEFINITIONS
 
     COLLECTIONS = RCN_COLLECTIONS
 
@@ -258,7 +253,7 @@ class RadcalnetCallHandler(InSituCallHandler):
 
     def __init__(
         self,
-        context: Optional[Union[str, List, Context]] = None,
+        context: str | list | Context | None = None,
     ):
         if not isinstance(context, ScrappiContext):
             # The declared param type (str | List | Context) is a codebase-wide
@@ -276,9 +271,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         # the class itself) is unaffected.
         self.DEFAULT_SITE_DEFINITIONS = _resolve_site_definitions(context)
         self._default_geometries = _build_default_geometries(self.DEFAULT_SITE_DEFINITIONS)
-        super(RadcalnetCallHandler, self).__init__(
-            context, self._default_geometries
-        )  # Runs the init that is in the base class
+        super().__init__(context, self._default_geometries)  # Runs the init that is in the base class
 
         credentials = self.context["RadCalNet"]["credentials"] or {}
         # An unset entry in the config (the default is ``username: null``) is not a provided credential, so it
@@ -294,7 +287,7 @@ class RadcalnetCallHandler(InSituCallHandler):
                 os.environ["RADCALNET_USERNAME"] = username
                 os.environ["RADCALNET_REMOVED_PASSWORD"] = password
 
-    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
+    def list_collections(self, fetch_update: bool | None = False) -> list[str]:
         """
         Function to extract collection identifiers
 
@@ -303,7 +296,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         return self.COLLECTIONS
 
-    def list_sites(self) -> List[str]:
+    def list_sites(self) -> list[str]:
         """Return the known RadCalNet site identifiers.
 
         :return: iterable of site identifiers (e.g. 'GONA', 'BTCN')
@@ -320,7 +313,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         :param query: catalogue query
         :returns: ProductItemSet
         """
-        if "platform" in query.keys() and "site" not in query.keys():
+        if "platform" in query and "site" not in query:
             query["site"] = query.pop("platform")
 
         date1 = self._get_datetime(query["start_time"])
@@ -395,7 +388,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         return _check_date_in_range(year, doy, date1, date2)
 
-    def return_info(self, products) -> Optional[list]:
+    def return_info(self, products) -> list | None:
         """
         Return product info in common format for catalogue product(s)
 
@@ -404,7 +397,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         raise NotImplementedError("not currently available for rcn files")
 
-    def download_metadata(self, product, path: Optional[Union[str, Any]] = None) -> None:
+    def download_metadata(self, product, path: str | Any | None = None) -> None:
         """
         Download catalogue product(s) metadata at defined URL to local path
 
@@ -415,9 +408,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         # metadata is included in the rcn file instead
         raise NotImplementedError("not currently available for rcn files")
 
-    def download_file(
-        self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
-    ) -> Optional[Union[list, str]]:
+    def download_file(self, prod: str | ProductItem, dest: str | Any | None = None) -> list | str | None:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: rcn ProductItem
@@ -437,8 +428,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         with self.session.get(url, stream=True, timeout=timeout) as r:
             r.raise_for_status()
             with open(dest_str, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                f.writelines(r.iter_content(chunk_size=8192))
         return os.path.join(dest_str, os.path.basename(url))
 
     def get_files_list(self, site: str, collection: str, start_date: dt.date, end_date: dt.date) -> list:
@@ -486,7 +476,7 @@ class RadcalnetCallHandler(InSituCallHandler):
         """
         return _parse_rcn_filename(filename)
 
-    def set_default_site_definitions(self, ROI: Dict[str, Union[int, float]]) -> None:
+    def set_default_site_definitions(self, ROI: dict[str, int | float]) -> None:
         """
         :param ROI: dictionary ROIs per site
         """
@@ -528,7 +518,6 @@ def _default_offline_archive_path() -> str:
     return os.path.abspath(
         os.path.join(r"T:\ECO", "EOServer", "data", "insitu", "radcalnet", "archive")
     )  # r"\\eoserver", "home", "data", "insitu", "radcalnet", "archive"
-
 
 
 class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
@@ -576,8 +565,8 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
 
     def __init__(
         self,
-        context: Optional[Union[str, List, Context]] = None,
-        archive_path: Optional[str] = None,
+        context: str | list | Context | None = None,
+        archive_path: str | None = None,
     ):
         if not isinstance(context, ScrappiContext):
             # See RadcalnetCallHandler.__init__'s own comment on this same pattern.
@@ -598,7 +587,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
     def _default_archive_path() -> str:
         return _default_offline_archive_path()
 
-    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
+    def list_collections(self, fetch_update: bool | None = False) -> list[str]:
         """
         Function to extract collection identifiers
 
@@ -662,7 +651,7 @@ class RadcalnetOfflineCallHandler(InSituOfflineCallHandler):
         # often holds e.g. GONA01_2022_291_v04.08.output next to ...v04.09.output,
         # and the online portal exposes only the latest. best[(year, doy)] =
         # (version_key, filename, dirpath).
-        best: Dict[Tuple[int, int], Tuple[Tuple[int, ...], str, str]] = {}
+        best: dict[tuple[int, int], tuple[tuple[int, ...], str, str]] = {}
         for filename, filepath in self._archive_index.items():
             try:
                 site_instrument, year, doy, version = _parse_rcn_filename(filename)

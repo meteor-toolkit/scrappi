@@ -1,19 +1,18 @@
 """scrappi.api.tests.test_earthaccess_api - tests for scrappi.api.earthaccess_api"""
 
-import unittest
-import os
 import datetime as dt
+import os
+import unittest
 from unittest import mock
 
 import numpy as np
 import shapely
+from earthaccess import DataGranule
 from shapely.geometry import Polygon
 
+from scrappi import ScrappiContext
 from scrappi.api.earthaccess_api import EarthaccessCallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi import ScrappiContext
-from earthaccess import DataGranule
-
 
 __author__ = [
     "Joe Riordan <joe.riordan@npl.co.uk>",

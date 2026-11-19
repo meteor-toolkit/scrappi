@@ -6,10 +6,10 @@ several common product filename/dir conventions (zip, SAFE, nc, json).
 """
 
 import os
-from typing import Optional
+
+from scrappi import ScrappiContext
 from scrappi.fs.base import BaseFileSystem
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk>",
@@ -31,10 +31,10 @@ class LocalFileSystem(BaseFileSystem):
 
     def __init__(
         self,
-        path: Optional[str] = None,
-        context: Optional[ScrappiContext] = None,
-        organise_data: Optional[bool] = None,
-        read_only: Optional[bool] = None,
+        path: str | None = None,
+        context: ScrappiContext | None = None,
+        organise_data: bool | None = None,
+        read_only: bool | None = None,
     ):
         if not context:
             context = ScrappiContext()

@@ -6,9 +6,10 @@ archive layout used in some deployment environments. It inherits from
 """
 
 import os
-from scrappi.fs.stacfilesystem import STACFileSystem
 import socket
+
 from scrappi import ScrappiContext
+from scrappi.fs.stacfilesystem import STACFileSystem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk>",

@@ -6,9 +6,10 @@ writable archive where files are organised by collection/date.
 """
 
 import os
-from scrappi.fs.localfilesystem import LocalFileSystem
-from scrappi import ScrappiContext
 import socket
+
+from scrappi import ScrappiContext
+from scrappi.fs.localfilesystem import LocalFileSystem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk>",

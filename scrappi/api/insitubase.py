@@ -7,14 +7,15 @@ common download helpers used by concrete in-situ handlers.
 
 import warnings
 from abc import abstractmethod
-from typing import Optional, Union, List, Any
+from typing import Any
+
+from processor_tools import Context
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.api.offlinebase import OfflineArchiveHandler
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import convert_geom_shapely, convert_geom, generate_bounding_lat_lon
 from scrappi.fs.base import BaseFileSystem
-from processor_tools import Context
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import convert_geom, convert_geom_shapely, generate_bounding_lat_lon
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -34,7 +35,7 @@ class InSituCallHandler(BaseAPICallHandler):
 
     name: str
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None, roi_dict: Optional[dict] = None):
+    def __init__(self, context: str | list | Context | None = None, roi_dict: dict | None = None):
         super().__init__(context)
         self.roi_dict: dict = roi_dict if roi_dict is not None else {}
         self.sites = list(self.roi_dict.keys())
@@ -68,7 +69,7 @@ class InSituCallHandler(BaseAPICallHandler):
         lat: float,
         lon: float,
         distance: float,
-        crs: Optional[str] = None,
+        crs: str | None = None,
     ):
         """Set *site*'s ROI to a square box of *distance* metres either side of (*lat*, *lon*).
 
@@ -83,14 +84,13 @@ class InSituCallHandler(BaseAPICallHandler):
         self.roi_dict[site] = generate_bounding_lat_lon(lat, lon, distance, crs=crs)
 
     @abstractmethod
-    def list_collections(self, fetch_update: Optional[bool] = False):
+    def list_collections(self, fetch_update: bool | None = False):
         """
         Function to extract collection identifiers
 
         :param fetch_update: set to True to fetch online collection names instead of offline version.
         :return: list of collection identifiers
         """
-        pass
 
     @abstractmethod
     def perform_query(self, query: dict) -> ProductItemSet:
@@ -100,22 +100,20 @@ class InSituCallHandler(BaseAPICallHandler):
         :param query: catalogue query
         :returns: product urls satisfying query
         """
-        pass
 
     @abstractmethod
     def download_file(
         self,
-        prod: Union[str, ProductItem],
-        dest: Optional[Union[str, BaseFileSystem]] = None,
-    ) -> Optional[Union[list, str]]:
+        prod: str | ProductItem,
+        dest: str | BaseFileSystem | None = None,
+    ) -> list | str | None:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: ProductItem
         :param dest: destination folder for downloaded file or filesystem
         """
-        pass
 
-    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
+    def download_product(self, product: str | ProductItem | ProductItemSet) -> list | str | None:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -170,13 +168,12 @@ class InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler):
         :param query: catalogue query
         :returns: product urls satisfying query
         """
-        pass
 
     def download_file(
         self,
-        product: Union[str, ProductItem],
-        fs: Optional[Union[str, BaseFileSystem]] = None,
-    ) -> Union[list, str]:
+        product: str | ProductItem,
+        fs: str | BaseFileSystem | None = None,
+    ) -> list | str:
         """Path to *product*'s already-local file.
 
         Lower-level than :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler.download_product`

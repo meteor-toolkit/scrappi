@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import warnings
 from abc import abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from scrappi.api.base import BaseAPICallHandler
 from scrappi.fs.stacfilesystem import STACFileSystem
@@ -53,7 +53,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     #: not passed to ``__init__`` -- e.g. ``("RadCalNet", "offline_archive_path")``
     #: resolves ``context["RadCalNet"]["offline_archive_path"]``. Empty (the
     #: default) means "always use :py:meth:`_default_archive_path`".
-    ARCHIVE_PATH_CONTEXT_KEYS: Tuple[str, ...] = ()
+    ARCHIVE_PATH_CONTEXT_KEYS: tuple[str, ...] = ()
 
     #: Whether the archive is scrappi's to write to. ``True`` (the default) is right
     #: for every offline archive: the data is the user's, already on disk, and
@@ -65,12 +65,12 @@ class OfflineArchiveHandler(BaseAPICallHandler):
     #: separate matchup catalogue.
     ARCHIVE_READ_ONLY: bool = True
 
-    def __init__(self, context: Any = None, *args: Any, archive_path: Optional[str] = None, **kwargs: Any) -> None:
+    def __init__(self, context: Any = None, *args: Any, archive_path: str | None = None, **kwargs: Any) -> None:
         super().__init__(context, *args, **kwargs)
         self.archive_path: str = self._resolve_archive_path(archive_path)
 
     # ------------------------------------------------------------------ config
-    def _resolve_archive_path(self, archive_path: Optional[str]) -> str:
+    def _resolve_archive_path(self, archive_path: str | None) -> str:
         """The archive root: *archive_path* if given, else the value at
         :py:data:`ARCHIVE_PATH_CONTEXT_KEYS` in the context, else
         :py:meth:`_default_archive_path`."""
@@ -92,7 +92,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
 
     # --------------------------------------------------------------- archive scan
     @property
-    def _archive_index(self) -> Dict[str, str]:
+    def _archive_index(self) -> dict[str, str]:
         """``filename -> absolute path`` for every file under :py:attr:`archive_path`,
         built once by a single :py:func:`os.walk` and cached on the instance.
 
@@ -103,7 +103,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         subclass that cares about which (e.g. product versions) does its own
         selection in :py:meth:`perform_query`.
         """
-        idx: Optional[Dict[str, str]] = getattr(self, "_archive_index_cache", None)
+        idx: dict[str, str] | None = getattr(self, "_archive_index_cache", None)
         if idx is None:
             idx = {}
             if os.path.isdir(self.archive_path):
@@ -114,7 +114,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         return idx
 
     # -------------------------------------------------------------- filesystem
-    def _flat_filesystem(self, dirpath: str, read_only: Optional[bool] = None) -> STACFileSystem:
+    def _flat_filesystem(self, dirpath: str, read_only: bool | None = None) -> STACFileSystem:
         """A flat-layout :py:class:`~scrappi.fs.stacfilesystem.STACFileSystem` pinned
         to *dirpath* -- the directory an archived file actually sits in. Flat so the
         file resolves at ``<dirpath>/<id>`` regardless of how the archive is laid
@@ -129,7 +129,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
             read_only = self.ARCHIVE_READ_ONLY
         return STACFileSystem(path=dirpath, context=self.context, flat=True, read_only=read_only)
 
-    def _archive_path_for(self, product: ProductItem) -> Optional[str]:
+    def _archive_path_for(self, product: ProductItem) -> str | None:
         """Absolute path of *product*'s file within :py:attr:`archive_path`, by
         matching its ``id`` against filenames in the tree -- or ``None`` if it
         isn't there.
@@ -145,7 +145,7 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         return self._archive_index.get(target) if target else None
 
     # ---------------------------------------------------------------- download
-    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
+    def download_product(self, product: str | ProductItem | ProductItemSet) -> list | str | None:
         """Resolve *product* to its on-disk path in the archive -- no network, no copy.
 
         "Download" is a misnomer for an offline handler: the file is already local.
@@ -186,5 +186,5 @@ class OfflineArchiveHandler(BaseAPICallHandler):
         handler for the query shape)."""
 
     @abstractmethod
-    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
+    def list_collections(self, fetch_update: bool | None = False) -> list[str]:
         """The collection ids this handler serves."""

@@ -5,30 +5,30 @@ This module provides `EODAGCallHandler`, an implementation of
 satellite products from supported providers.
 """
 
+import datetime as dt
 import hashlib
 import json
 import os
 import shutil
+import time
 import warnings
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 import requests
 import shapely
-import shapely.wkt
 import shapely.geometry
-import time
-import numpy as np
-import datetime as dt
-from shapely.geometry import Polygon, MultiPolygon, Point
-from pathlib import Path
-from typing import Any, Optional, Union, List
-
+import shapely.wkt
+from eodag import EODataAccessGateway, EOProduct, SearchResult, setup_logging
+from eodag import __version__ as eodag_version
 from processor_tools import Context
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
-from eodag import setup_logging, EODataAccessGateway, SearchResult, EOProduct
-from eodag import __version__ as eodag_version
-from scrappi.utils.utils import validate_product_download, normalize_product_path, add_seconds_to_datetime
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import add_seconds_to_datetime, normalize_product_path, validate_product_download
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -63,7 +63,7 @@ def drop_unset_credentials(eodag_config: dict) -> dict:
     return cleaned
 
 
-def credentials_fingerprint(eodag_config: Optional[dict]) -> str:
+def credentials_fingerprint(eodag_config: dict | None) -> str:
     """Return a stable digest of the credentials in an EODAG provider configuration.
 
     Used to tell EODAG handlers that were built with different credentials apart (see
@@ -107,7 +107,7 @@ class EODAGCallHandler(BaseAPICallHandler):
     name = "eodag"
     """Name of APICallHandler"""
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None):
+    def __init__(self, context: str | list | Context | None = None):
         """
         Extend `BaseAPICallHandler.__init__()` saving provided credentials as environment variables
         for "service" authentication.
@@ -144,7 +144,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :return: filtered provider configuration dict
         """
         filtered_eodag_config = {}
-        for key in eodag_config.keys():
+        for key in eodag_config:
             if eodag_config[key]["priority"] and eodag_config[key]["priority"] > 0:
                 filtered_eodag_config[key] = eodag_config[key]
         return filtered_eodag_config
@@ -159,7 +159,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         self.context = context
         self.dag.update_providers_config(dict_conf=drop_unset_credentials(context["eodag"]))
 
-    def _set_datetime(self, date_time: Union[dt.datetime, str]) -> str:
+    def _set_datetime(self, date_time: dt.datetime | str) -> str:
         """
         Convert input datetime to a datetime object suited to the eodag query format
 
@@ -169,8 +169,8 @@ class EODAGCallHandler(BaseAPICallHandler):
         return self._get_datetime(date_time).strftime("%Y-%m-%dT%H:%M:%S")
 
     def _set_geom(
-        self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        self, geom: list | dict | str | shapely.geometry.base.BaseGeometry
+    ) -> dict | shapely.geometry.base.BaseGeometry:
         """
         Convert input geometries to ones suited to the apis query format
         All accepted geometries work for eodag api
@@ -215,7 +215,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def list_collections(
         self,
-    ) -> List:
+    ) -> list:
         """Lists supported collections.
 
         :returns: The list of the collections that can be accessed using eodag.) -> list:
@@ -413,7 +413,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise NotImplementedError("The platform for this query is not found.")
 
-    def find_start_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_start_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best start time for a scene (depends on information provided by provider).
 
@@ -429,7 +429,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise ValueError("start time not found in product dictionary")
 
-    def find_stop_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_stop_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best end time for a scene (depends on information provided by provider).
 
@@ -466,7 +466,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return filter_dict
 
-    def _download_product_EOProduct(self, product: EOProduct, path: str) -> Union[list, str]:
+    def _download_product_EOProduct(self, product: EOProduct, path: str) -> list | str:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -619,8 +619,8 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-    ) -> Optional[Union[list, str]]:
+        product: str | ProductItem | ProductItemSet,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -675,7 +675,6 @@ class EODAGCallHandler(BaseAPICallHandler):
                         return self._download_product_EOProduct(eoprod, os.path.dirname(path))
                     except Exception:
                         print("Could not create EOProduct from prod_dict, trying search method.")
-                        pass
 
                 new_query = {
                     "collection": product.collection,
@@ -712,10 +711,10 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product_filename(
         self,
-        product: Union[str, List],
-        provider: Optional[str] = None,
-        fs: Optional[BaseFileSystem] = None,
-    ) -> Optional[Union[list, str]]:
+        product: str | list,
+        provider: str | None = None,
+        fs: BaseFileSystem | None = None,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -726,7 +725,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :return: path (or list of paths) to downloaded product(s)
         """
 
-        if isinstance(product, List):
+        if isinstance(product, list):
             return [self.download_product_filename(prod, provider, fs) for prod in product]
 
         from scrappi import make_fs
@@ -743,7 +742,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, str):
             preferred: Any = self.context["api"]["preferred_provider"]
-            providers: List[str]
+            providers: list[str]
             if preferred is None:
                 providers = ["peps", "usgs"]
             elif isinstance(preferred, list):

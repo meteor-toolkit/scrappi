@@ -6,12 +6,12 @@ and resolve product downloads.
 """
 
 import os
+from typing import Any
 
-from shapely.geometry import Polygon
-from typing import Any, Dict, Optional, Union, List
 from processor_tools import Context
+from shapely.geometry import Polygon
 
-from scrappi.api.insitubase import InSituOfflineCallHandler, InSituCallHandler
+from scrappi.api.insitubase import InSituCallHandler, InSituOfflineCallHandler
 from scrappi.product import ProductItem, ProductItemSet
 from scrappi.utils.utils import generate_bounding_lat_lon
 
@@ -64,12 +64,12 @@ class HYPERNETSCallHandler(InSituCallHandler):
     """
 
     name = "hypernets"
-    sites: List[str] = list(HYPERNETS_DEFAULT_ROI.keys())
+    sites: list[str] = list(HYPERNETS_DEFAULT_ROI.keys())
     DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
-    collections: List[str] = COLLECTIONS
-    _default_geometries: Dict[str, Polygon] = {}
+    collections: list[str] = COLLECTIONS
+    _default_geometries: dict[str, Polygon] = {}
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None, api_key=None):
+    def __init__(self, context: str | list | Context | None = None, api_key=None):
         super().__init__(context, HYPERNETS_DEFAULT_ROI)
         if api_key is None:
             api_key = self.context["hypernets"]["credentials"]["apikey"]
@@ -99,7 +99,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
         """
         return prod_dict["site_id"]
 
-    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
+    def list_collections(self, fetch_update: bool | None = False) -> list[str]:
         """
         Function to extract collection identifier
 
@@ -153,7 +153,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
         if query["collection"].startswith("LHYP"):
             query["collection"] = query["collection"][5::]
 
-        if "platform" in query.keys() and "site" not in query.keys():
+        if "platform" in query and "site" not in query:
             query["site"] = query.pop("platform")
 
         hypernets_results = self.api.query(query)
@@ -185,9 +185,7 @@ class HYPERNETSCallHandler(InSituCallHandler):
 
         return ProductItemSet(product_list)
 
-    def download_file(
-        self, prod: Union[str, ProductItem], dest: Optional[Union[str, Any]] = None
-    ) -> Optional[Union[list, str]]:
+    def download_file(self, prod: str | ProductItem, dest: str | Any | None = None) -> list | str | None:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: HYPERNETS ProductItem
@@ -217,15 +215,15 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
     """
 
     name = "hypernets_offline"
-    sites: List[str] = list(HYPERNETS_DEFAULT_ROI.keys())
+    sites: list[str] = list(HYPERNETS_DEFAULT_ROI.keys())
     DEFAULT_SITE_DEFINITIONS: dict = HYPERNETS_DEFAULT_ROI
-    collections: List[str] = COLLECTIONS
-    _default_geometries: Dict[str, Polygon] = {}
+    collections: list[str] = COLLECTIONS
+    _default_geometries: dict[str, Polygon] = {}
     #: OfflineArchiveHandler reads the archive root from context["fs"]["path"] when
     #: it isn't passed to __init__.
     ARCHIVE_PATH_CONTEXT_KEYS = ("fs", "path")
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None, archive_path=None):
+    def __init__(self, context: str | list | Context | None = None, archive_path=None):
         # OfflineArchiveHandler resolves self.archive_path (arg -> context["fs"]["path"])
         # and provides download_product / _archive_path_for; InSituCallHandler takes
         # the roi_dict. No context mutation for organise_data -- perform_query builds
@@ -257,7 +255,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         """
         return prod_dict["site_id"]
 
-    def list_collections(self, fetch_update: Optional[bool] = False) -> List[str]:
+    def list_collections(self, fetch_update: bool | None = False) -> list[str]:
         """
         Function to extract collection identifier
 
@@ -326,9 +324,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
                     # organise_data is off; STACFileSystem (not LocalFileSystem) so
                     # ProductItem.to_stac_item() -- called when a matchup is added to a
                     # catalogue -- has return_stac_item_path.
-                    filesystem=self._flat_filesystem(
-                        os.path.join(self.api.archive_path, prod["rel_product_dir"])
-                    ),
+                    filesystem=self._flat_filesystem(os.path.join(self.api.archive_path, prod["rel_product_dir"])),
                     url=prod["sequence_name"],
                     quicklook="",
                     api=self,
@@ -345,7 +341,7 @@ class HYPERNETSOfflineCallHandler(InSituOfflineCallHandler):
         :param prod_dict: eodag product dictionary
         :return: dictionary with filter attributes
         """
-        filter_dict: Dict[str, Any] = {}
+        filter_dict: dict[str, Any] = {}
 
         return filter_dict
 

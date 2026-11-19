@@ -1,20 +1,22 @@
 """scrappi.utils.tests.test_plot_utils - tests for scrappi.utils.plot_utils module"""
 
 import unittest
+from unittest import mock
+
 import shapely
 import shapely.wkt
-import unittest.mock as mock
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Point, Polygon
+
 from scrappi.utils.utils import (
-    list_keys,
-    key_present,
-    get_value_gen,
-    get_value,
-    get_nested_value,
-    get_dict_path,
     convert_geom,
     convert_geom_shapely,
     generate_bounding_lat_lon,
+    get_dict_path,
+    get_nested_value,
+    get_value,
+    get_value_gen,
+    key_present,
+    list_keys,
 )
 
 __author__ = [
