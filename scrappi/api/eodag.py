@@ -5,28 +5,30 @@ This module provides `EODAGCallHandler`, an implementation of
 satellite products from supported providers.
 """
 
+import datetime as dt
+import hashlib
+import json
 import os
 import shutil
+import time
 import warnings
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 import requests
 import shapely
-import shapely.wkt
 import shapely.geometry
-import time
-import numpy as np
-import datetime as dt
-from shapely.geometry import Polygon, MultiPolygon, Point
-from pathlib import Path
-from typing import Any, Optional, Union, List
-
+import shapely.wkt
+from eodag import EODataAccessGateway, EOProduct, SearchResult, setup_logging
+from eodag import __version__ as eodag_version
 from processor_tools import Context
+from shapely.geometry import MultiPolygon, Point, Polygon
 
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet
 from scrappi.fs.base import BaseFileSystem
-from eodag import setup_logging, EODataAccessGateway, SearchResult, EOProduct
-from eodag import __version__ as eodag_version
-from scrappi.utils.utils import validate_product_download, normalize_product_path, add_seconds_to_datetime
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import add_seconds_to_datetime, normalize_product_path, validate_product_download
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -36,6 +38,60 @@ __author__ = [
     "Mattea Goalen <mattea.goalen@npl.co.uk>",
 ]
 __all__ = ["EODAGCallHandler"]
+
+
+def drop_unset_credentials(eodag_config: dict) -> dict:
+    """Return a copy of an EODAG provider configuration without unset credentials.
+
+    The default scrappi config lists every credential as empty (``username: null``). Passing those on to
+    :py:meth:`eodag.EODataAccessGateway.update_providers_config` would overwrite the credentials EODAG itself found
+    (in its own config file or in ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__<NAME>`` environment variables), so credentials
+    that are ``None`` or empty are left out and EODAG's own values stay in place.
+
+    :param eodag_config: mapping of provider keys to provider configuration
+    :return: the same configuration, without ``None``/empty entries in any ``credentials`` section
+    """
+    cleaned: dict = {}
+    for key, value in eodag_config.items():
+        if isinstance(value, dict):
+            value = drop_unset_credentials(value)
+            if key == "credentials":
+                value = {k: v for k, v in value.items() if v not in (None, "")}
+                if not value:
+                    continue
+        cleaned[key] = value
+    return cleaned
+
+
+def credentials_fingerprint(eodag_config: dict | None) -> str:
+    """Return a stable digest of the credentials in an EODAG provider configuration.
+
+    Used to tell EODAG handlers that were built with different credentials apart (see
+    :py:meth:`scrappi.api.factory.APICallHandlerFactory.get_api_call_handler`). Unset (``None``/empty) credentials
+    are ignored, so a configuration without any credentials gives the empty string, and the digest does not
+    reveal the credentials themselves.
+
+    :param eodag_config: mapping of provider keys to provider configuration (``context["eodag"]``), or ``None``
+    :return: hex digest, or ``""`` if the configuration has no credentials set
+    """
+    credentials: dict = {}
+
+    def collect(config: dict, path: tuple) -> None:
+        for key, value in config.items():
+            if not isinstance(value, dict):
+                continue
+            if key == "credentials":
+                set_values = {k: v for k, v in value.items() if v not in (None, "")}
+                if set_values:
+                    credentials[".".join((*path, key))] = set_values
+            else:
+                collect(value, (*path, key))
+
+    if eodag_config:
+        collect(eodag_config, ())
+    if not credentials:
+        return ""
+    return hashlib.sha256(json.dumps(credentials, sort_keys=True, default=str).encode()).hexdigest()
 
 
 class EODAGCallHandler(BaseAPICallHandler):
@@ -51,7 +107,7 @@ class EODAGCallHandler(BaseAPICallHandler):
     name = "eodag"
     """Name of APICallHandler"""
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None):
+    def __init__(self, context: str | list | Context | None = None):
         """
         Extend `BaseAPICallHandler.__init__()` saving provided credentials as environment variables
         for "service" authentication.
@@ -60,13 +116,14 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         self.dag = EODataAccessGateway()
         if self.context["eodag"] is not None:
-            self.dag.update_providers_config(dict_conf=self.filter_eodag_config_priority(self.context["eodag"]))
+            self.dag.update_providers_config(
+                dict_conf=drop_unset_credentials(self.filter_eodag_config_priority(self.context["eodag"]))
+            )
 
         if self.context["api"]["preferred_provider"] is not None:
             self.dag.set_preferred_provider(self.context["api"]["preferred_provider"])
 
         self.check_eodag_version()
-        self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
         # this bit is meant to be used for one time passwords (authenticator apps), but does not seem to work right
         # if "totp" in config_dict.keys():
@@ -87,7 +144,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :return: filtered provider configuration dict
         """
         filtered_eodag_config = {}
-        for key in eodag_config.keys():
+        for key in eodag_config:
             if eodag_config[key]["priority"] and eodag_config[key]["priority"] > 0:
                 filtered_eodag_config[key] = eodag_config[key]
         return filtered_eodag_config
@@ -100,9 +157,9 @@ class EODAGCallHandler(BaseAPICallHandler):
         :param yaml_conf: YAML formated provider configuration
         """
         self.context = context
-        self.dag.update_providers_config(dict_conf=context["eodag"])
+        self.dag.update_providers_config(dict_conf=drop_unset_credentials(context["eodag"]))
 
-    def _set_datetime(self, date_time: Union[dt.datetime, str]) -> str:
+    def _set_datetime(self, date_time: dt.datetime | str) -> str:
         """
         Convert input datetime to a datetime object suited to the eodag query format
 
@@ -112,8 +169,8 @@ class EODAGCallHandler(BaseAPICallHandler):
         return self._get_datetime(date_time).strftime("%Y-%m-%dT%H:%M:%S")
 
     def _set_geom(
-        self, geom: Union[list, dict, str, shapely.geometry.base.BaseGeometry]
-    ) -> Union[dict, shapely.geometry.base.BaseGeometry]:
+        self, geom: list | dict | str | shapely.geometry.base.BaseGeometry
+    ) -> dict | shapely.geometry.base.BaseGeometry:
         """
         Convert input geometries to ones suited to the apis query format
         All accepted geometries work for eodag api
@@ -158,7 +215,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def list_collections(
         self,
-    ) -> List:
+    ) -> list:
         """Lists supported collections.
 
         :returns: The list of the collections that can be accessed using eodag.) -> list:
@@ -220,6 +277,12 @@ class EODAGCallHandler(BaseAPICallHandler):
         """
         Return ProductItemSet containing ProductItems that satisfy query
 
+        A product whose metadata is missing required fields (e.g. no start/stop time,
+        or an unparseable product ID) is skipped with a warning rather than aborting
+        the whole query -- one malformed record from a provider (seen e.g. for some
+        USGS Landsat products) shouldn't discard every other product the query would
+        otherwise have returned.
+
         :param query: catalogue query
         :returns: ProductItemSet
         """
@@ -242,9 +305,14 @@ class EODAGCallHandler(BaseAPICallHandler):
             ):
                 prod_dict["properties"]["eodag:quicklook"] = ""
 
-            if ("eo:cloud_cover" not in prod_dict["properties"].keys()) or (
-                prod_dict["properties"]["eo:cloud_cover"] is None
+            if (
+                ("eo:cloud_cover" not in prod_dict["properties"].keys())
+                or (prod_dict["properties"]["eo:cloud_cover"] is None)
+                or (prod_dict["properties"]["eo:cloud_cover"] == -1)
             ):
+                # -1 is USGS/Landsat's convention for "cloud cover not calculated" for a scene;
+                # normalise it to NaN like other missing values, since cloud cover cannot be
+                # negative and a literal -1 would otherwise look like the clearest scene available.
                 prod_dict["properties"]["eo:cloud_cover"] = np.nan
 
             # check if platform is set
@@ -269,26 +337,37 @@ class EODAGCallHandler(BaseAPICallHandler):
             else:
                 collection = query["collection"]
 
-            # store product item
-            product_list.append(
-                ProductItem(
-                    constellation=self.get_constellation(prod_dict),
-                    platform=self.get_platform(prod_dict),
-                    collection=collection,
-                    id=prod_dict["id"],
-                    geometry=prod_geom,
-                    start_time=self.find_start_time(prod_dict),
-                    stop_time=self.find_stop_time(prod_dict),
-                    prod_dict=prod_dict,
-                    filter_dict=self.extract_filter_attributes(prod_dict),
-                    api=self,
-                    url=url,
-                    quicklook=prod_dict["properties"]["eodag:quicklook"],
-                    cloud_fraction=prod_dict["properties"]["eo:cloud_cover"],
-                    context=self.context,
-                    api_product=prod,
+            # store product item -- a single malformed record (e.g. a provider missing
+            # start/stop time metadata for one product) shouldn't discard every other
+            # product the query would otherwise have returned. find_start_time/
+            # find_stop_time raise ValueError when neither of their recognised keys is
+            # present; find_stop_time's LANDSAT_C2L1 branch subscripts "end_datetime"
+            # directly (no existence/None check), raising KeyError if it's absent or
+            # TypeError if it's present but None; get_platform/get_constellation raise
+            # NotImplementedError for an unparseable product ID.
+            try:
+                product_list.append(
+                    ProductItem(
+                        constellation=self.get_constellation(prod_dict),
+                        platform=self.get_platform(prod_dict),
+                        collection=collection,
+                        id=prod_dict["id"],
+                        geometry=prod_geom,
+                        start_time=self.find_start_time(prod_dict),
+                        stop_time=self.find_stop_time(prod_dict),
+                        prod_dict=prod_dict,
+                        filter_dict=self.extract_filter_attributes(prod_dict),
+                        api=self,
+                        url=url,
+                        quicklook=prod_dict["properties"]["eodag:quicklook"],
+                        cloud_fraction=prod_dict["properties"]["eo:cloud_cover"],
+                        context=self.context,
+                        api_product=prod,
+                    )
                 )
-            )
+            except (ValueError, KeyError, TypeError, NotImplementedError) as e:
+                warnings.warn(f"Skipping product {prod_dict.get('id')!r}: {e}")
+                continue
 
         return ProductItemSet(product_list)
 
@@ -334,7 +413,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise NotImplementedError("The platform for this query is not found.")
 
-    def find_start_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_start_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best start time for a scene (depends on information provided by provider).
 
@@ -350,7 +429,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         else:
             raise ValueError("start time not found in product dictionary")
 
-    def find_stop_time(self, prod_dict: dict) -> Union[dt.datetime, str]:
+    def find_stop_time(self, prod_dict: dict) -> dt.datetime | str:
         """
         Function to find the best end time for a scene (depends on information provided by provider).
 
@@ -387,7 +466,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         return filter_dict
 
-    def _download_product_EOProduct(self, product: EOProduct, path: str) -> Union[list, str]:
+    def _download_product_EOProduct(self, product: EOProduct, path: str) -> list | str:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -415,6 +494,9 @@ class EODAGCallHandler(BaseAPICallHandler):
                     wait = product.downloader.config.wait
                 else:
                     wait = 0.2
+
+                if product.provider == "usgs":
+                    self.check_usgs_tmp_file(delete_tmp_file=self.context.get("delete_usgs_tmp_file", False))
 
                 for attempt in range(self.context.get("max_retrys", 3)):
                     try:
@@ -537,8 +619,8 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
-    ) -> Optional[Union[list, str]]:
+        product: str | ProductItem | ProductItemSet,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -593,7 +675,6 @@ class EODAGCallHandler(BaseAPICallHandler):
                         return self._download_product_EOProduct(eoprod, os.path.dirname(path))
                     except Exception:
                         print("Could not create EOProduct from prod_dict, trying search method.")
-                        pass
 
                 new_query = {
                     "collection": product.collection,
@@ -630,10 +711,10 @@ class EODAGCallHandler(BaseAPICallHandler):
 
     def download_product_filename(
         self,
-        product: Union[str, List],
-        provider: Optional[str] = None,
-        fs: Optional[BaseFileSystem] = None,
-    ) -> Optional[Union[list, str]]:
+        product: str | list,
+        provider: str | None = None,
+        fs: BaseFileSystem | None = None,
+    ) -> list | str | None:
         """
         Download catalogue product(s) from query results to local path
 
@@ -644,7 +725,7 @@ class EODAGCallHandler(BaseAPICallHandler):
         :return: path (or list of paths) to downloaded product(s)
         """
 
-        if isinstance(product, List):
+        if isinstance(product, list):
             return [self.download_product_filename(prod, provider, fs) for prod in product]
 
         from scrappi import make_fs
@@ -661,7 +742,7 @@ class EODAGCallHandler(BaseAPICallHandler):
 
         elif isinstance(product, str):
             preferred: Any = self.context["api"]["preferred_provider"]
-            providers: List[str]
+            providers: list[str]
             if preferred is None:
                 providers = ["peps", "usgs"]
             elif isinstance(preferred, list):
@@ -712,6 +793,12 @@ class EODAGCallHandler(BaseAPICallHandler):
     def check_usgs_tmp_file(self, delete_tmp_file: bool = True):
         """
         Check for the presence of a temporary file created by the USGS provider during download, and remove it if it exists.
+
+        Called from :py:meth:`_download_product_EOProduct` immediately before a USGS
+        download, not from ``__init__`` -- this file is specific to USGS's own download
+        validation, so checking it on every handler construction (regardless of which
+        provider is actually being used) risked one script's handler removing it out from
+        under a concurrently-running script's in-progress USGS download.
         """
 
         TMPFILE = os.path.join(os.path.expanduser("~"), ".usgs")

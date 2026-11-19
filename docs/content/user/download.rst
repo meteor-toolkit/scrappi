@@ -20,14 +20,12 @@ or the user can use the build-in function in the ProductItem(Set) class. In the 
 to ensure the correct api is set in the ProductItem(Set)::
 
     from scrappi.interface import download_product
-    api_name = "eodag"
 
     # here we assume products is a ProductItemSet with the filesystem already set correctly
-    path_list=download_product(api_name, products)
+    path_list = download_product(products, context)
 
     # or alternatively
-    products.set_api(api_name)
-    path_list=products.download_product()
+    path_list = products.download_product(context=context)
 
 The files will be downloaded, skipping any file which already exists in the file system, and the path to each product will be returned.
 (WARNING: scrappi can only partially check if the downloaded file is correct - it checks if the file exists, and if it is a valid .zip or .tar.gz file, but it cannot verify if all the files within that archive are present.)
@@ -39,9 +37,9 @@ In some cases, the user might want to download files based on the filename, when
 This option is not possible for every API/provider.
 When it is available, it is possible to download the data as follows::
 
-    from scrappi.interface import download_product_filename, make_fs
-    api_name = "eodag"
-    file_system= make_fs("./")
+    from scrappi.interface import download_product_filename
 
-    path_list=download_product_filename(api_name, "S2A_MSIL1C_20221001T084801_N0400_R107_T33KWP_20221001T123324", file_system)
-
+    path_list = download_product_filename(
+        "S2A_MSIL1C_20221001T084801_N0400_R107_T33KWP_20221001T123324",
+        context,
+    )

@@ -20,3 +20,4 @@ In this user guide, you will find detailed descriptions and examples that descri
    api
    filesystem
    download
+   data_and_stac_structure

@@ -1,9 +1,9 @@
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from scrappi.fs.stac_href_resolver import StacHrefResolver
-import os
 
 
 class TestStacHrefResolver(unittest.TestCase):

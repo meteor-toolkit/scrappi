@@ -6,9 +6,10 @@ archive layout used in some deployment environments. It inherits from
 """
 
 import os
-from scrappi.fs.stacfilesystem import STACFileSystem
 import socket
+
 from scrappi import ScrappiContext
+from scrappi.fs.stacfilesystem import STACFileSystem
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk>",
@@ -30,6 +31,4 @@ class TdriveFileSystem(STACFileSystem):
         else:
             path = os.path.join("T:\\", "ECO", "EOServer", "data", "product_archive")
 
-        context["fs"]["organise_data"] = True
-        context["fs"]["read_only"] = False
-        super().__init__(path=path, path_stac=path, context=context)
+        super().__init__(path=path, path_stac=path, context=context, organise_data=True, read_only=False)

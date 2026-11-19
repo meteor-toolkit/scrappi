@@ -7,33 +7,35 @@ provider-specific metadata. `ProductItemSet` is a light-weight container
 with helpers for filtering, sorting and STAC materialisation.
 """
 
-import warnings
 import json
 import re
-from typing import TYPE_CHECKING, Dict, Any, Optional, Sequence, Union, List, Tuple
+import warnings
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
     from scrappi.fs.stacfilesystem import STACFileSystem
-from typing_extensions import Self
 import datetime as dt
-import shapely as sh
-from shapely.geometry import Polygon, MultiPolygon, Point, mapping
-import pystac
-from cartopy.mpl.geoaxes import GeoAxes
+import os.path
+import shutil
+from pathlib import Path
+from typing import Self
+
+import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
-from matplotlib.patches import Patch
-from matplotlib import pyplot as plt
-import os.path
-import cartopy.crs as ccrs
 import numpy as np
-import shutil
+import pystac
+import shapely as sh
+from cartopy.mpl.geoaxes import GeoAxes
+from matplotlib import pyplot as plt
+from matplotlib.patches import Patch
 from processor_tools.utils.formatters import convert_datetime
-from pathlib import Path
+from shapely.geometry import MultiPolygon, Point, Polygon, mapping
 
-from scrappi.utils.plot_utils import pad_plot_bounds, prepare_map_plot
 from scrappi import ScrappiContext
 from scrappi.fs.stac_href_resolver import StacHrefResolver
+from scrappi.utils.plot_utils import pad_plot_bounds, prepare_map_plot
 
 __author__ = "Sam Hunt <sam.hunt@npl.co.uk>"
 __all__ = [
@@ -56,8 +58,11 @@ class ProductItem:
     :param geometry: spatial extent covered by product, as a :py:class:`shapely.Polygon`, WKT string, or value to instantiate a :py:class:`shapely.Polygon`
     :param start_time: initial time-bound of product
     :param stop_time: final time-bound of product
-    :param prod_dict: all information returned by query, will not be saved to JSON
-    :param filter_dict: dictionary with attributes that can be used to filter the data
+    :param prod_dict: all information returned by query; only saved to/restored from a
+        STAC item's JSON when ``context["fs"]["store_prod_dict_in_stac"]`` is enabled
+    :param filter_dict: dictionary with attributes that can be used to filter the data;
+        only saved to/restored from a STAC item's JSON when
+        ``context["fs"]["store_filter_dict_in_stac"]`` is enabled
     :param url: optional keyword to provide download url
     :param quicklook: optional keyword to provide quickook url
     :param filesystem: optional keyword to set filesystem, defaults to t-drive filesystem
@@ -71,26 +76,26 @@ class ProductItem:
         platform: str,
         collection: str,
         id: str,
-        geometry: Union[Polygon, Sequence, str],
-        start_time: Union[dt.datetime, str],
-        stop_time: Union[dt.datetime, str],
-        prod_dict: Optional[Dict] = None,
-        filter_dict: Optional[Dict] = {},
-        version: Optional[str] = None,
-        url: Optional[str] = "",
-        quicklook: Optional[str] = "",
-        filesystem: Optional[Any] = None,
-        api: Optional[Any] = None,
-        cloud_fraction: Optional[float] = None,
-        context: Optional[ScrappiContext] = None,
-        api_product: Optional[Any] = None,
+        geometry: Polygon | Sequence | str,
+        start_time: dt.datetime | str,
+        stop_time: dt.datetime | str,
+        prod_dict: dict | None = None,
+        filter_dict: dict | None = {},
+        version: str | None = None,
+        url: str | None = "",
+        quicklook: str | None = "",
+        filesystem: Any | None = None,
+        api: Any | None = None,
+        cloud_fraction: float | None = None,
+        context: ScrappiContext | None = None,
+        api_product: Any | None = None,
     ):
         self.constellation = constellation
         self.platform = platform
         self.collection = collection
         self.version = version
         self.id = id
-        self._geometry: Union[Polygon, Sequence, str] = geometry
+        self._geometry: Polygon | Sequence | str = geometry
         self.start_time = convert_datetime(start_time)
         self.stop_time = convert_datetime(stop_time)
         self.prod_dict = prod_dict
@@ -106,12 +111,18 @@ class ProductItem:
         self.set_api(api, context)
         self.set_fs(filesystem, context)
 
+    @classmethod
+    def from_stac(
+        cls,
+        item_or_path: Union[str, "pystac.Item"],
+        context: ScrappiContext | None = None,
+    ) -> "ProductItem":
+        return product_item_from_stac(item_or_path, context=context)
+
     def __str__(self) -> str:
         """Custom __str__"""
 
-        repr_str = "<scrappi.ProductItem>\nid:\t\t{}\ncollection:\t{}\nstart_time:\t{}\nstop_time:\t{}".format(
-            self.id, self.collection, self.start_time, self.stop_time
-        )
+        repr_str = f"<scrappi.ProductItem>\nid:\t\t{self.id}\ncollection:\t{self.collection}\nstart_time:\t{self.start_time}\nstop_time:\t{self.stop_time}"
 
         return repr_str
 
@@ -120,7 +131,7 @@ class ProductItem:
 
         return str(self)
 
-    def to_json(self, path: Optional[str] = None) -> dict:
+    def to_json(self, path: str | None = None) -> dict:
         """
         Prepare JSON representation of ProductItem
 
@@ -187,9 +198,15 @@ class ProductItem:
         Build a new pystac.Item for this product, ready to be written to disk.
 
         Always includes ``constellation`` and ``platform`` in ``properties``,
-        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set (read
-        back by :py:func:`product_item_from_stac`). ``prod_dict``/``filter_dict``
-        are included only when explicitly enabled via
+        plus ``eo:cloud_cover`` when :py:attr:`cloud_fraction` is set and
+        ``version`` when :py:attr:`version` is set (both read back by
+        :py:func:`product_item_from_stac`). ``collection`` is set directly on
+        the item (``pystac.Item``'s own ``collection`` constructor argument,
+        stored as ``collection_id``) rather than as a plain property, so it
+        round-trips via :py:func:`product_item_from_stac` reading
+        ``item.collection_id`` -- this does not require the item to actually
+        be linked into a resolvable ``pystac.Collection``. ``prod_dict``/
+        ``filter_dict`` are included only when explicitly enabled via
         ``context["fs"]["store_prod_dict_in_stac"]``/``store_filter_dict_in_stac``.
 
         :param fs: filesystem used to resolve asset paths for this product.
@@ -203,7 +220,8 @@ class ProductItem:
         properties = {}
         properties["constellation"] = self.constellation
         properties["platform"] = self.platform
-        # properties["collection"] = self.collection
+        if self.version is not None:
+            properties["version"] = self.version
         if self.cloud_fraction is not None:
             properties["eo:cloud_cover"] = self.cloud_fraction
         if self.context["fs"].get("store_prod_dict_in_stac", False):
@@ -218,6 +236,7 @@ class ProductItem:
             bbox=bbox,
             datetime=self.start_time,
             properties=properties,
+            collection=self.collection or None,
         )
 
         # add end time as property when available
@@ -304,6 +323,13 @@ class ProductItem:
         fs = filesystem or self.filesystem
         if fs is None:
             raise ValueError("No filesystem provided")
+        if getattr(fs, "read_only", False):
+            raise OSError(
+                f"Cannot register product {self.id!r} in a filesystem STAC catalog: the "
+                f"filesystem is read-only (e.g. an offline archive handler's own data "
+                f"directory -- not ours to write into). Pass a different filesystem (e.g. "
+                f"a matchup catalogue) as `filesystem=` to register it there instead."
+            )
 
         # Filesystem locations (only used for writing)
         stac_root = Path(fs.stac_root)
@@ -359,7 +385,7 @@ class ProductItem:
         item.save_object(dest_href=item_path)
 
         # ---------------- Link item from collection ----------------
-        item_self_href: Optional[str] = item.get_self_href()
+        item_self_href: str | None = item.get_self_href()
         if not any(link.rel == "item" and link.target == item_self_href for link in collection.links):
             collection.add_link(
                 pystac.Link(
@@ -379,7 +405,7 @@ class ProductItem:
         StacHrefResolver.write_stac_object(collection, collection_json)
 
         # ---------------- Link collection from root ----------------
-        collection_self_href: Optional[str] = collection.get_self_href()
+        collection_self_href: str | None = collection.get_self_href()
         if not any(link.rel == "child" and link.target == collection_self_href for link in root.links):
             root.add_link(
                 pystac.Link(
@@ -395,8 +421,8 @@ class ProductItem:
 
     def set_fs(
         self,
-        filesystem: Optional[str] = None,
-        context: Optional[ScrappiContext] = None,
+        filesystem: str | None = None,
+        context: ScrappiContext | None = None,
     ):
         """
         set filesystem
@@ -407,7 +433,7 @@ class ProductItem:
         self.filesystem = make_fs(filesystem, context)
         self.context["fs"]["path"] = self.filesystem.directory
 
-    def set_api(self, api: Optional[str] = None, context: Optional[ScrappiContext] = None):
+    def set_api(self, api: str | None = None, context: ScrappiContext | None = None):
         """
         set API
 
@@ -419,7 +445,7 @@ class ProductItem:
 
         self.api = make_api(api, context)
 
-    def move_product(self, new_fs: Union[str, Any], copy: bool = True) -> str:
+    def move_product(self, new_fs: str | Any, copy: bool = True) -> str:
         """
         Move or copy the file to a different filesystem
 
@@ -427,8 +453,8 @@ class ProductItem:
         :param copy: Boolean to indicate if the product should be copied (True) or moved (False)
         :return: path to product in new filesystem
         """
-        from scrappi.interface import make_fs
         from scrappi.fs.base import BaseFileSystem
+        from scrappi.interface import make_fs
 
         resolved_fs: BaseFileSystem = make_fs(new_fs)
 
@@ -446,15 +472,15 @@ class ProductItem:
         old_fs_read_only = getattr(self.filesystem, "read_only", False)
         if copy:
             if new_fs_read_only:
-                raise IOError("The new filesystem you are trying to copy data to is read only.")
+                raise OSError("The new filesystem you are trying to copy data to is read only.")
             else:
                 self.mk_fs_dirs(new_path)
                 shutil.copy(old_path, new_path)
         else:
             if new_fs_read_only:
-                raise IOError("The new filesystem you are trying to move data to is read only.")
+                raise OSError("The new filesystem you are trying to move data to is read only.")
             elif old_fs_read_only:
-                raise IOError(
+                raise OSError(
                     "The old filesystem you are trying to move data from is read only (maybe try setting copy=True instead)."
                 )
             else:
@@ -479,7 +505,7 @@ class ProductItem:
         """
         return self.filesystem.return_path(self, False)
 
-    def download_product(self, context: Optional[ScrappiContext] = None):
+    def download_product(self, context: ScrappiContext | None = None):
         """
         Function to download product using api and fs set in attributes
         :return: path to downloaded product
@@ -514,11 +540,11 @@ class ProductItem:
 
     def plot_geometry(
         self,
-        ax: Optional[GeoAxes] = None,
-        padding_type: Optional[str] = "rel",
-        padding_val: Optional[Union[float, str]] = 0.5,
-        tick_step: Optional[float] = None,
-        geometry_color: Optional[str] = None,
+        ax: GeoAxes | None = None,
+        padding_type: str | None = "rel",
+        padding_val: float | str | None = 0.5,
+        tick_step: float | None = None,
+        geometry_color: str | None = None,
     ) -> None:
         """
         Plots product geometry on lon lat grid
@@ -602,26 +628,26 @@ class ProductItemSet:
     :param products: products to add to the set
     """
 
-    def __init__(self, products: Optional[List[ProductItem]] = None):
+    def __init__(self, products: list[ProductItem] | None = None):
         # Initialise attributes
-        self._products: List[ProductItem] = products if products is not None else []
-        self._collections: Union[None, List[str]] = None
+        self._products: list[ProductItem] = products if products is not None else []
+        self._collections: None | list[str] = None
 
     def __str__(self) -> str:
         """Custom __str__"""
 
-        repr_str = "<scrappi.ProductItemSet (n_prods: {})>\nProducts:".format(len(self))
+        repr_str = f"<scrappi.ProductItemSet (n_prods: {len(self)})>\nProducts:"
 
         if len(self) < 10:
             for p in self:
-                repr_str += "\n\t{}".format(p.id)
+                repr_str += f"\n\t{p.id}"
 
         else:
             for idx in [0, 1, 2, -3, -2, -1]:
                 if idx == -3:
                     repr_str += "\n..."
                 else:
-                    repr_str += "\n\t{}".format(self[idx].id)
+                    repr_str += f"\n\t{self[idx].id}"
 
         return repr_str
 
@@ -657,7 +683,7 @@ class ProductItemSet:
         else:
             raise StopIteration
 
-    def to_json(self, path: Optional[str] = None) -> dict:
+    def to_json(self, path: str | None = None) -> dict:
         """
         Prepare JSON representation of ProductItemSet
 
@@ -665,7 +691,7 @@ class ProductItemSet:
         :return: JSON representation of ProductItemSet as a dictionary
         """
 
-        product_item_set_dict: Dict[str, Any] = dict()
+        product_item_set_dict: dict[str, Any] = dict()
 
         product_item_set_dict["collections"] = self.collections
         product_item_set_dict["n_products"] = len(self)
@@ -725,7 +751,7 @@ class ProductItemSet:
         for p in self:
             p.set_api(api)
 
-    def set_fs(self, filesystem: str, context: Optional[ScrappiContext] = None):
+    def set_fs(self, filesystem: str, context: ScrappiContext | None = None):
         """
         set filesystem for each product item in the product item set
 
@@ -735,7 +761,7 @@ class ProductItemSet:
         for p in self:
             p.set_fs(filesystem, context)
 
-    def move_product(self, new_fs, copy: bool = True) -> List:
+    def move_product(self, new_fs, copy: bool = True) -> list:
         """
         Move or copy all products to a different filesystem
 
@@ -759,7 +785,7 @@ class ProductItemSet:
 
         return self
 
-    def get_path(self) -> List[str]:
+    def get_path(self) -> list[str]:
         """
         return path to filesystem main folder
 
@@ -769,8 +795,8 @@ class ProductItemSet:
 
     def download_product(
         self,
-        credentials: Optional[dict] = None,
-        config_dict: Optional[dict] = None,
+        credentials: dict | None = None,
+        config_dict: dict | None = None,
     ):
         """
         Function to download product using api and fs set in attributes
@@ -782,9 +808,9 @@ class ProductItemSet:
 
     def to_stac_catalog(
         self,
-        filesystem: Optional[Any] = None,
+        filesystem: Any | None = None,
         catalog_id: str = "scrappi-productset",
-        description: Optional[str] = None,
+        description: str | None = None,
         materialise_missing_items: bool = False,
     ) -> pystac.Catalog:
         """
@@ -808,7 +834,7 @@ class ProductItemSet:
         fs = filesystem
 
         # Group products by collection
-        collections_map: Dict[str, List[ProductItem]] = {}
+        collections_map: dict[str, list[ProductItem]] = {}
         for p in self:
             collections_map.setdefault(p.collection, []).append(p)
 
@@ -866,7 +892,7 @@ class ProductItemSet:
 
     def update_filesystem_catalogs(
         self,
-        filesystem: Optional[Any] = None,
+        filesystem: Any | None = None,
         overwrite: bool = False,
     ) -> None:
         """
@@ -881,7 +907,7 @@ class ProductItemSet:
             p.register_in_filesystem_catalog(filesystem=fs, overwrite=overwrite)
 
     @property
-    def collections(self) -> List[str]:
+    def collections(self) -> list[str]:
         """
         Set of collections from which the set product items originate
 
@@ -901,7 +927,7 @@ class ProductItemSet:
         return self._collections
 
     @property
-    def product_bounds(self) -> Tuple[float, float, float, float]:
+    def product_bounds(self) -> tuple[float, float, float, float]:
         """
         Returns minimum bounding region of set product items
 
@@ -1006,12 +1032,12 @@ class ProductItemSet:
 
     def plot_geometries(
         self,
-        ax: Optional[GeoAxes] = None,
-        padding_type: Optional[str] = "rel",
-        padding_val: Optional[Union[float, str]] = 0.5,
-        tick_step: Optional[float] = None,
+        ax: GeoAxes | None = None,
+        padding_type: str | None = "rel",
+        padding_val: float | str | None = 0.5,
+        tick_step: float | None = None,
         label_by: str = "collection",
-        colors: Optional[List[str]] = None,
+        colors: list[str] | None = None,
         legend: bool = True,
         remake_axes: bool = False,
     ) -> None:
@@ -1038,7 +1064,7 @@ class ProductItemSet:
         """
         # skip if there are no products
         if len(self._products) == 0:
-            return None
+            return
 
         # Set default colours if no user input
         if colors is None:
@@ -1053,7 +1079,7 @@ class ProductItemSet:
             geo_ax2 = ax
 
         # Initialise list of legend labels
-        legend_handles: List[Optional[Patch]]
+        legend_handles: list[Patch | None]
         if label_by == "collection":
             legend_handles = [None] * len(self.collections)
         elif label_by == "id":
@@ -1111,7 +1137,7 @@ class ProductItemSet:
         plt.tight_layout()
 
 
-def open_product_item(path: str, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItem:
+def open_product_item(path: str, filesystem: str | None = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from JSON file
 
@@ -1127,9 +1153,7 @@ def open_product_item(path: str, filesystem: Optional[str] = None, api: str = "e
     return product_item_from_dict(product_item_dict, api=api, filesystem=filesystem)
 
 
-def product_item_from_dict(
-    product_item_dict: dict, filesystem: Optional[str] = None, api: str = "eodag"
-) -> ProductItem:
+def product_item_from_dict(product_item_dict: dict, filesystem: str | None = None, api: str = "eodag") -> ProductItem:
     """
     Returns ProductItem object from defining dictionary
 
@@ -1144,7 +1168,7 @@ def product_item_from_dict(
 
 def product_item_from_stac(
     item_or_path: Union[str, "pystac.Item"],
-    context: Optional[ScrappiContext] = None,
+    context: ScrappiContext | None = None,
 ) -> ProductItem:
     """
     Create a `ProductItem` from a STAC `Item` or from a path to an Item JSON file.
@@ -1161,18 +1185,16 @@ def product_item_from_stac(
     # id
     pid = item.id
 
-    # collection
-    collection_id: Optional[str] = None
-    try:
-        _coll: Any = item.collection
-        if _coll is None:
-            collection_id = None
-        elif hasattr(_coll, "id"):
-            collection_id = _coll.id
-        else:
-            collection_id = str(_coll)
-    except Exception:
-        collection_id = item.properties.get("collection") if item.properties else None
+    # collection -- pystac.Item has no `.collection` attribute (only
+    # `.collection_id`/`.get_collection()`); reading `item.collection` always
+    # raised AttributeError here, so this previously fell through to the
+    # `except` branch every time, and to_new_stac_item() never wrote a
+    # "collection" property either, so collection was always lost on
+    # round-trip. `collection_id` doesn't require the item to be linked into
+    # a resolvable Collection (see to_new_stac_item's docstring).
+    collection_id: str | None = item.collection_id
+    if collection_id is None and item.properties:
+        collection_id = item.properties.get("collection")
 
     # platform from properties if present
     platform = item.properties.get("platform") if item.properties else None
@@ -1180,6 +1202,7 @@ def product_item_from_stac(
         platform = item.properties.get("platform_name") if item.properties else None
 
     constellation = item.properties.get("constellation") if item.properties else None
+    version = item.properties.get("version") if item.properties else None
 
     # geometry as shapely object
     try:
@@ -1193,7 +1216,7 @@ def product_item_from_stac(
         if hasattr(item, "datetime")
         else (item.properties.get("start_datetime") if item.properties else None)
     )
-    start_time: Union[dt.datetime, str] = (
+    start_time: dt.datetime | str = (
         raw_start if isinstance(raw_start, (dt.datetime, str)) else (str(raw_start) if raw_start is not None else "")
     )
     stop_time = None
@@ -1207,11 +1230,15 @@ def product_item_from_stac(
     # assets -> choose data and quicklook if available
     url = ""
     quicklook = ""
+    api = "stac"
     if hasattr(item, "assets"):
         assets = item.assets
         # pick data asset
         if "data" in assets:
             url = assets["data"].href
+            asset_api = assets["data"].extra_fields.get("scrappi:api")
+            if isinstance(asset_api, str):
+                api = asset_api
         else:
             # pick first non-image asset
             for a in assets.values():
@@ -1238,9 +1265,17 @@ def product_item_from_stac(
     if item.properties:
         cloud_fraction = item.properties.get("cloud_fraction") or item.properties.get("eo:cloud_cover")
 
-    prod_dict = item.to_dict() if hasattr(item, "to_dict") else item.properties
+    # prod_dict/filter_dict only round-trip if to_new_stac_item() actually wrote
+    # them (gated by store_prod_dict_in_stac/store_filter_dict_in_stac) -- read
+    # back exactly what was stored rather than substituting something else, so
+    # a reconstructed ProductItem faithfully reflects what's on disk instead of
+    # silently corrupting these fields with unrelated data (this previously set
+    # prod_dict to the *entire serialized STAC item*, `item.to_dict()`, even
+    # when no prod_dict had ever been stored).
+    prod_dict = item.properties.get("prod_dict") if item.properties else None
+    filter_dict = (item.properties.get("filter_dict") if item.properties else None) or {}
 
-    stop_time_str: Union[dt.datetime, str] = (
+    stop_time_str: dt.datetime | str = (
         stop_time if isinstance(stop_time, (dt.datetime, str)) else (str(stop_time) if stop_time is not None else "")
     )
     return ProductItem(
@@ -1252,16 +1287,24 @@ def product_item_from_stac(
         start_time=start_time,
         stop_time=stop_time_str,
         prod_dict=prod_dict,
-        filter_dict={},
+        filter_dict=filter_dict,
+        version=version,
         url=url,
         quicklook=quicklook,
         cloud_fraction=cloud_fraction,
-        api_product=prod_dict,
+        # api_product is meant to hold a *live* provider-native object (e.g. an
+        # eodag EOProduct) used to actually perform a download -- see
+        # eodag.py/earthaccess_api.py/eumdac.py's `isinstance(product.api_product, ...)`
+        # checks. A reconstructed ProductItem has no such live session object,
+        # so this is intentionally left unset rather than set to prod_dict (a
+        # plain dict, never an instance of those provider classes, so it was
+        # never actually usable as an api_product anyway).
         context=context,
+        api=api,
     )
 
 
-def from_stac(cls, item_or_path: Union[str, "pystac.Item"], context: Optional[ScrappiContext] = None) -> "ProductItem":
+def from_stac(cls, item_or_path: Union[str, "pystac.Item"], context: ScrappiContext | None = None) -> "ProductItem":
     """Construct a ProductItem from a STAC Item or file.
 
     This is exposed as a regular module-level function for documentation
@@ -1271,11 +1314,7 @@ def from_stac(cls, item_or_path: Union[str, "pystac.Item"], context: Optional[Sc
     return product_item_from_stac(item_or_path, context=context)
 
 
-# attach classmethod to ProductItem (wrap the function to create a real classmethod)
-setattr(ProductItem, "from_stac", classmethod(from_stac))
-
-
-def open_product_item_set(path: str, filesystem: Optional[str] = None, api: str = "eodag") -> ProductItemSet:
+def open_product_item_set(path: str, filesystem: str | None = None, api: str = "eodag") -> ProductItemSet:
     """
     Returns ProductItemSet object from JSON file
 
@@ -1292,7 +1331,7 @@ def open_product_item_set(path: str, filesystem: Optional[str] = None, api: str 
 
 
 def product_item_set_from_dict(
-    product_item_set_dict: dict, filesystem: Optional[str] = None, api: str = "eodag"
+    product_item_set_dict: dict, filesystem: str | None = None, api: str = "eodag"
 ) -> ProductItemSet:
     """
     Returns ProductItemSet object from defining dictionary
@@ -1311,7 +1350,7 @@ def product_item_set_from_dict(
     return pis
 
 
-def sanitize_collection_name(collection: Optional[Union[str, Any]]) -> str:
+def sanitize_collection_name(collection: str | Any | None) -> str:
     """Return a filesystem- and STAC-safe collection segment for paths."""
     if collection is None:
         return ""

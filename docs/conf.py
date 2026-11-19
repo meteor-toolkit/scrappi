@@ -11,10 +11,6 @@
 #
 # All configuration values have a default; values that are commented out
 # serve to show the default.
-import sys
-
-sys.path.append(r"C:\Users\pdv\PycharmProjects\scrappi")
-
 import scrappi
 
 project_title = "scrappi".replace("_", " ").title()

@@ -2,19 +2,17 @@
 scrappi.api.stac_api - STAC API call handler for local logical-HREF STAC catalogs
 """
 
-from pathlib import Path
-from typing import Union, List
-
 import json
+from pathlib import Path
+
+import pystac
 import shapely.geometry
 import shapely.wkt
 
-import pystac
-
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet, product_item_from_stac
-from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.stac_href_resolver import StacHrefResolver
+from scrappi.fs.stacfilesystem import STACFileSystem
+from scrappi.product import ProductItem, ProductItemSet, product_item_from_stac
 
 
 class STACAPICallHandler(BaseAPICallHandler):
@@ -43,7 +41,7 @@ class STACAPICallHandler(BaseAPICallHandler):
     # Discovery
     # ------------------------------------------------------------------
 
-    def list_collections(self) -> List[str]:
+    def list_collections(self) -> list[str]:
         if not self.collections_dir.exists():
             return []
 
@@ -83,7 +81,7 @@ class STACAPICallHandler(BaseAPICallHandler):
 
         asset_state = query.get("asset_state")
 
-        matches: List[ProductItem] = []
+        matches: list[ProductItem] = []
 
         # ------------------------------------------------------------------
         # Iterate collections
@@ -145,7 +143,7 @@ class STACAPICallHandler(BaseAPICallHandler):
 
     def download_product(
         self,
-        product: Union[str, ProductItem, ProductItemSet],
+        product: str | ProductItem | ProductItemSet,
     ):
         """
         Resolve asset paths for STAC products.
@@ -159,21 +157,13 @@ class STACAPICallHandler(BaseAPICallHandler):
         if not isinstance(product, ProductItem):
             raise NotImplementedError
 
-        # ---- extract asset href from stored STAC dict ----
-        api_prod = product.api_product or product.prod_dict
-        if not api_prod:
-            return None
-
-        assets = api_prod.get("assets", {})
-        if not assets:
-            return None
-
-        # Prefer "data" asset
-        if "data" in assets:
-            href = assets["data"].get("href")
-        else:
-            href = next(iter(assets.values())).get("href")
-
+        # ---- asset href, as already resolved by product_item_from_stac from the
+        # item's own `assets` (preferring "data", falling back to the first
+        # non-image asset) -- not product.api_product/product.prod_dict, which
+        # are None for any product reconstructed from a saved catalogue (no
+        # live provider object, and prod_dict is only ever populated when
+        # store_prod_dict_in_stac is explicitly enabled).
+        href = product.url
         if not href:
             return None
 

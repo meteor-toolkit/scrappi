@@ -1,6 +1,7 @@
 """scrappi.fs.tests.test_base - tests for scrappi.fs.base"""
 
 import unittest
+
 from scrappi.fs.base import BaseFileSystem
 
 __author__ = [

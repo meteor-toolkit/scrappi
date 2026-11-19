@@ -1,19 +1,21 @@
 """scrappi.utils - util functions for api and file system call handlers"""
 
 from __future__ import annotations
-from copy import deepcopy
-import tarfile
-from typing import Optional, Union, Any
-import zipfile
+
 import datetime
+import tarfile
+import zipfile
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
 import shapely
-import shapely.wkt
 import shapely.errors
 import shapely.geometry
-from shapely.geometry import Polygon
-from pyproj import Transformer
-from pathlib import Path
+import shapely.wkt
 from processor_tools.utils.formatters import convert_datetime
+from pyproj import Transformer
+from shapely.geometry import Polygon
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -224,7 +226,7 @@ def get_nested_value(input_dict: dict, keys: list):
     return value
 
 
-def key_present(test: Union[dict, list], keys: Union[str, list]) -> bool:
+def key_present(test: dict | list, keys: str | list) -> bool:
     """
     Determine whether a key is present in a nested iterable
 
@@ -241,9 +243,7 @@ def key_present(test: Union[dict, list], keys: Union[str, list]) -> bool:
                 return value
             elif k in keys:
                 value = True
-            elif isinstance(v, dict) and v != {}:
-                value = key_present(test[k], keys)
-            elif isinstance(v, list):
+            elif isinstance(v, dict) and v != {} or isinstance(v, list):
                 value = key_present(test[k], keys)
             else:
                 pass
@@ -255,7 +255,7 @@ def key_present(test: Union[dict, list], keys: Union[str, list]) -> bool:
     return value
 
 
-def get_dict_path(input_dict: dict, value: str, new_list: Optional[list] = None) -> list:
+def get_dict_path(input_dict: dict, value: str, new_list: list | None = None) -> list:
     """
     Return list of keys to get to value in input dictionary. Empty list returned if value isn't present in dictionary
 
@@ -296,13 +296,9 @@ def get_value(test_dict, key, multiple=False):
     if multiple is True and value_list:
         return value_list
     elif value_list:
-        print(
-            "Multiple different values found to be associated with '{}'. Consider filtering dictionary further.".format(
-                key
-            )
-        )
+        print(f"Multiple different values found to be associated with '{key}'. Consider filtering dictionary further.")
         return value_list
-    print("No value found associated with '{}'. Check spelling and letter case.".format(key))
+    print(f"No value found associated with '{key}'. Check spelling and letter case.")
     return
 
 
@@ -326,7 +322,7 @@ def get_value_gen(test_dict: dict, key: str):
                 yield from ([] if not isinstance(v, dict) else get_value_gen(test_dict[k], key))
     elif isinstance(test_dict, list) and all([isinstance(i, dict) for i in test_dict]):
         for i, vel in enumerate(test_dict):
-            yield from get_value_gen(test_dict[i], key)
+            yield from get_value_gen(vel, key)
 
 
 def normalize_product_path(path: Path) -> Path:

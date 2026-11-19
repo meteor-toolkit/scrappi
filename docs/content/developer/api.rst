@@ -36,11 +36,11 @@ contain the following methods, properties and attributes:
      - ``Return catalogue product objects that satisfy query``
      -
    * -
-     - ``download_metadata(self, product: Union[str, ProductItem, ProductItemSet],fs: Optional[Union[str, BaseFileSystem]])``
-     - ``Download catalogue product(s) metadata at defined URL to local path``
-     - Currently downloaded metadata are saved in folders within the path specified according to their acquisition date, e.g. 'path/2022/08/21'
+     - ``list_collections(self)``
+     - ``Return collection names supported by this handler``
+     -
    * -
-     - ``download_product(self, product: Union[str, ProductItem, ProductItemSet],fs: Optional[Union[str, BaseFileSystem]])-> Union[list, str]``
+     - ``download_product(self, product: ProductItem | ProductItemSet) -> str | list | None``
      - ``Download catalogue product(s) at defined URL to local path``
      - Currently downloaded products are saved in folders within the path specified according to their acquisition date, e.g. 'path/2022/08/21'
    * - @properties
@@ -61,6 +61,47 @@ contain the following methods, properties and attributes:
      - Name of api call handler, e.g. eodag
 
 New API's should also be added to scrappi.api.factory.
+
+In-situ handlers
++++++++++++++++++
+A handler for a ground-based (in-situ) network -- RadCalNet, HYPERNETS -- inherits
+from ``scrappi.api.insitubase.InSituCallHandler`` instead of ``BaseAPICallHandler``
+directly. It adds a site -> region-of-interest registry (``roi_dict``,
+``get_roi_shapely``, ``set_roi_bounding_box``) that the query/collocation code relies
+on, and declares ``list_collections`` and ``download_file`` abstract on top of the
+base's ``perform_query`` / ``download_product``.
+
+Offline (archive-backed) handlers
++++++++++++++++++++++++++++++++++++
+An *offline* handler exposes the same query/download interface but resolves product
+files from a local directory tree the user already holds, rather than a network
+service -- for data that isn't published online (yet, or ever), or simply as a
+fallback. It inherits from ``scrappi.api.offlinebase.OfflineArchiveHandler``, which
+provides:
+
+* **archive-path resolution** -- ``__init__(context, archive_path=None)`` sets
+  ``self.archive_path`` from the ``archive_path`` argument, else the nested context
+  keys named in the class attribute ``ARCHIVE_PATH_CONTEXT_KEYS`` (e.g.
+  ``("RadCalNet", "offline_archive_path")``), else ``_default_archive_path()``
+  (override it if there is a sensible fixed fallback, otherwise the base raises);
+* ``_archive_index`` -- a cached ``filename -> path`` map from a single walk of the
+  archive, and ``_archive_path_for(product)`` on top of it;
+* ``_flat_filesystem(dirpath)`` -- a flat-layout ``STACFileSystem`` (``flat=True``:
+  no ``<root>/data`` + ``<root>/stac`` split, no organised date tree) to hand each
+  ``ProductItem`` built in ``perform_query`` as its ``filesystem=``;
+* ``download_product`` -- resolves the product locally (no network, no copy) and
+  repins its filesystem, so it also works for a product rebuilt from a STAC
+  catalogue (which arrives with none).
+
+The subclass implements only ``perform_query`` and ``list_collections``, plus its
+own filename grammar and (for an in-situ one, via
+``InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler)``) its ROI
+registry. A satellite offline handler subclasses ``OfflineArchiveHandler`` directly.
+Register the handler in ``scrappi.api.factory`` after ``"radcalnet"`` /
+``"hypernets"`` so the online source is preferred when it has the data; the
+interface's candidate-API fan-out (``scrappi.interface.perform_query`` /
+``download_product``) then falls through to the offline handler only when the online
+one can't serve a query/download.
 
 Suggested implementations for abstract methods (using base class methods)
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -155,4 +196,3 @@ Example *perform_query* implementation::
 
         #now return them as ProductItemSet
         return ProductItemSet(product_list)
-

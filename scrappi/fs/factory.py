@@ -6,14 +6,14 @@ on disk the factory will return a `LocalFileSystem` or `STACFileSystem`
 depending on context settings.
 """
 
+import os
+
+from scrappi import ScrappiContext
 from scrappi.fs.base import BaseFileSystem
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.fs.tdrive import TdriveFileSystem
 from scrappi.fs.tdrive_temp import TdriveTempFileSystem
-from scrappi import ScrappiContext
-import os
-from typing import Union, Optional
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -38,9 +38,7 @@ class FSCallHandlerFactory:
     def __init__(self):
         self.fs_call_handlers = FS_CALL_HANDLERS
 
-    def get_fs_call_handler(
-        self, name: Union[str, BaseFileSystem], context: Optional[ScrappiContext] = None
-    ) -> BaseFileSystem:
+    def get_fs_call_handler(self, name: str | BaseFileSystem, context: ScrappiContext | None = None) -> BaseFileSystem:
         """
         Return specified FS call handler,
 

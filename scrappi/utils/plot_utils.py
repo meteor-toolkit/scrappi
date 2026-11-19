@@ -1,21 +1,20 @@
 """scrappi.utils.plot_utils - utility functions for plotting"""
 
-from typing import Tuple, Union, Optional
-import matplotlib.ticker as mticker
-from cartopy.mpl.geoaxes import GeoAxes
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+import matplotlib.ticker as mticker
 import numpy as np
+from cartopy.mpl.geoaxes import GeoAxes
+from cartopy.mpl.gridliner import LATITUDE_FORMATTER, LONGITUDE_FORMATTER
 
 __author__ = "Sam Hunt <sam.hunt@npl.co.uk>"
 __all__ = ["pad_plot_bounds"]
 
 
 def pad_plot_bounds(
-    obj_bounds: Tuple[float, float, float, float],
-    padding_type: Optional[str] = None,
-    padding_val: Optional[Union[float, str]] = None,
+    obj_bounds: tuple[float, float, float, float],
+    padding_type: str | None = None,
+    padding_val: float | str | None = None,
 ):
     """
     Determines plot bounds in lat/lon for object in map plot
@@ -61,14 +60,10 @@ def pad_plot_bounds(
         plot_longitude_maximum = geom_lon_max + abs_lon_pad
         plot_latitude_maximum = geom_lat_max + abs_lat_pad
 
-        if plot_longitude_minimum < -180:
-            plot_longitude_minimum = -180
-        if plot_longitude_maximum > 180:
-            plot_longitude_maximum = 180
-        if plot_latitude_minimum < -90:
-            plot_latitude_minimum = -90
-        if plot_latitude_maximum > 90:
-            plot_latitude_maximum = 90
+        plot_longitude_minimum = max(plot_longitude_minimum, -180)
+        plot_longitude_maximum = min(plot_longitude_maximum, 180)
+        plot_latitude_minimum = max(plot_latitude_minimum, -90)
+        plot_latitude_maximum = min(plot_latitude_maximum, 90)
     else:
         if padding_val == "global":
             plot_longitude_minimum = -180
@@ -87,7 +82,7 @@ def pad_plot_bounds(
     )
 
 
-def prepare_map_plot(ax: GeoAxes, tick_step: Optional[float] = None, redo=False) -> None:
+def prepare_map_plot(ax: GeoAxes, tick_step: float | None = None, redo=False) -> None:
     """
     Configures style of plot on map
 

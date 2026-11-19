@@ -42,6 +42,9 @@ Optional extras are available depending on your use case:
 ```bash
 pip install -e ".[dev]"    # Development tools (ruff, mypy, pytest, …)
 pip install -e ".[docs]"   # Documentation build (sphinx, …)
+pip install -e ".[earthaccess]"  # NASA Earthaccess support
+pip install -e ".[hypernets_api]" # HYPERNETS API support
+pip install -e ".[all]"    # All development, documentation, and API extras
 ```
 
 ### Development

@@ -1,11 +1,12 @@
 """scrappi.fs.tests.test_factory - tests for scrappi.fs.factory"""
 
+import os.path
 import unittest
+
+from scrappi import ScrappiContext
 from scrappi.fs.factory import FSCallHandlerFactory
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.tdrive import TdriveFileSystem
-import os.path
-from scrappi import ScrappiContext
 
 __author__ = "Sam Hunt <sam.hunt@npl.co.uk>"
 

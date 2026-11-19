@@ -7,10 +7,10 @@ the STAC integration in scrappi.
 """
 
 import os
-from typing import Optional
+
+from scrappi import ScrappiContext
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -32,19 +32,36 @@ class STACFileSystem(LocalFileSystem):
     def __init__(
         self,
         path: str = "./",
-        path_stac: Optional[str] = None,
-        context: Optional[ScrappiContext] = None,
+        path_stac: str | None = None,
+        context: ScrappiContext | None = None,
+        flat: bool = False,
+        organise_data: bool | None = None,
+        read_only: bool | None = None,
     ):
         if not context:
             context = ScrappiContext()
 
-        super().__init__(path, context)
+        super().__init__(path, context, organise_data, read_only)
 
         if path_stac is None:
             if "path_stac" in context["fs"].keys():
                 path_stac = context["fs"]["path_stac"]
             else:
                 path_stac = path
+
+        if flat:
+            # Flat layout: the product file sits directly in ``path`` -- no
+            # ``<root>/data`` + ``<root>/stac`` subdivision, and no organised
+            # constellation/platform/collection/date tree. For offline-archive
+            # handlers whose files mirror an external provider's own directory
+            # layout rather than scrappi's organised one (see
+            # :py:class:`~scrappi.api.offlinebase.OfflineArchiveHandler`).
+            self.directory = path
+            self.directory_stac = path
+            self.data_root = path
+            self.stac_root = os.path.join(path, "stac")
+            self.organise_data = False
+            return
 
         # check if path already ends with "data", if so remove this from path
         if os.path.basename(path) == "data":

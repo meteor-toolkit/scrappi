@@ -1,6 +1,7 @@
 """scrappi.utils.tests.test_plot_utils - tests for scrappi.utils.plot_utils module"""
 
 import unittest
+
 from scrappi.utils.plot_utils import pad_plot_bounds
 
 __author__ = "Sam Hunt <sam.hunt@npl.co.uk>"

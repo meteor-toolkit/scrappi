@@ -7,13 +7,15 @@ common download helpers used by concrete in-situ handlers.
 
 import warnings
 from abc import abstractmethod
-from typing import Optional, Union, List, Any
+from typing import Any
+
+from processor_tools import Context
 
 from scrappi.api.base import BaseAPICallHandler
-from scrappi.product import ProductItem, ProductItemSet
-from scrappi.utils.utils import convert_geom_shapely, convert_geom, generate_bounding_lat_lon
+from scrappi.api.offlinebase import OfflineArchiveHandler
 from scrappi.fs.base import BaseFileSystem
-from processor_tools import Context
+from scrappi.product import ProductItem, ProductItemSet
+from scrappi.utils.utils import convert_geom, convert_geom_shapely, generate_bounding_lat_lon
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -33,16 +35,30 @@ class InSituCallHandler(BaseAPICallHandler):
 
     name: str
 
-    def __init__(self, context: Optional[Union[str, List, Context]] = None, roi_dict: Optional[dict] = None):
+    def __init__(self, context: str | list | Context | None = None, roi_dict: dict | None = None):
         super().__init__(context)
         self.roi_dict: dict = roi_dict if roi_dict is not None else {}
         self.sites = list(self.roi_dict.keys())
 
+    def _roi_or_raise(self, site: str):
+        """*site*'s raw ROI geometry from :py:attr:`roi_dict`, or a ``KeyError`` that
+        actually says what's wrong (the bare ``roi_dict[site]`` lookup just raised
+        ``KeyError: '<site>'``, which gives no hint that the fix is a config entry)."""
+        try:
+            return self.roi_dict[site]
+        except KeyError:
+            raise KeyError(
+                f"in-situ site {site!r} is not registered with {type(self).__name__} -- "
+                f"known sites: {sorted(self.roi_dict)}. If this is a RadCalNet site that "
+                f"isn't on the built-in list, add its latitude/longitude/default_roi under "
+                f"context['RadCalNet']['site_definitions']."
+            ) from None
+
     def get_roi_shapely(self, site: str):
-        return convert_geom_shapely(self.roi_dict[site])
+        return convert_geom_shapely(self._roi_or_raise(site))
 
     def get_roi(self, site: str):
-        return convert_geom(self.roi_dict[site])
+        return convert_geom(self._roi_or_raise(site))
 
     def set_roi(self, site: str, geom: Any):
         self.roi_dict[site] = geom
@@ -53,7 +69,7 @@ class InSituCallHandler(BaseAPICallHandler):
         lat: float,
         lon: float,
         distance: float,
-        crs: Optional[str] = None,
+        crs: str | None = None,
     ):
         """Set *site*'s ROI to a square box of *distance* metres either side of (*lat*, *lon*).
 
@@ -68,14 +84,13 @@ class InSituCallHandler(BaseAPICallHandler):
         self.roi_dict[site] = generate_bounding_lat_lon(lat, lon, distance, crs=crs)
 
     @abstractmethod
-    def list_collections(self, fetch_update: Optional[bool] = False):
+    def list_collections(self, fetch_update: bool | None = False):
         """
         Function to extract collection identifiers
 
         :param fetch_update: set to True to fetch online collection names instead of offline version.
         :return: list of collection identifiers
         """
-        pass
 
     @abstractmethod
     def perform_query(self, query: dict) -> ProductItemSet:
@@ -85,22 +100,20 @@ class InSituCallHandler(BaseAPICallHandler):
         :param query: catalogue query
         :returns: product urls satisfying query
         """
-        pass
 
     @abstractmethod
     def download_file(
         self,
-        prod: Union[str, ProductItem],
-        dest: Optional[Union[str, BaseFileSystem]] = None,
-    ) -> Optional[Union[list, str]]:
+        prod: str | ProductItem,
+        dest: str | BaseFileSystem | None = None,
+    ) -> list | str | None:
         """
         Download the file at URL into dest using class credentials for basic auth
         :param prod: ProductItem
         :param dest: destination folder for downloaded file or filesystem
         """
-        pass
 
-    def download_product(self, product: Union[str, ProductItem, ProductItemSet]) -> Optional[Union[list, str]]:
+    def download_product(self, product: str | ProductItem | ProductItemSet) -> list | str | None:
         """
         Download catalogue product(s) at defined URL to local path
 
@@ -130,15 +143,21 @@ class InSituCallHandler(BaseAPICallHandler):
         return None
 
 
-class InSituOfflineCallHandler(InSituCallHandler):
-    """
-    Class for offline insitu call handler implementations.
+class InSituOfflineCallHandler(OfflineArchiveHandler, InSituCallHandler):
+    """Base for in-situ API handlers that resolve products from a local archive.
 
-    InSituOfflineCallHandlers require a ROI dictionary and
+    Combines :py:class:`~scrappi.api.offlinebase.OfflineArchiveHandler` (archive-path
+    resolution, a flat per-product filesystem, a no-network ``download_product`` that
+    re-locates a file by id) with :py:class:`InSituCallHandler` (the site -> ROI
+    machinery). Concrete handlers (RadCalNet, HYPERNETS) implement only
+    :py:meth:`perform_query`, :py:meth:`list_collections`, and their own filename
+    grammar; see :py:class:`~scrappi.api.offlinebase.OfflineArchiveHandler` for what
+    else to set. A satellite offline handler subclasses ``OfflineArchiveHandler``
+    directly instead of this.
 
-    Subclasses must implement abstract methods.
-
-    :param roi_dict: dictionary with the ROI for the different sites included in the in situ API
+    :param roi_dict: mapping of site -> geometry (see :py:class:`InSituCallHandler`).
+    :param archive_path: root directory to search (see
+        :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler._resolve_archive_path`).
     """
 
     @abstractmethod
@@ -149,19 +168,21 @@ class InSituOfflineCallHandler(InSituCallHandler):
         :param query: catalogue query
         :returns: product urls satisfying query
         """
-        pass
 
     def download_file(
         self,
-        product: Union[str, ProductItem],
-        fs: Optional[Union[str, BaseFileSystem]] = None,
-    ) -> Union[list, str]:
-        """
-        return path to product for the provided filesystem (one could also just use the ProductItem.get_path() function
+        product: str | ProductItem,
+        fs: str | BaseFileSystem | None = None,
+    ) -> list | str:
+        """Path to *product*'s already-local file.
 
-        :param product: ProductItem of ProductItemSet from a product query
-        :param fs: filesystem (can be path or file system object (BaseFileSystem)). Defaults to None, in which case product.filesystem is used.
-        :returns: path (or list of paths) to the relevant file(s)
+        Lower-level than :py:meth:`~scrappi.api.offlinebase.OfflineArchiveHandler.download_product`
+        (which callers should prefer -- it also re-locates a catalogue-rebuilt
+        product). Kept because :py:class:`InSituCallHandler` declares it abstract.
+
+        :param product: a :py:class:`~scrappi.product.ProductItem`.
+        :param fs: if given, copy the product onto this filesystem first.
+        :returns: the resolved path.
         """
         if not isinstance(product, ProductItem):
             raise TypeError("product must be a ProductItem for InSituOfflineCallHandler.download_file")

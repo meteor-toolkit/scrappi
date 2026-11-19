@@ -6,9 +6,10 @@ the STAC filesystem behaviour for read-only archives.
 """
 
 import os
+
+from scrappi import ScrappiContext
 from scrappi.fs.stacfilesystem import STACFileSystem
 from scrappi.product import ProductItem
-from scrappi import ScrappiContext
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -30,9 +31,7 @@ class JasminFileSystem(STACFileSystem):
     def __init__(self, context: ScrappiContext):
         path = os.path.join("")  # TODO: add path to jasmin archive here
         path_stac = os.path.join("")  # TODO: add path to jasmin stac here
-        context["fs"]["organise_data"] = True
-        context["fs"]["read_only"] = True
-        super().__init__(path=path, path_stac=path_stac, context=context)
+        super().__init__(path=path, path_stac=path_stac, context=context, organise_data=True, read_only=True)
 
     def return_organised_product_path(self, product_item: ProductItem):
         """

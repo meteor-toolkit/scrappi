@@ -1,16 +1,15 @@
 """scrappi.api.tests.test_eumdac - tests for scrappi.api.eumdac"""
 
+import datetime as dt
 import os
 import unittest
-import datetime as dt
 from unittest import mock
 
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Polygon
 
+from scrappi import ScrappiContext
 from scrappi.api.eumdac import EUMDACCallHandler
 from scrappi.product import ProductItem, ProductItemSet
-from scrappi import ScrappiContext
-
 
 __author__ = [
     "Jacob Fahy <jacob.fahy@npl.co.uk>",
@@ -203,11 +202,27 @@ class TestEUMDACCallHandler(unittest.TestCase):
         prod_dict = {"acquisitionInformation": [{"platform": {"platformShortName": "Metop-B"}}]}
         self.assertEqual(self.handler.get_platform(prod_dict), "Metop-B")
 
+    def test_get_platform_malformed_response_raises_not_implemented_error(self):
+        """A missing/malformed acquisitionInformation used to raise a raw KeyError/
+        IndexError instead of the documented NotImplementedError -- the except
+        clause only caught NotImplementedError, which the dict access itself never
+        raises."""
+        with self.assertRaises(NotImplementedError):
+            self.handler.get_platform({})
+        with self.assertRaises(NotImplementedError):
+            self.handler.get_platform({"acquisitionInformation": []})
+
     def test_get_constellation(self):
         """Test get_constellation method"""
         prod_dict = {"acquisitionInformation": [{"platform": {"platformShortName": "Metop-B"}}]}
         with mock.patch.object(self.handler, "parse_constellation_from_name", return_value="Metop"):
             self.assertEqual(self.handler.get_constellation(prod_dict), "Metop")
+
+    def test_get_constellation_malformed_response_raises_not_implemented_error(self):
+        with self.assertRaises(NotImplementedError):
+            self.handler.get_constellation({})
+        with self.assertRaises(NotImplementedError):
+            self.handler.get_constellation({"acquisitionInformation": []})
 
     def test_find_version(self):
         """Test find_version method"""
@@ -218,13 +233,13 @@ class TestEUMDACCallHandler(unittest.TestCase):
         """Test find_start_time method"""
         prod_dict = {"date": "2022-06-07T23:30:00Z/2022-06-07T23:50:00Z"}
         result = self.handler.find_start_time(prod_dict)
-        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 30, tzinfo=dt.timezone.utc))
+        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 30, tzinfo=dt.UTC))
 
     def test_find_stop_time(self):
         """Test find_stop_time method"""
         prod_dict = {"date": "2022-06-07T23:30:00Z/2022-06-07T23:50:00Z"}
         result = self.handler.find_stop_time(prod_dict)
-        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 50, tzinfo=dt.timezone.utc))
+        self.assertEqual(result, dt.datetime(2022, 6, 7, 23, 50, tzinfo=dt.UTC))
 
     def test_extract_filter_attributes(self):
         """Test extract_filter_attributes method"""
@@ -312,6 +327,68 @@ class TestEUMDACCallHandler(unittest.TestCase):
         ):
             result = self.handler.download_product_filename(["prod-1", "prod-2"], "EO:EUM:DAT:TEST")
             self.assertEqual(result, ["/path/to/prod1", "/path/to/prod2"])
+
+
+class TestEUMDACCallHandlerDownloadTimeout(unittest.TestCase):
+    """Regression test: the string-URL download path called requests.get with no
+    timeout, so a hung EUMETSAT endpoint would block indefinitely."""
+
+    def setUp(self):
+        self.access_token_patcher = mock.patch("scrappi.api.eumdac.eumdac.AccessToken", return_value=mock.Mock())
+        self.data_store_patcher = mock.patch("scrappi.api.eumdac.eumdac.DataStore", return_value=mock.Mock())
+        self.access_token_patcher.start()
+        self.data_store_patcher.start()
+        self.addCleanup(self.access_token_patcher.stop)
+        self.addCleanup(self.data_store_patcher.stop)
+
+        self.context = ScrappiContext()
+        self.context["eumdac"] = {"credentials": {"key": "key", "secret": "secret"}}
+        self.handler = EUMDACCallHandler(self.context)
+
+    def test_string_url_download_passes_a_timeout(self):
+        with (
+            mock.patch("scrappi.api.eumdac.requests.get") as mock_get,
+            mock.patch("scrappi.api.eumdac.os.path.exists", side_effect=[False, False, True]),
+            mock.patch("scrappi.api.eumdac.os.makedirs"),
+            mock.patch("builtins.open", mock.mock_open()),
+        ):
+            mock_get.return_value = mock.Mock(content=b"data")
+
+            self.handler._download_product("https://example.com/data", "/tmp/out", "prod-1")
+
+        self.assertIn("timeout", mock_get.call_args.kwargs)
+        self.assertIsNotNone(mock_get.call_args.kwargs["timeout"])
+
+
+class TestEUMDACCallHandlerMissingCredentials(unittest.TestCase):
+    """Regression test: missing eumdac credentials used to only warn, then still try
+    to build eumdac.AccessToken/DataStore with unbound eumdac_key/eumdac_secret
+    locals -- raising NameError instead of the graceful degradation the warning
+    message implies."""
+
+    def test_missing_credentials_warns_instead_of_raising(self):
+        context = ScrappiContext()
+        context["eumdac"] = {}
+
+        with self.assertWarns(UserWarning):
+            handler = EUMDACCallHandler(context)
+
+        self.assertIsNone(handler.eumdac_token)
+        self.assertIsNone(handler.api)
+
+    def test_present_credentials_still_build_token_and_store(self):
+        with (
+            mock.patch("scrappi.api.eumdac.eumdac.AccessToken", return_value=mock.Mock()) as mock_token,
+            mock.patch("scrappi.api.eumdac.eumdac.DataStore", return_value=mock.Mock()) as mock_store,
+        ):
+            context = ScrappiContext()
+            context["eumdac"] = {"credentials": {"key": "key", "secret": "secret"}}
+            handler = EUMDACCallHandler(context)
+
+        mock_token.assert_called_once_with(["key", "secret"])
+        mock_store.assert_called_once()
+        self.assertIsNotNone(handler.eumdac_token)
+        self.assertIsNotNone(handler.api)
 
 
 if __name__ == "__main__":

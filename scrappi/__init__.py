@@ -24,10 +24,11 @@ __all__ = [
 ]
 
 import os
-from importlib.metadata import version, PackageNotFoundError
-from processor_tools import Context, read_config, write_config
-from typing import Optional, Dict, Any, List, Union
+from importlib.metadata import PackageNotFoundError, version
+from typing import Any, Dict, List, Optional, Union
+
 from eodag import EODataAccessGateway
+from processor_tools import Context, read_config, write_config
 
 THIS_DIRECTORY = os.path.dirname(__file__)
 user_home_directory = os.path.expanduser("~")
@@ -47,41 +48,53 @@ if not config_init.is_initialised():
 
 
 class ScrappiContext(Context):
-    default_config: Optional[Union[str, List[Any]]] = None
+    default_config: str | list[Any] | None = None
 
-    def __init__(self, context: Optional[Union[dict, str]] = None):
+    def __init__(self, context: dict | str | Context | None = None):
         self.default_config = [
             os.path.join(THIS_DIRECTORY, "etc", "defaults.yaml"),
             eodag_config,
         ]
-        super(ScrappiContext, self).__init__(context, config_init=config_init)
+        # A processor_tools Context passed straight through (e.g. an eomatch
+        # EOMatchContext, handed over by Sat2InSituMUFinder.identify_mu_events ->
+        # get_api_name) must be unwrapped to its plain values dict first. Context.__init__
+        # treats a non-(str|dict) config as a sequence and does ``list(config)`` -- and
+        # ``list()`` on a Context never terminates, because Context.__getitem__ returns
+        # None (not IndexError) for any missing key, including the integer indices the
+        # sequence protocol probes. So the old code hung indefinitely here.
+        if isinstance(context, Context):
+            context = context.config_values
+        super().__init__(context, config_init=config_init)
 
-    def set_preferred_provider_all(self, provider: str, remove_other_providers: Optional[bool] = False):
+    def set_preferred_provider_all(self, provider: str, remove_other_providers: bool | None = False):
         self["api"]["prefered_provider"] = provider
 
-    def set_preferred_api(self, api: str, remove_other_apis: Optional[bool] = False):
+    def set_preferred_api(self, api: str, remove_other_apis: bool | None = False):
         self["api"]["preferred_api"] = api
+
+    def set_fs(self, filesystem):
+        self["fs"]["path"] = filesystem.directory
 
 
 from scrappi.interface import (
-    make_api,
-    make_fs,
-    make_query_with_tolerance,
-    make_query_start_stop,
-    perform_query,
     # download_metadata,
     download_product,
     generate_bounding_box,
     get_api_name,
+    is_insitu_collection,
+    make_api,
+    make_fs,
+    make_query_start_stop,
+    make_query_with_tolerance,
+    perform_query,
     set_credentials,
     update_context_file,
-    is_insitu_collection,
 )
 from scrappi.product import (
     ProductItem,
     ProductItemSet,
-    open_product_item_set,
     open_product_item,
+    open_product_item_set,
     product_item_from_dict,
     product_item_set_from_dict,
 )

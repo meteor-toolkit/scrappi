@@ -1,23 +1,27 @@
 import os
 import re
-import requests
-from requests.exceptions import SSLError
-import unittest
-import unittest.mock as mock
-from datetime import datetime as dt, timedelta, timezone
 import shutil
+import unittest
+import warnings
+from datetime import UTC, timedelta
+from datetime import datetime as dt
+from tempfile import TemporaryDirectory
+from unittest import mock
+
 import pytest
-
+import requests
 import requests.exceptions
+from requests.exceptions import SSLError
 
-from scrappi.api.radcalnet_api_client import RadcalnetCallHandler
+from scrappi import ScrappiContext
+from scrappi.api.radcalnet_api_client import RadcalnetCallHandler, RadcalnetOfflineCallHandler
 from scrappi.utils.utils import convert_geom_shapely
 
 __author__ = [
     "Ashley Ramsay <ashley.ramsay@npl.co.uk",
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
 ]
-__all__ = ["MockSession", "MockSessionError", "MockGetError", "MockGet"]
+__all__ = ["MockGet", "MockGetError", "MockSession", "MockSessionError"]
 
 scrappi_folder = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -48,12 +52,12 @@ product_list = [
 
 
 class MockSession:
-    def get(self, url):
+    def get(self, url, **kwargs):
         return MockGet(url)
 
 
 class MockSessionError:
-    def get(self, url):
+    def get(self, url, **kwargs):
         return MockGetError()
 
 
@@ -91,6 +95,17 @@ class TestRCNCallHandler(unittest.TestCase):
             filtered_list,
             ["GONA01_2022_289_v04.09.output", "GONA01_2022_290_v04.09.output"],
         )
+
+    @mock.patch("requests.session")
+    def test_get_files_list_passes_a_request_timeout(self, mock_session):
+        """Regression test: the file-list GET must carry a timeout -- without one, a
+        request to an unresponsive server (e.g. for a site the portal doesn't host but
+        that a user added via context["RadCalNet"]["site_definitions"]) hangs the whole
+        run forever, and eodag's signal handling means Ctrl-C won't break out of it."""
+        session = mock_session.return_value
+        session.get.return_value = MockGet("url")
+        RadcalnetCallHandler().get_files_list("GONA", "GONA_TOA", dt(2022, 10, 10), dt(2022, 11, 10))
+        self.assertTrue(session.get.call_args.kwargs.get("timeout"))
 
     def test_check_date_in_range_matches_same_calendar_day(self):
         """Regression test: a query window entirely within one calendar day must
@@ -187,8 +202,8 @@ class TestRCNCallHandler(unittest.TestCase):
         self.assertEqual(len(products), 1)
         product = list(products)[0]
         start_hour, stop_hour = self.rcnHandler._daylight_window_hours("RVUS")
-        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=timezone.utc)
-        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=timezone.utc)
+        expected_start = (dt(2025, 1, 1) + timedelta(days=333, hours=start_hour)).replace(tzinfo=UTC)
+        expected_stop = (dt(2025, 1, 1) + timedelta(days=333, hours=stop_hour)).replace(tzinfo=UTC)
         self.assertEqual(product.start_time, expected_start)
         self.assertEqual(product.stop_time, expected_stop)
 
@@ -231,6 +246,18 @@ class TestRCNCallHandler(unittest.TestCase):
         except SSLError as err:
             print("SSL Error detected, this is expected if running via the NPL LAN")
             print(err)
+
+    def test_get_roi_shapely_raises_a_helpful_error_for_an_unregistered_site(self):
+        """A site that isn't a scrappi built-in and hasn't been added to
+        context['RadCalNet']['site_definitions'] used to fail with a bare
+        ``KeyError: '<site>'`` from ``roi_dict[site]``, deep in insitubase.py. The
+        error now names the site, lists the known ones, and points at the config."""
+        handler = RadcalnetCallHandler()
+        with self.assertRaises(KeyError) as ctx:
+            handler.get_roi_shapely("ERUS")
+        message = str(ctx.exception)
+        self.assertIn("ERUS", message)
+        self.assertIn("site_definitions", message)
 
     def test_list_sites(self):
         self.rcnHandler = RadcalnetCallHandler()
@@ -327,6 +354,368 @@ class TestRCNCallHandler(unittest.TestCase):
                     shapes[site].bounds[i],
                     places=5,
                 )
+
+
+class TestRCNCredentials(unittest.TestCase):
+    """Credentials reach the session from the config, or else from the environment variables."""
+
+    ENV = {"RADCALNET_USERNAME": "env_user", "RADCALNET_REMOVED_PASSWORD": "env_pass"}
+
+    @staticmethod
+    def _context(username=None, password=None):
+        # unset values, as in the default config
+        context = ScrappiContext()
+        context["RadCalNet"]["credentials"] = {"username": username, "password": password}
+        return context
+
+    def test_environment_variables_are_used_when_the_config_credentials_are_unset(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context())
+        self.assertEqual(handler.session.auth, ("env_user", "env_pass"))
+
+    def test_config_credentials_take_priority_over_the_environment(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context("cfg_user", "cfg_pass"))
+        self.assertEqual(handler.session.auth, ("cfg_user", "cfg_pass"))
+
+    def test_username_and_password_can_come_from_different_places(self):
+        with mock.patch.dict(os.environ, self.ENV):
+            handler = RadcalnetCallHandler(self._context(username="cfg_user"))
+        self.assertEqual(handler.session.auth, ("cfg_user", "env_pass"))
+
+    def test_no_credentials_anywhere_gives_an_unauthenticated_session_without_a_warning(self):
+        env = {k: v for k, v in os.environ.items() if k not in self.ENV}
+        with mock.patch.dict(os.environ, env, clear=True), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            handler = RadcalnetCallHandler(self._context())
+        self.assertIsNone(handler.session.auth)
+        self.assertEqual([w for w in caught if "RADCALNET" in str(w.message)], [])
+
+    def test_config_credentials_do_not_warn(self):
+        with mock.patch.dict(os.environ, {}), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            RadcalnetCallHandler(self._context("cfg_user", "cfg_pass"))
+        self.assertEqual([w for w in caught if "RADCALNET" in str(w.message)], [])
+
+    @mock.patch("requests.session")
+    def test_a_401_response_raises_an_error_that_says_how_to_provide_credentials(self, mock_session):
+        mock_session.return_value.get.return_value = mock.Mock(status_code=401)
+        handler = RadcalnetCallHandler(self._context())
+        with self.assertRaisesRegex(requests.exceptions.HTTPError, "RADCALNET_USERNAME"):
+            handler.get_files_list("GONA", "GONA_TOA", dt(2022, 10, 10), dt(2022, 11, 10))
+
+
+class TestRadcalnetOfflineCallHandler(unittest.TestCase):
+    """Tests for RadcalnetOfflineCallHandler -- resolving RadCalNet products from a
+    local archive rather than the online API. See RadcalnetOfflineCallHandler's own
+    docstring for the archive-layout rationale (any directory tree, matched purely by
+    filename, not location)."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.archive_path = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, *path_parts):
+        """Create an empty file at os.path.join(self.archive_path, *path_parts),
+        creating any intermediate directories -- content is irrelevant, perform_query
+        only inspects the filename."""
+        full_path = os.path.join(self.archive_path, *path_parts)
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        with open(full_path, "w"):
+            pass
+        return full_path
+
+    def test_list_collections(self):
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        self.assertEqual(handler.list_collections(), ["RCN_TOA", "RCN_BOA"])
+
+    def test_perform_query_finds_matching_file_in_nested_directory(self):
+        """Archive layout mirrors the online API's own {site}/data/{filename}
+        convention -- perform_query must search recursively, not just archive_path's
+        top level."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {
+                "collection": "RCN_TOA",
+                "site": "GONA",
+                "start_time": dt(2022, 10, 1),
+                "stop_time": dt(2022, 11, 1),
+            }
+        )
+
+        self.assertEqual(len(products), 1)
+        product = list(products)[0]
+        self.assertEqual(product.id, "GONA01_2022_291_v04.09.output")
+
+    def test_perform_query_filters_toa_vs_boa_by_filename_suffix(self):
+        # RadCalNet: .output = modelled TOA reflectance, .input = measured surface (BOA)
+        # -- same mapping as the online handler and eoio's own RadCalNet reader.
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA01_2022_291_v04.09.input")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        query = {"site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+
+        toa_products = handler.perform_query({**query, "collection": "RCN_TOA"})
+        boa_products = handler.perform_query({**query, "collection": "RCN_BOA"})
+
+        self.assertEqual([p.id for p in toa_products], ["GONA01_2022_291_v04.09.output"])
+        self.assertEqual([p.id for p in boa_products], ["GONA01_2022_291_v04.09.input"])
+
+    def test_perform_query_skips_files_for_other_sites(self):
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("RVUS01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_skips_non_rcn_named_files(self):
+        """A file that doesn't parse via the site_instrument_year_doy_version
+        convention (e.g. a checksum or readme) is silently skipped, not an error."""
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("README.md")
+        self._write("checksums.sha256")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_respects_date_range(self):
+        self._write("GONA01_2022_291_v04.09.output")  # 18 Oct 2022
+        self._write("GONA01_2023_291_v04.09.output")  # 18 Oct 2023 -- out of range
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual([p.id for p in products], ["GONA01_2022_291_v04.09.output"])
+
+    def test_perform_query_returns_empty_when_archive_path_missing(self):
+        missing_path = os.path.join(self.archive_path, "does-not-exist")
+        handler = RadcalnetOfflineCallHandler(archive_path=missing_path)
+
+        with self.assertWarns(UserWarning):
+            products = handler.perform_query(
+                {
+                    "collection": "RCN_TOA",
+                    "site": "GONA",
+                    "start_time": dt(2022, 10, 1),
+                    "stop_time": dt(2022, 11, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 0)
+
+    def test_perform_query_keeps_only_the_newest_version_of_each_day(self):
+        """An accumulating archive keeps several reprocessings of the same day; the
+        online portal exposes only the latest, so the offline handler must dedup."""
+        self._write("GONA01_2022_291_v04.08.output")
+        self._write("GONA01_2022_291_v04.09.output")
+        self._write("GONA01_2022_291_v04.10.output")  # newest -- string-sorts below v04.9
+        self._write("GONA01_2022_292_v04.09.output")  # a different day, kept as-is
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        self.assertEqual(
+            sorted(p.id for p in products),
+            ["GONA01_2022_291_v04.10.output", "GONA01_2022_292_v04.09.output"],
+        )
+
+    def test_perform_query_returns_empty_for_unregistered_site(self):
+        self._write("ZZZZ01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+
+        with self.assertWarns(UserWarning):
+            products = handler.perform_query(
+                {
+                    "collection": "RCN_TOA",
+                    "site": "ZZZZ",
+                    "start_time": dt(2022, 10, 1),
+                    "stop_time": dt(2022, 11, 1),
+                }
+            )
+
+        self.assertEqual(len(products), 0)
+
+    def test_perform_query_finds_offline_only_site_registered_via_context(self):
+        """A site with no built-in entry (e.g. a newer RCN site not yet on the online
+        portal) becomes discoverable purely by adding it to
+        context['RadCalNet']['site_definitions'] -- no code change needed."""
+        self._write("NEWS01_2024_100_v04.09.output")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {"NEWS": {"latitude": 10.0, "longitude": 20.0, "default_roi": 100}}
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "NEWS", "start_time": dt(2024, 1, 1), "stop_time": dt(2024, 12, 31)}
+        )
+
+        self.assertEqual([p.id for p in products], ["NEWS01_2024_100_v04.09.output"])
+
+    def test_archive_path_resolves_from_context_when_not_passed_explicitly(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["offline_archive_path"] = self.archive_path
+        handler = RadcalnetOfflineCallHandler(context=context)
+        self.assertEqual(handler.archive_path, self.archive_path)
+
+    def test_explicit_archive_path_overrides_context(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["offline_archive_path"] = "/some/other/path"
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self.assertEqual(handler.archive_path, self.archive_path)
+
+    def test_construction_does_not_mutate_the_shared_context(self):
+        """The handler must not flip context['fs']['organise_data'] on the shared
+        context object -- that leaks to every other handler and download in the run.
+        The per-product filesystem is built flat instead."""
+        context = ScrappiContext()
+        before = context["fs"]["organise_data"]
+        RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self.assertEqual(context["fs"]["organise_data"], before)
+
+    def test_perform_query_product_filesystem_is_flat(self):
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+            )
+        )[0]
+        self.assertFalse(product.filesystem.organise_data)
+
+    def test_download_product_resolves_existing_file_without_network(self):
+        file_path = self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        products = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )
+
+        path = handler.download_product(products)
+
+        self.assertEqual(len(path), 1)
+        self.assertEqual(os.path.normpath(path[0]), os.path.normpath(file_path))
+
+    def test_download_product_relocates_file_for_a_product_with_no_filesystem(self):
+        """A product rebuilt from a STAC catalogue (eomatch's product_item_from_stac)
+        arrives with no filesystem/API config -- download_product must re-locate the
+        file under archive_path by filename, not trust product.filesystem."""
+        file_path = self._write("ERUS", "2023", "08", "30", "ERUS00_2023_242_v00.04.input")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+            )
+        )[0]
+        product.filesystem = None  # as if freshly rebuilt from a STAC item
+
+        path = handler.download_product(product)
+
+        self.assertEqual(os.path.normpath(path), os.path.normpath(file_path))
+        # filesystem is repinned so get_path()/STAC registration work afterwards
+        self.assertEqual(os.path.normpath(product.get_path()), os.path.normpath(file_path))
+
+    def test_download_product_raises_when_file_not_in_archive(self):
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        self._write("ERUS", "2023", "08", "30", "ERUS00_2023_242_v00.04.input")
+        product = list(
+            handler.perform_query(
+                {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 12, 31)}
+            )
+        )[0]
+        product.id = "ERUS00_2023_999_v00.04.input"  # not in the archive
+
+        with self.assertRaises(FileNotFoundError):
+            handler.download_product(product)
+
+    def test_product_can_be_converted_to_a_stac_item(self):
+        """Regression test: adding an offline-archive matchup to a catalogue calls
+        ProductItem.to_stac_item(), which needs the product's filesystem to expose
+        return_stac_item_path (a STACFileSystem method) and to resolve the archive
+        file relative to its own data_root. A plain LocalFileSystem raised
+        AttributeError; STACFileSystem with the default <dir>/data/ layout raised
+        ValueError on the relative_to."""
+        file_path = self._write("ERUS", "2023", "02", "15", "ERUS01_2023_046_v04.09.input")
+        context = ScrappiContext()
+        context["RadCalNet"]["site_definitions"] = {
+            "ERUS": {"latitude": 43.738, "longitude": -96.6304, "default_roi": 45}
+        }
+        handler = RadcalnetOfflineCallHandler(context=context, archive_path=self.archive_path)
+        products = handler.perform_query(
+            {"collection": "RCN_BOA", "site": "ERUS", "start_time": dt(2023, 1, 1), "stop_time": dt(2023, 3, 1)}
+        )
+        self.assertEqual(len(products), 1)
+
+        item = products[0].to_stac_item()
+
+        self.assertEqual(item.id, "ERUS01_2023_046_v04.09.input")
+        # the on-disk file still resolves for a (networkless) download
+        self.assertEqual(os.path.normpath(products[0].get_path()), os.path.normpath(file_path))
+
+    def test_offline_product_filesystem_is_read_only(self):
+        """The archive is the user's, not scrappi's to write to -- see
+        test_registering_offline_product_raises_instead_of_writing_into_the_archive."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        self.assertTrue(product.filesystem.read_only)
+
+    def test_download_product_keeps_the_filesystem_read_only(self):
+        """download_product re-pins product.filesystem; the read-only protection
+        perform_query set must survive that re-pin."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        handler.download_product(product)
+
+        self.assertTrue(product.filesystem.read_only)
+
+    def test_registering_offline_product_raises_instead_of_writing_into_the_archive(self):
+        """Regression test: ProductItem.register_in_filesystem_catalog() defaults to
+        product.filesystem, and an offline handler's product.filesystem is pinned
+        *inside the archive itself* (flat mode). Without a read-only check this
+        silently created a stac/ folder inside the user's RadCalNet archive -- not
+        the matchup catalogue -- every time scrappi.interface.download_product()
+        auto-registered a downloaded product (the default,
+        context['fs']['register_stac_items'] is True)."""
+        self._write("GONA", "data", "GONA01_2022_291_v04.09.output")
+        handler = RadcalnetOfflineCallHandler(archive_path=self.archive_path)
+        product = handler.perform_query(
+            {"collection": "RCN_TOA", "site": "GONA", "start_time": dt(2022, 10, 1), "stop_time": dt(2022, 11, 1)}
+        )[0]
+
+        with self.assertRaises(IOError):
+            product.register_in_filesystem_catalog()
+
+        self.assertFalse(os.path.exists(os.path.join(self.archive_path, "GONA", "data", "stac")))
 
 
 if __name__ == "__main__":

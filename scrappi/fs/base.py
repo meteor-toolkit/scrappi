@@ -1,6 +1,7 @@
 """scrappi.fs.base - base class for file system call handler implementations"""
 
 from abc import ABC, abstractmethod
+
 from scrappi.product import ProductItem
 
 __author__ = [
@@ -40,7 +41,6 @@ class BaseFileSystem(ABC):
         :param check_exists: if true, returns None if product not in archive
         :return: product path
         """
-        pass
 
 
 if __name__ == "__main__":

@@ -1,9 +1,8 @@
+import json
 from pathlib import Path
 from urllib.parse import urlparse
 
-from typing import Union
 from pystac import STACObject
-import json
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -84,7 +83,7 @@ class StacHrefResolver:
         raise RuntimeError("No asset resolution target configured")
 
     @staticmethod
-    def write_stac_object(obj: STACObject, path: Union[str, Path]) -> None:
+    def write_stac_object(obj: STACObject, path: str | Path) -> None:
         """
         Persist a STAC object to disk WITHOUT:
         - resolving links

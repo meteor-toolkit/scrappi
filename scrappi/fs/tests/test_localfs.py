@@ -1,12 +1,14 @@
 """scrappi.fs.tests.test_localarchive - tests for scrappi.fs.local_archive"""
 
+import os
 import unittest
+from datetime import datetime
+
+from shapely.geometry import Polygon
+
 from scrappi.fs.localfilesystem import LocalFileSystem
 from scrappi.fs.stacfilesystem import STACFileSystem
-from datetime import datetime
 from scrappi.product import ProductItem
-from shapely.geometry import Polygon
-import os
 
 __author__ = [
     "Pieter De Vis <pieter.de.vis@npl.co.uk",
@@ -153,6 +155,30 @@ class TestSTACFileSystem(unittest.TestCase):
                 "LC08_L1TP_172030_20220120_20220127_02_T2B.json",
             ),
         )
+
+    def test_flat_resolves_the_file_directly_in_path(self):
+        """flat=True: no <root>/data or organised constellation/platform/date tree --
+        the product resolves at <path>/<id>. For offline-archive handlers."""
+        test_prod = ProductItem(
+            constellation="Landsat",
+            platform="LC08",
+            collection="LANDSAT_C2L1",
+            id="some_product",
+            geometry=L8_PRODUCT_EXAMPLE_1["geometry"],
+            start_time=L8_PRODUCT_EXAMPLE_1["start_time"],
+            stop_time=L8_PRODUCT_EXAMPLE_1["stop_time"],
+            prod_dict=L8_PRODUCT_EXAMPLE_1["prod_dict"],
+            url="",
+        )
+
+        stac_fs = STACFileSystem(example_path, flat=True)
+
+        self.assertFalse(stac_fs.organise_data)
+        self.assertEqual(stac_fs.data_root, example_path)
+        self.assertEqual(stac_fs.return_path(test_prod, False), os.path.join(example_path, "some_product"))
+        # the trailing-"data" strip that the default layout applies is not done in flat mode
+        with_data = STACFileSystem(os.path.join(example_path, "data"), flat=True)
+        self.assertEqual(with_data.directory, os.path.join(example_path, "data"))
 
 
 if __name__ == "__main__":

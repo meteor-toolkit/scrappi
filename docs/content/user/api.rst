@@ -39,7 +39,107 @@ It is also possible to increase the timeout parameter to enable longer searches 
 If experiencing a timeout error with the previous two methods, attempt to provide credentials with the .yml file
 
 The configuration file also allows to specify a "preferred_provider", which allows to specify which provider should be used first.
-Alternatively, it is also possible to set the prefered provider for eodag by using a ":" in the api name::
+Alternatively, it is possible to set the preferred provider for EODAG using a colon in the API name::
 
     from scrappi.interface import make_api
     api=make_api("eodag:usgs")
+
+
+Earthaccess
+===========
+``earthaccess`` provides access to NASA Earthdata collections. It is available
+through the optional ``earthaccess`` dependency:
+
+.. code-block:: bash
+
+    pip install -e ".[earthaccess]"
+
+Create it with ``make_api("earthaccess")`` or use ``perform_query`` to select
+it automatically for a supported collection.
+
+
+EUMDAC
+======
+``eumdac`` connects scrappi to EUMETSAT data services. Install the base package
+and provide the EUMETSAT credentials through the context:
+
+.. code-block:: python
+
+    from scrappi.interface import set_credentials
+
+    set_credentials("eumdac", {"username": "...", "password": "..."})
+
+
+HYPERNETS
+=========
+HYPERNETS measurements are available through ``hypernets`` for the live API or
+``hypernets_offline`` for a local archive. Install the optional extra with:
+
+.. code-block:: bash
+
+    pip install -e ".[hypernets_api]"
+
+The API key belongs under ``hypernets.credentials.apikey``. The offline handler
+uses ``hypernets.offline_archive_path`` when configured.
+
+
+AWS public datasets
+===================
+The ``aws`` handler queries publicly accessible datasets on Amazon S3, including
+ESA WorldCover and Copernicus DEM 30 m / 90 m products. No AWS credentials are
+required for these public collections:
+
+.. code-block:: python
+
+    from scrappi.interface import make_api
+
+    api = make_api("aws")
+
+
+STAC catalogues
+===============
+The ``stac`` handler can query a STAC catalogue exposed through a
+STACFileSystem. For a local or network-accessible catalogue, configure
+``fs.stac=True`` and use the existing STAC catalogue as the filesystem.
+
+
+RadCalNet
+=========
+RadCalNet (`radcalnet.org <https://www.radcalnet.org>`_) is a network of instrumented
+sites providing near-simultaneous surface and top-of-atmosphere reflectance for
+satellite radiometric calibration and validation. Each site and day is delivered as
+two files: ``*.output`` (the modelled **top-of-atmosphere** reflectance, collection
+``RCN_TOA``) and ``*.input`` (the measured **surface / bottom-of-atmosphere**
+reflectance and atmospheric state, collection ``RCN_BOA``).
+
+**Built-in sites** (GONA, BTCN, BSCN, LCFR, RVUS) work with no configuration.
+Any other site -- e.g. a newer one not yet on the portal -- needs its
+latitude/longitude and half-ROI added to the context, no code change:
+
+.. code-block:: yaml
+
+    RadCalNet:
+        site_definitions:
+            ERUS:
+                latitude: 43.7380
+                longitude: -96.6304
+                default_roi: 45          # metres from the centre to each edge
+
+Online (``"radcalnet"``)
+    Fetches files from the RadCalNet JSON API. Credentials go under
+    ``RadCalNet`` in the config (``username`` / ``password``).
+
+Offline (``"radcalnet_offline"``)
+    Resolves files from a local archive instead of the network -- for a site not
+    published online, or as a fallback. Point it at the archive root with:
+
+    .. code-block:: yaml
+
+        RadCalNet:
+            offline_archive_path: /path/to/radcalnet/archive
+
+    The tree is searched recursively; only the filename matters (the standard
+    ``<site><instrument>_<year>_<doy>_<version>.input``/``.output`` convention), so
+    any layout works. When several reprocessings of one day are present, only the
+    newest version is returned. ``radcalnet_offline`` is listed after ``radcalnet``
+    in the candidate list, so the online portal is used whenever it has the data.
