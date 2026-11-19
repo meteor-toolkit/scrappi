@@ -31,15 +31,15 @@ Some example names are:
 
 To get a list of all accepted product types/datasets you can run::
 
-    from scrappi.interface import list_satellite_products_api
+    from scrappi.interface import list_collections
 
     # get list of product types
-    list_satellite_products_api()
+    list_collections()
 
 If you have a specific product type/dataset in mind you can filter the list of product types with a ``guess``, for
 example if you're looking for available Sentinel-3 datasets you can use::
 
-    list_satellite_products_api(guess="s3")
+    list_collections(guess="s3")
 
 which returns any product types with "S3" or "s3" in::
 
@@ -118,17 +118,6 @@ These are listed below:
             - ``temporal_tolerance_min: Optional[Union[float, int]] = None`` - temporal tolerance about datetime in minutes
             - ``temporal_tolerance_hours: Optional[Union[float, int]] = None`` - temporal tolerance about datetime in hours
 
-    * ``make_query_list_with_tolerance`` - Make a list of queries for a given set of spatial and temporal tolerances
-        - inputs
-            - ``dataset: Union[str, list]`` - name of the satellite dataset to search through
-            - ``latitude: Union[float, list]`` - latitude of the point to search for
-            - ``longitude: Union[float, list]`` - longitude of the point to search for
-            - ``datetime: Union[dt.datetime, str, list]`` - datetime around which to search for
-            - ``spatial_tolerance_deg: Optional[Union[float, int, list]] = None`` - spatial tolerance about point in degrees
-            - ``spatial_tolerance_m: Optional[Union[float, int, list]] = None`` - spatial tolerance about point in meters
-            - ``temporal_tolerance_min: Optional[Union[float, int, list]] = None`` - temporal tolerance about datetime in minutes
-            - ``temporal_tolerance_hours: Optional[Union[float, int, list]] = None`` - temporal tolerance about datetime in hours
-
 Example usage of one of the functions::
 
     query_S2 = make_query_with_tolerance(
@@ -152,11 +141,8 @@ Example usage of one of the functions::
 
 Using a query to find products
 ==============================
-*scrappi* contains the functionality to query with both a single query (as formatted above)
-or a list of queries.
-
-Example uses of both these cases is shown below.
-Single query::
+*scrappi* contains the functionality to query with a single query. A query with
+multiple collections is expanded and the results are combined automatically::
 
     from scrappi.interface import perform_query
     from scrappi import ScrappiContext
@@ -173,16 +159,7 @@ Single query::
                          context
                 )
 
-Multiple queries::
-
-    from scrappi.interface import perform_query_list
-    from scrappi import ScrappiContext
-
-    context = ScrappiContext('path_to_user_config.yaml')
-
-    products = perform_query_list(
-        list_of_queries,
-        context
-    )
-
-Note that the returned products will have the default file system (t-drive, see :ref:`filesystem`), unless a different file system is set, or assigned to the ProductItem(s) once they are returned.
+If no API finds matching products, the result is an empty
+:py:class:`~scrappi.product.ProductItemSet`. Candidate APIs are tried in
+preference order and recoverable API failures may fall through to the next
+candidate.

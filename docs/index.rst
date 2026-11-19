@@ -5,8 +5,10 @@ scrappi Documentation
 *scrappi* is a Python package for retrieving EO (Earth Observation) Satellite and Reference products by API or file system.
 It's designed to provide an easy way to access products through a unified API regardless of the data provider/location.
 
-Current supported providers include:
-    `usgs <https://earthexplorer.usgs.gov/>`_, `copernicus open access hub <https://scihub.copernicus.eu/>`_, and any supported by `eodag <https://eodag.readthedocs.io/en/stable/>`_.
+Scrappi provides a consistent interface for satellite, in-situ, and public AWS
+catalogues. Built-in API handlers include EODAG providers (including USGS and
+Copernicus Data Space), Earthaccess, EUMDAC, HYPERNETS, RadCalNet, STAC
+catalogues, and public AWS S3 datasets.
 
 .. note::
 

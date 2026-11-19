@@ -135,3 +135,22 @@ The combined data and STAC structure provides:
 * Robust, queryable metadata via STAC
 * Full support for satellite, in situ, and model/reanalysis data
 * Long-term stability without renaming or restructuring files
+
+Registering downloaded products
+--------------------------------
+
+Downloaded products can be added to the filesystem STAC catalogue automatically
+when ``fs.register_stac_items`` is enabled (the default). Registration can also
+be requested explicitly:
+
+.. code-block:: python
+
+   from scrappi import register_productitem_in_fs
+   from scrappi import register_productitemset_in_fs
+
+   register_productitem_in_fs(product_item, overwrite=True)
+   register_productitemset_in_fs(product_item_set, overwrite=True)
+
+The output is controlled by ``fs.stac``, ``fs.root_stac_dir_name``,
+``fs.overwrite_stac_items``, ``fs.store_prod_dict_in_stac``, and
+``fs.store_filter_dict_in_stac``.

@@ -36,11 +36,11 @@ contain the following methods, properties and attributes:
      - ``Return catalogue product objects that satisfy query``
      -
    * -
-     - ``download_metadata(self, product: Union[str, ProductItem, ProductItemSet],fs: Optional[Union[str, BaseFileSystem]])``
-     - ``Download catalogue product(s) metadata at defined URL to local path``
-     - Currently downloaded metadata are saved in folders within the path specified according to their acquisition date, e.g. 'path/2022/08/21'
+     - ``list_collections(self)``
+     - ``Return collection names supported by this handler``
+     -
    * -
-     - ``download_product(self, product: Union[str, ProductItem, ProductItemSet],fs: Optional[Union[str, BaseFileSystem]])-> Union[list, str]``
+     - ``download_product(self, product: ProductItem | ProductItemSet) -> str | list | None``
      - ``Download catalogue product(s) at defined URL to local path``
      - Currently downloaded products are saved in folders within the path specified according to their acquisition date, e.g. 'path/2022/08/21'
    * - @properties
@@ -196,4 +196,3 @@ Example *perform_query* implementation::
 
         #now return them as ProductItemSet
         return ProductItemSet(product_list)
-

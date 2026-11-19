@@ -21,13 +21,19 @@ It allows any existing path as its input, and has the option to either store dat
 Creating a local archive can be done as follows::
 
     from scrappi.fs.localfilesystem import LocalFileSystem
-    local_fs=LocalFileSystem(directory=r"C:\Users\username\data\temp",organise_data=True)
+    local_fs = LocalFileSystem(
+        path=r"C:\Users\username\data\temp",
+        organise_data=True,
+    )
 
-If no directory is provided, the path defaults to the scrappi\examples\downloaded_data directory.
+If no directory is provided, the filesystem uses the ``fs.path`` value from the
+active :py:class:`~scrappi.ScrappiContext`.
 Another way to generate the local file system is through the following interface function::
 
     from scrappi.interface import make_fs
-    local_fs=make_fs(r"C:\Users\username\data\temp",organise_data=True)
+    context = ScrappiContext()
+    context["fs"]["organise_data"] = True
+    local_fs = make_fs(r"C:\Users\username\data\temp", context)
 
 Here the first argument is the name of the filesystem, if an existing path is provided,
 a :py:class:`~scrappi.fs.localfilesystem.LocalFileSystem` will be made using that path.
@@ -54,11 +60,12 @@ Using file systems
 ===================
 When using scrappi to download data (see :ref:`download`), the file system is used to work out where the downloaded data should be saved.
 In order to do this, the filesystem attribute of the ProductItems to be downloaded should be set.
-This can be done either by providing the file system as the optional filesystem keyword when calling perform_query.
-Alternatively, the file system can be set after performing the query by using the set_fs() function of the ProductItem and ProductItemSet classes::
+The file system can be set after performing the query by using ``set_fs()`` on
+a ProductItem or ProductItemSet::
 
     # here we assume products is a ProductItemSet returned by perform_query()
-    new_fs=make_fs("./", organise_data=False)
+    context["fs"]["organise_data"] = False
+    new_fs = make_fs("./", context)
     products.set_fs(new_fs)
     products.get_path()
 

@@ -32,7 +32,10 @@ APIs
 
    api.factory
    api.base
+   api.aws
    api.eodag
+   api.earthaccess_api
+   api.eumdac
    api.insitubase
    api.offlinebase
    api.radcalnet_api_client

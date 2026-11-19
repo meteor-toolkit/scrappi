@@ -17,8 +17,8 @@ Templates and example files:
 
 The project includes default templates and configs you should copy and edit:
 
-  * **Default API config:** ``etc/default_api_config.yaml``
-  * **User config template:** ``etc/config_templates/user_config.yaml``
+  * **Default values:** ``scrappi/etc/defaults.yaml``
+  * **Initial user config template:** ``scrappi/etc/config_templates/initial_config.yaml``
   * **Example query script:** ``examples/eodag_example.py``
 
 How scrappi uses API configs
@@ -37,7 +37,7 @@ Important:
 
 scrappi API config example
 ========
-The following is a minimal example of how to configure scrappi to use eodag as the API for data access. This would be part of the user config file, e.g., ``scrappi\etc\config_templates\user_config.yaml``:
+The following is a minimal example of how to configure scrappi to use eodag as the API for data access. This would be part of the user config file, initialized from ``scrappi/etc/config_templates/initial_config.yaml``:
 
 .. code-block:: yaml
 
@@ -49,14 +49,14 @@ The following is a minimal example of how to configure scrappi to use eodag as t
         preferred_api: "eodag" 
         preferred_provider: "cop_dataspace"
 
-    max_retrys: 3 # Number of times to retry a failed download (Default: 3)
+    max_retries: 3 # Number of times to retry a failed download (Default: 3)
     retry_wait: 5 # Time to wait between retries in seconds (Default: 5)
     delete_usgs_tmp_file: False # Whether to delete the temporary file created by the USGS provider, which can cause issues with query authentication (Default: false)
 
     eodag:
         cop_dataspace: # For each provider you want to use, add a section with the provider name (e.g., "cop_dataspace") and your specific credentials and settings:
             priority: 8 # Lower value means lower priority (Default: 0)
-            api:
+            auth:
                 credentials:
                     username: YOUR_USERNAME
                     password: YOUR_REMOVED_PASSWORD
@@ -83,8 +83,7 @@ environment variables.
   ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__USERNAME`` and ``EODAG__<PROVIDER>__AUTH__CREDENTIALS__REMOVED_PASSWORD`` for an eodag
   provider (for example ``EODAG__COP_DATASPACE__AUTH__CREDENTIALS__USERNAME``).
 
-
-
-
+The ``earthaccess`` credentials, HYPERNETS API key, and other provider settings
+can also be stored in the corresponding sections of the user config.
 
 

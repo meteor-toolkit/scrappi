@@ -70,8 +70,8 @@ For a full list of suitable APIs for a product type (returned in recommended ord
 
 If you are unsure of your product type a full list of accepted product types can be found using::
 
-    from scrappi.interface import list_satellite_products_api
-    list_satellite_products_api()
+    from scrappi.interface import list_collections
+    list_collections()
 
 Commonly used product types include:
 
@@ -137,7 +137,11 @@ In order to generate the appropriate paths for each product, every ProductItem h
 One can either use one of the named file systems (such as "t-drive") or provide an existing path and optionally a bool whether the data should be organised by platform/collection/year/month/day. ::
 
     from scrappi.interface import make_fs
-    file_system = make_fs(r"C:\Users\pdv\data\SatelliteData\RadCalNet\GONA",organise_data=False)
+    from scrappi import ScrappiContext
+
+    context = ScrappiContext()
+    context["fs"]["organise_data"] = False
+    file_system = make_fs(r"C:\Users\pdv\data\SatelliteData\RadCalNet\GONA", context)
 
  The filesystem of a ProductItem (or all ProductItems in a ProductItemSet) can be set independently. ::
     

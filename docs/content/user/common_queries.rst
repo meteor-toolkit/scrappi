@@ -10,7 +10,7 @@ Examples
 ========
 
 
-Sentinel-2 MSI Level-1C and Level-2A, and Sentinel-3 OLCI and SLSTR Level-1B 
+Sentinel-2 MSI Level-1C and Level-2A, and Sentinel-3 OLCI and SLSTR Level-1B
 --------------
 
 Preferred provider: ``cop_dataspace``
@@ -18,8 +18,8 @@ Preferred provider: ``cop_dataspace``
 ::
 
         query = {
-        "collections": "S2_MSI_l1C", # OLCI: S3_EFR, SLSTR: S3_SLSTR_L1RBT, MSI L2: S2_MSI_L2A
-        "geom": {"latitude_minimum": latitiude_minimum, "longitude_minimum": longitude_minimum, "latitude_maximum": latitude_maximum, "longitude_maximum": longitude_maximum},
+        "collections": "S2_MSI_L1C", # OLCI: S3_EFR, SLSTR: S3_SLSTR_L1RBT, MSI L2: S2_MSI_L2A
+        "geom": {"latitude_minimum": latitude_minimum, "longitude_minimum": longitude_minimum, "latitude_maximum": latitude_maximum, "longitude_maximum": longitude_maximum},
         "start_time": datetime_start,
         "stop_time": datetime_end,
         }
