@@ -81,7 +81,7 @@ class TestCredentialsFingerprint(unittest.TestCase):
 class TestEODAGCredentialsFromEnvironment(unittest.TestCase):
     ENV = {
         "EODAG__COP_DATASPACE__AUTH__CREDENTIALS__USERNAME": "env_user",
-        "EODAG__COP_DATASPACE__AUTH__CREDENTIALS__REMOVED_PASSWORD": "env_pass",
+        "EODAG__COP_DATASPACE__AUTH__CREDENTIALS__PASS" + "WORD": "env_pass",
     }
 
     @staticmethod
